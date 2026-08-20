@@ -738,6 +738,9 @@
       background-size:5px 5px, 5px 5px; background-repeat:no-repeat;
     }
     .compare-vs{ font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:11px; color:var(--muted); flex-shrink:0; }
+    .submit-char-col{ flex:1; display:flex; flex-direction:column; gap:6px; min-width:0; }
+    .submit-char-col .submit-input{ margin-bottom:0; }
+    .submit-version-input{ margin-bottom:0; font-size:11.5px; padding:9px 12px; }
     .submit-input{ background-image:none; }
     .compare-result{ margin:14px 0; }
     .compare-heads{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:12px; }
@@ -1228,11 +1231,11 @@
   <div class="modal-overlay" id="compareOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Compare Characters</div>
-      <div class="modal-sub">Pick two characters to see how their stats stack up.</div>
+      <div class="modal-sub">Search any two characters — from any movie, anime, or show — to see how they stack up.</div>
       <div class="compare-pickers">
-        <select class="modal-input compare-select" id="compareCharA" aria-label="First character"></select>
+        <input class="modal-input compare-select submit-input" id="compareCharA" type="text" list="characterSuggestions" placeholder="Character A" aria-label="First character" maxlength="40">
         <div class="compare-vs">VS</div>
-        <select class="modal-input compare-select" id="compareCharB" aria-label="Second character"></select>
+        <input class="modal-input compare-select submit-input" id="compareCharB" type="text" list="characterSuggestions" placeholder="Character B" aria-label="Second character" maxlength="40">
       </div>
       <button class="modal-submit" id="compareSubmit" type="button">Compare</button>
       <div class="compare-result" id="compareResult" hidden></div>
@@ -1268,11 +1271,17 @@
   <div class="modal-overlay" id="submitOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Submit a Matchup</div>
-      <div class="modal-sub">Pick two characters — from any movie, anime, or show. It goes live for the community to vote on.</div>
+      <div class="modal-sub">Pick two characters — from any movie, anime, or show. Add a version if it matters (e.g. Base, Ultra Instinct, Six Paths Sage Mode).</div>
       <div class="compare-pickers">
-        <input class="modal-input compare-select submit-input" id="submitCharA" type="text" list="characterSuggestions" placeholder="Character A" maxlength="40">
+        <div class="submit-char-col">
+          <input class="modal-input compare-select submit-input" id="submitCharA" type="text" list="characterSuggestions" placeholder="Character A" maxlength="40">
+          <input class="modal-input submit-version-input" id="submitVersionA" type="text" placeholder="Version (optional)" maxlength="30">
+        </div>
         <div class="compare-vs">VS</div>
-        <input class="modal-input compare-select submit-input" id="submitCharB" type="text" list="characterSuggestions" placeholder="Character B" maxlength="40">
+        <div class="submit-char-col">
+          <input class="modal-input compare-select submit-input" id="submitCharB" type="text" list="characterSuggestions" placeholder="Character B" maxlength="40">
+          <input class="modal-input submit-version-input" id="submitVersionB" type="text" placeholder="Version (optional)" maxlength="30">
+        </div>
       </div>
       <datalist id="characterSuggestions"></datalist>
       <button class="modal-submit" id="submitMatchupBtn" type="button">Post Matchup</button>
@@ -1366,13 +1375,21 @@
 
   // ---------- matchup data ----------
   const matchups = [
-    { a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
-    { a:{name:'Goku', sub:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
-    { a:{name:'Thanos', sub:'Marvel', initials:'TA'}, b:{name:'Batman', sub:'DC', initials:'BM'}, votesA:3868, votesB:2472 },
-    { a:{name:'Levi Ackerman', sub:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
+    { a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', hint:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', hint:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
+    { a:{name:'Goku', sub:'Dragon Ball', hint:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', hint:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
+    { a:{name:'Thanos', sub:'Marvel', hint:'Marvel', initials:'TA'}, b:{name:'Batman', sub:'DC', hint:'DC', initials:'BM'}, votesA:3868, votesB:2472 },
+    { a:{name:'Levi Ackerman', sub:'Attack on Titan', hint:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', hint:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
   ];
   let activeIdx = 0;
   const votedState = {}; // matchup idx -> 'a' | 'b'
+
+  // A character's "version" (e.g. Base, Ultra Instinct, Six Paths Sage Mode)
+  // is kept separate from `name` on purpose: `name` stays the plain
+  // character name so stat lookups still match correctly regardless of
+  // which version someone picked.
+  function charLabel(char){
+    return char.version ? `${char.name} (${char.version})` : char.name;
+  }
 
   const heroAvatarA = document.getElementById('heroAvatarA');
   const heroAvatarB = document.getElementById('heroAvatarB');
@@ -1428,16 +1445,34 @@
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   }
 
+  // ---------- character avatars ----------
+  // Character avatars are generated locally as SVG placeholders (see
+  // avatarUrl above) — no external image API (Wikipedia or otherwise) is
+  // used to fetch real photos.
+  function setAvatarPhoto(el, name, initials, altSuffix){
+    el.innerHTML = `<img src="${avatarUrl(name, initials)}" alt="${name}${altSuffix || ''}">`;
+  }
+
+  // For avatars rendered via innerHTML template strings (compare tool,
+  // leaderboard, team list): those <img> tags are already given their final
+  // placeholder src directly, so nothing further needs to happen here. Kept
+  // as a no-op so existing call sites don't need to change.
+  function hydrateCharacterPhotos(root){}
+
   function renderHero(){
     const m = matchups[activeIdx];
-    heroAvatarA.innerHTML = `<img src="${avatarUrl(m.a.name, m.a.initials)}" alt="${m.a.name} avatar">`;
-    heroAvatarB.innerHTML = `<img src="${avatarUrl(m.b.name, m.b.initials)}" alt="${m.b.name} avatar">`;
+    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
+    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
     heroNameA.textContent = m.a.name.toUpperCase();
     heroNameB.textContent = m.b.name.toUpperCase();
     heroSubA.textContent = m.a.sub;
     heroSubB.textContent = m.b.sub;
-    voteBtnA.textContent = m.a.name.split(' ')[0];
-    voteBtnB.textContent = m.b.name.split(' ')[0];
+    // If it's the same character in both slots (a version-vs-version grudge
+    // match like Base Goku vs Ultra Instinct Goku), the vote buttons need
+    // the version in the label too, or they'd read identically.
+    const sameBase = m.a.name.toLowerCase() === m.b.name.toLowerCase();
+    voteBtnA.textContent = (sameBase && m.a.version) ? `${m.a.name.split(' ')[0]} (${m.a.version})` : m.a.name.split(' ')[0];
+    voteBtnB.textContent = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
     aiStatsResult.innerHTML = 'Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.';
     updatePercentages();
     const voted = votedState[activeIdx];
@@ -1470,7 +1505,7 @@
     const m = matchups[activeIdx];
     const total = m.votesA + m.votesB;
     heroVoteCount.textContent = total.toLocaleString();
-    const pctA = Math.round((m.votesA / total) * 100);
+    const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
     const pctB = 100 - pctA;
     voteBar.style.width = pctA + '%';
     votePctA.textContent = `${pctA}% ${m.a.name.split(' ')[0]}`;
@@ -1515,16 +1550,9 @@
     return name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase();
   }
 
-  function populateCompareSelects(){
-    const options = rosterNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
-    compareCharA.innerHTML = options;
-    compareCharB.innerHTML = options;
-    compareCharA.value = rosterNames[0];
-    compareCharB.value = rosterNames[1] || rosterNames[0];
-  }
-  populateCompareSelects();
-
   document.getElementById('qaCompare').addEventListener('click', () => {
+    compareCharA.value = '';
+    compareCharB.value = '';
     compareResult.hidden = true;
     compareOverlay.classList.add('show');
   });
@@ -1534,13 +1562,22 @@
   });
 
   compareSubmit.addEventListener('click', () => {
-    const nameA = compareCharA.value;
-    const nameB = compareCharB.value;
-    if (nameA === nameB) {
+    const nameA = compareCharA.value.trim();
+    const nameB = compareCharB.value.trim();
+    if (!nameA || !nameB) {
+      showToast('Enter both characters');
+      return;
+    }
+    if (nameA.toLowerCase() === nameB.toLowerCase()) {
       showToast('Pick two different characters');
       return;
     }
     withSpinner(compareSubmit, 'COMPARING…', () => {
+      // Any character can be searched; only ones in our curated roster have
+      // hand-tuned stats — everyone else gets a flat baseline with a note,
+      // rather than silently passing off a guess as real analysis.
+      const knownA = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameA);
+      const knownB = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameB);
       const statsA = aiStatsProfiles[nameA] || [70,70,70,70];
       const statsB = aiStatsProfiles[nameB] || [70,70,70,70];
       const labels = ['Strength', 'Speed', 'Durability', 'Battle IQ'];
@@ -1553,14 +1590,20 @@
           <div class="ai-stat-track"><div class="ai-stat-fill" style="width:${Math.max(statsA[i], statsB[i])}%"></div></div>
           <span>${statsA[i]} · ${statsB[i]}</span>
         </div>`).join('');
+      let note = "Stats reflect this app's own ratings, not an official source — reasonable people will disagree.";
+      if (!knownA || !knownB) {
+        const missing = [!knownA ? nameA : null, !knownB ? nameB : null].filter(Boolean).join(' and ');
+        note = `No hand-rated profile yet for ${missing} — showing a flat baseline until stats are added. ${note}`;
+      }
       compareResult.hidden = false;
       compareResult.innerHTML = `
         <div class="compare-heads">
-          <div class="compare-head"><img src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
-          <div class="compare-head"><img src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameA)}" src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameB)}" src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
         </div>
         <div class="ai-stat-bars">${bars}</div>
-        <div class="compare-verdict">${verdict} Stats reflect this app's own ratings, not an official source — reasonable people will disagree.</div>`;
+        <div class="compare-verdict">${verdict} ${note}</div>`;
+      hydrateCharacterPhotos(compareResult);
     }, 700);
   });
 
@@ -1573,8 +1616,9 @@
     const totals = {};
     matchups.forEach(m => {
       [[m.a, m.votesA], [m.b, m.votesB]].forEach(([char, votes]) => {
-        if (!totals[char.name]) totals[char.name] = { name: char.name, sub: char.sub, initials: char.initials, votes: 0 };
-        totals[char.name].votes += votes;
+        const key = charLabel(char); // different versions rank separately
+        if (!totals[key]) totals[key] = { name: char.name, version: char.version, hint: char.hint, label: key, sub: char.sub, initials: char.initials, votes: 0 };
+        totals[key].votes += votes;
       });
     });
     return Object.values(totals).sort((x, y) => y.votes - x.votes);
@@ -1586,13 +1630,14 @@
     leaderboardList.innerHTML = ranked.map((entry, index) => `
       <div class="leaderboard-row ${index < 3 ? 'top' + (index + 1) : ''}">
         <div class="leaderboard-rank">${medals[index] || (index + 1)}</div>
-        <img class="leaderboard-avatar" src="${avatarUrl(entry.name, entry.initials)}" alt="">
+        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.hint || '')}" data-char-version="${escapeHtml(entry.version || '')}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
         <div class="leaderboard-info">
-          <div class="leaderboard-name">${escapeHtml(entry.name)}</div>
+          <div class="leaderboard-name">${escapeHtml(entry.label)}</div>
           <div class="leaderboard-sub">${escapeHtml(entry.sub)}</div>
         </div>
         <div class="leaderboard-votes">${entry.votes.toLocaleString()}<br>votes</div>
       </div>`).join('');
+    hydrateCharacterPhotos(leaderboardList);
   }
 
   document.getElementById('qaLeaderboard').addEventListener('click', () => {
@@ -1609,6 +1654,8 @@
   const submitOverlay = document.getElementById('submitOverlay');
   const submitCharA = document.getElementById('submitCharA');
   const submitCharB = document.getElementById('submitCharB');
+  const submitVersionA = document.getElementById('submitVersionA');
+  const submitVersionB = document.getElementById('submitVersionB');
   const submitMatchupBtn = document.getElementById('submitMatchupBtn');
   const characterSuggestions = document.getElementById('characterSuggestions');
 
@@ -1622,6 +1669,8 @@
   document.getElementById('submitMatchupLink').addEventListener('click', () => {
     submitCharA.value = '';
     submitCharB.value = '';
+    submitVersionA.value = '';
+    submitVersionB.value = '';
     refreshCharacterSuggestions();
     submitOverlay.classList.add('show');
   });
@@ -1633,18 +1682,25 @@
   submitMatchupBtn.addEventListener('click', () => {
     const nameA = submitCharA.value.trim();
     const nameB = submitCharB.value.trim();
+    const versionA = submitVersionA.value.trim();
+    const versionB = submitVersionB.value.trim();
     if (!nameA || !nameB) {
       showToast('Enter both characters');
       return;
     }
-    if (nameA.toLowerCase() === nameB.toLowerCase()) {
-      showToast('Pick two different characters');
+    // Same character is allowed if the versions differ (Base Goku vs Ultra
+    // Instinct Goku is a legit matchup) — only block a true exact duplicate.
+    if (nameA.toLowerCase() === nameB.toLowerCase() && versionA.toLowerCase() === versionB.toLowerCase()) {
+      showToast(versionA ? 'Pick two different versions' : 'Pick two different characters, or add a version');
       return;
     }
-    const duplicate = matchups.some(m =>
-      (m.a.name.toLowerCase() === nameA.toLowerCase() && m.b.name.toLowerCase() === nameB.toLowerCase()) ||
-      (m.a.name.toLowerCase() === nameB.toLowerCase() && m.b.name.toLowerCase() === nameA.toLowerCase())
-    );
+    const keyA = `${nameA.toLowerCase()}|${versionA.toLowerCase()}`;
+    const keyB = `${nameB.toLowerCase()}|${versionB.toLowerCase()}`;
+    const duplicate = matchups.some(m => {
+      const mKeyA = `${m.a.name.toLowerCase()}|${(m.a.version || '').toLowerCase()}`;
+      const mKeyB = `${m.b.name.toLowerCase()}|${(m.b.version || '').toLowerCase()}`;
+      return (mKeyA === keyA && mKeyB === keyB) || (mKeyA === keyB && mKeyB === keyA);
+    });
     if (duplicate) {
       showToast('That matchup already exists — vote on it below');
       submitOverlay.classList.remove('show');
@@ -1652,8 +1708,8 @@
     }
     withSpinner(submitMatchupBtn, 'POSTING…', () => {
       matchups.push({
-        a: { name: nameA, sub: 'Fan Submission', initials: initialsFor(nameA) },
-        b: { name: nameB, sub: 'Fan Submission', initials: initialsFor(nameB) },
+        a: { name: nameA, version: versionA, sub: versionA || 'Fan Submission', initials: initialsFor(nameA) },
+        b: { name: nameB, version: versionB, sub: versionB || 'Fan Submission', initials: initialsFor(nameB) },
         votesA: 0, votesB: 0, community: true
       });
       activeIdx = matchups.length - 1;
@@ -1662,23 +1718,28 @@
       refreshCharacterSuggestions();
       submitOverlay.classList.remove('show');
       document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
-      showToast(`${nameA} vs ${nameB} is live!`);
+      showToast(`${charLabel(matchups[activeIdx].a)} vs ${charLabel(matchups[activeIdx].b)} is live!`);
     }, 700);
   });
 
   // ---------- trending clashes (dynamic, includes user-submitted matchups) ----------
   const trendScroll = document.getElementById('trendScroll');
   function renderTrendScroll(){
-    trendScroll.innerHTML = matchups.map((m, idx) => `
+    trendScroll.innerHTML = matchups.map((m, idx) => {
+      const sameBase = m.a.name.toLowerCase() === m.b.name.toLowerCase();
+      const labelA = (sameBase && m.a.version) ? `${m.a.name.split(' ')[0]} (${m.a.version})` : m.a.name.split(' ')[0];
+      const labelB = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
+      return `
       <div class="trend-card ${idx === activeIdx ? 'active-card' : ''}" data-matchup="${idx}">
         <div class="trend-vs">
           <div class="mini-avatar hi">${escapeHtml(m.a.initials)}</div>
           <div class="mini-vs">VS</div>
           <div class="mini-avatar lo">${escapeHtml(m.b.initials)}</div>
         </div>
-        <div class="trend-label">${escapeHtml(m.a.name.split(' ')[0])} vs ${escapeHtml(m.b.name.split(' ')[0])}</div>
+        <div class="trend-label">${escapeHtml(labelA)} vs ${escapeHtml(labelB)}</div>
         <div class="trend-votes">${(m.votesA + m.votesB).toLocaleString()} votes${m.community ? ' · Community' : ''}</div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
   renderTrendScroll();
 
@@ -1910,8 +1971,9 @@
   function renderTeams(){
     const render = (list, team) => {
       list.innerHTML = teams[team].map((name, index) =>
-        `<li><span class="team-character"><img src="${avatarUrl(name, name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase())}" alt=""><span>${escapeHtml(name)}</span></span><button type="button" data-remove-team="${team}" data-remove-index="${index}" aria-label="Remove ${escapeHtml(name)}">×</button></li>`
+        `<li><span class="team-character"><img data-char-photo="${escapeHtml(name)}" src="${avatarUrl(name, name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase())}" alt=""><span>${escapeHtml(name)}</span></span><button type="button" data-remove-team="${team}" data-remove-index="${index}" aria-label="Remove ${escapeHtml(name)}">×</button></li>`
       ).join('');
+      hydrateCharacterPhotos(list);
     };
     render(teamAlphaList, 'alpha');
     render(teamOmegaList, 'omega');
