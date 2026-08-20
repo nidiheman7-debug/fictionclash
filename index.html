@@ -1577,13 +1577,24 @@
     return null;
   }
 
-  async function fetchCharacterImage(name, hint){
+  async function fetchCharacterImage(name, hint, version){
     if (CUSTOM_IMAGE_OVERRIDES[name]) return CUSTOM_IMAGE_OVERRIDES[name];
-    if (Object.prototype.hasOwnProperty.call(characterImageCache, name)) {
-      return characterImageCache[name];
+    // Different versions of the same character (Base Goku vs Ultra Instinct
+    // Goku) can resolve to different pictures, so they need their own cache
+    // slot — caching by name alone would let one version's photo leak onto
+    // another's.
+    const cacheKey = version ? `${name}|${version}` : name;
+    if (Object.prototype.hasOwnProperty.call(characterImageCache, cacheKey)) {
+      return characterImageCache[cacheKey];
     }
     const franchise = hint || FRANCHISE_HINTS[name];
     const exactCandidates = [
+      // Version-specific title first — this is what actually makes a
+      // submitted version matter, e.g. "Spider-Man (Miles Morales)" or
+      // "Goku (Ultra Instinct)" have their own dedicated Wikipedia
+      // coverage in some cases. Falls through to the base character if
+      // no version-specific page exists.
+      version ? `${name} (${version})` : null,
       WIKI_TITLE_OVERRIDES[name],
       name,
       franchise ? `${name} (${franchise})` : null,
@@ -1595,19 +1606,20 @@
       url = await safeStep(`"${name}" — wikipedia exact "${title}"`, () => fetchExactPage(title));
       if (url) break;
     }
+    if (!url && version) url = await safeStep(`"${name}" — wikipedia search (version)`, () => searchWikipediaImage(`${name} ${version} ${franchise || ''}`.trim(), name));
     if (!url) url = await safeStep(`"${name}" — wikipedia search (franchise)`, () => searchWikipediaImage(franchise ? `${name} ${franchise}` : name, name));
     if (!url) url = await safeStep(`"${name}" — wikipedia search (plain)`, () => searchWikipediaImage(name, name));
 
-    characterImageCache[name] = url;
-    console.info(`[character image] "${name}" resolved to:`, url || '(no photo found — using placeholder)');
+    characterImageCache[cacheKey] = url;
+    console.info(`[character image] "${name}"${version ? ` (${version})` : ''} resolved to:`, url || '(no photo found — using placeholder)');
     return url;
   }
 
   // Renders the placeholder immediately, then swaps in the real photo (if one
   // is found) once it loads, so the UI never blocks on the network request.
-  function setAvatarPhoto(el, name, initials, altSuffix, hint){
+  function setAvatarPhoto(el, name, initials, altSuffix, hint, version){
     el.innerHTML = `<img src="${avatarUrl(name, initials)}" alt="${name}${altSuffix || ''}">`;
-    fetchCharacterImage(name, hint).then(url => {
+    fetchCharacterImage(name, hint, version).then(url => {
       if (!url) return;
       const img = el.querySelector('img');
       if (!img) return;
@@ -1618,13 +1630,16 @@
   }
 
   // For photos rendered via innerHTML template strings (compare tool,
-  // leaderboard, team list): mark the <img> with data-char-photo="Name" and
-  // call this after inserting the HTML to upgrade placeholders to real photos.
+  // leaderboard, team list): mark the <img> with data-char-photo="Name",
+  // optionally data-char-hint="Franchise" and data-char-version="Version",
+  // and call this after inserting the HTML to upgrade placeholders to real
+  // photos.
   function hydrateCharacterPhotos(root){
     root.querySelectorAll('img[data-char-photo]').forEach(img => {
       const name = img.getAttribute('data-char-photo');
       const hint = img.getAttribute('data-char-hint') || FRANCHISE_HINTS[name];
-      fetchCharacterImage(name, hint).then(url => {
+      const version = img.getAttribute('data-char-version') || undefined;
+      fetchCharacterImage(name, hint, version).then(url => {
         if (!url) return;
         const real = new Image();
         real.onload = () => { img.src = url; };
@@ -1635,8 +1650,8 @@
 
   function renderHero(){
     const m = matchups[activeIdx];
-    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint);
-    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint);
+    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
+    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
     heroNameA.textContent = m.a.name.toUpperCase();
     heroNameB.textContent = m.b.name.toUpperCase();
     heroSubA.textContent = m.a.sub;
@@ -1804,7 +1819,7 @@
     leaderboardList.innerHTML = ranked.map((entry, index) => `
       <div class="leaderboard-row ${index < 3 ? 'top' + (index + 1) : ''}">
         <div class="leaderboard-rank">${medals[index] || (index + 1)}</div>
-        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.hint || '')}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
+        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.hint || '')}" data-char-version="${escapeHtml(entry.version || '')}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
         <div class="leaderboard-info">
           <div class="leaderboard-name">${escapeHtml(entry.label)}</div>
           <div class="leaderboard-sub">${escapeHtml(entry.sub)}</div>
