@@ -1296,7 +1296,8 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics.js";
   import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-  // TODO: Add more SDKs for Firebase products as you need them (e.g. Firestore, Storage)
+  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  // TODO: Add more SDKs for Firebase products as you need them (e.g. Storage)
   // https://firebase.google.com/docs/web/setup#available-libraries
 
   // Your web app's Firebase configuration
@@ -1315,11 +1316,13 @@
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
   const auth = getAuth(app);
+  const db = getFirestore(app);
 
   // Exposed for the rest of the page's module script to use
   window.firebaseApp = app;
   window.firebaseAnalytics = analytics;
   window.firebaseAuth = auth;
+  window.firebaseDb = db;
 </script>
 
 <script type="module">
@@ -1333,6 +1336,17 @@
     onAuthStateChanged,
     signOut
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import {
+    collection,
+    doc,
+    getDoc,
+    setDoc,
+    updateDoc,
+    onSnapshot,
+    query,
+    where,
+    increment
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   const auth = window.firebaseAuth;
   const googleProvider = new GoogleAuthProvider();
@@ -1373,15 +1387,144 @@
     }, delay);
   }
 
-  // ---------- matchup data ----------
-  const matchups = [
-    { a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', hint:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', hint:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
-    { a:{name:'Goku', sub:'Dragon Ball', hint:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', hint:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
-    { a:{name:'Thanos', sub:'Marvel', hint:'Marvel', initials:'TA'}, b:{name:'Batman', sub:'DC', hint:'DC', initials:'BM'}, votesA:3868, votesB:2472 },
-    { a:{name:'Levi Ackerman', sub:'Attack on Titan', hint:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', hint:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
+  // ---------- matchup data (shared via Firestore) ----------
+  // Matchups — including the 4 starter ones below — now live in a
+  // Firestore "matchups" collection instead of localStorage, so every
+  // visitor sees the same live list and the same vote counts, not just
+  // whatever happened to be saved in their own browser. Each matchup stays
+  // live for MATCHUP_LIFETIME_MS from the moment it was created; after
+  // that it drops out of the live query, the starter matchups included.
+  //
+  // Requires two things set up once in the Firebase console for this
+  // project (fictionclash-c1557):
+  //   1. Firestore Database must actually be created — Build → Firestore
+  //      Database → Create database. It isn't enabled automatically just
+  //      because Auth is configured.
+  //   2. Security rules that allow public read, a constrained create
+  //      (must start at 0 votes), vote-only updates, and no deletes.
+  const db = window.firebaseDb;
+  const matchupsCol = collection(db, 'matchups');
+
+  const MATCHUP_LIFETIME_MS = 2 * 24 * 60 * 60 * 1000; // 2 days
+  const VOTED_STATE_STORAGE_KEY = 'fictionClashVotedState'; // per-browser "already voted" marker — vote counts themselves live in Firestore, not this
+
+  const SEED_MATCHUPS = [
+    { id:'seed-1', a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', hint:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', hint:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
+    { id:'seed-2', a:{name:'Goku', sub:'Dragon Ball', hint:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', hint:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
+    { id:'seed-3', a:{name:'Thanos', sub:'Marvel', hint:'Marvel', initials:'TA'}, b:{name:'Batman', sub:'DC', hint:'DC', initials:'BM'}, votesA:3868, votesB:2472 },
+    { id:'seed-4', a:{name:'Levi Ackerman', sub:'Attack on Titan', hint:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', hint:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
   ];
+
+  function makeMatchupId(){
+    return `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function loadVotedState(){
+    try { return JSON.parse(localStorage.getItem(VOTED_STATE_STORAGE_KEY) || '{}'); } catch (err) { return {}; }
+  }
+  function persistVotedState(){
+    try { localStorage.setItem(VOTED_STATE_STORAGE_KEY, JSON.stringify(votedState)); } catch (err) {}
+  }
+
+  // `matchups` keeps a STABLE array reference — every place elsewhere in
+  // this file that reads it (hero card, trend scroll, leaderboard,
+  // character suggestions) just reads this same array, which the
+  // Firestore listener below refills in place whenever the live data
+  // changes, on this device or anyone else's.
+  const matchups = [];
   let activeIdx = 0;
-  const votedState = {}; // matchup idx -> 'a' | 'b'
+  let pendingActiveId = null; // matchup id to focus once its snapshot arrives (e.g. right after submitting)
+  const votedState = loadVotedState(); // matchup id -> 'a' | 'b'
+
+  let seeding = false;
+  async function renewOrSeedMatchup(seed, now){
+    const ref = doc(matchupsCol, seed.id);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      // It exists but fell outside the live window — renew its timestamp
+      // so it comes back into view WITHOUT touching its accumulated votes.
+      await updateDoc(ref, { createdAt: now });
+    } else {
+      await setDoc(ref, { a: seed.a, b: seed.b, votesA: seed.votesA, votesB: seed.votesB, community: false, createdAt: now });
+    }
+  }
+  async function ensureLiveSeedMatchups(){
+    if (seeding) return;
+    seeding = true;
+    try {
+      const now = Date.now();
+      await Promise.all(SEED_MATCHUPS.map(seed => renewOrSeedMatchup(seed, now)));
+    } catch (err) {
+      console.warn('[matchups] failed to seed/renew starter matchups in Firestore:', err);
+    } finally {
+      seeding = false;
+    }
+  }
+
+  function applyMatchupsSnapshot(snapshot){
+    const prevId = pendingActiveId || (matchups[activeIdx] && matchups[activeIdx].id) || null;
+    pendingActiveId = null;
+
+    const list = [];
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      list.push({
+        id: docSnap.id,
+        a: data.a, b: data.b,
+        votesA: data.votesA || 0, votesB: data.votesB || 0,
+        community: !!data.community,
+        createdAt: data.createdAt || 0
+      });
+    });
+    list.sort((x, y) => x.createdAt - y.createdAt);
+
+    matchups.length = 0;
+    matchups.push(...list);
+
+    if (!matchups.length) {
+      // Nothing live at all — first-ever visit, or everything expired.
+      // Seed/renew the starter matchups; the listener fires again once
+      // that write lands.
+      ensureLiveSeedMatchups();
+      renderTrendScroll();
+      renderHero();
+      return;
+    }
+
+    let idx = prevId ? matchups.findIndex(m => m.id === prevId) : -1;
+    if (idx === -1) idx = 0;
+    activeIdx = idx;
+
+    // Drop "already voted" markers for matchups no longer live.
+    const liveIds = new Set(matchups.map(m => m.id));
+    let votedChanged = false;
+    Object.keys(votedState).forEach(id => {
+      if (!liveIds.has(id)) { delete votedState[id]; votedChanged = true; }
+    });
+    if (votedChanged) persistVotedState();
+
+    renderTrendScroll();
+    renderHero();
+    refreshCharacterSuggestions();
+  }
+
+  let unsubscribeMatchups = null;
+  function subscribeMatchups(){
+    if (unsubscribeMatchups) unsubscribeMatchups();
+    const cutoff = Date.now() - MATCHUP_LIFETIME_MS;
+    const liveQuery = query(matchupsCol, where('createdAt', '>=', cutoff));
+    unsubscribeMatchups = onSnapshot(liveQuery, applyMatchupsSnapshot, (err) => {
+      console.warn('[matchups] Firestore listener error — check Firestore is enabled and rules allow read:', err);
+      showToast('Could not load live matchups — check your connection');
+    });
+  }
+  subscribeMatchups();
+  // The `where('createdAt', '>=', cutoff)` bound is fixed at query time, so
+  // a matchup aging past MATCHUP_LIFETIME_MS while the tab stays open
+  // wouldn't otherwise drop out on its own — periodically rebuild the
+  // query with a fresh cutoff so long-open tabs still expire things.
+  setInterval(subscribeMatchups, 5 * 60 * 1000);
+
 
   // A character's "version" (e.g. Base, Ultra Instinct, Six Paths Sage Mode)
   // is kept separate from `name` on purpose: `name` stays the plain
@@ -1609,6 +1752,27 @@
 
   function renderHero(){
     const m = matchups[activeIdx];
+    if (!m) {
+      // No live data yet (still loading from Firestore) or nothing live
+      // at all right this moment — show a neutral loading state instead
+      // of throwing on undefined character data.
+      heroAvatarA.innerHTML = '';
+      heroAvatarB.innerHTML = '';
+      heroNameA.textContent = '';
+      heroNameB.textContent = '';
+      heroSubA.textContent = '';
+      heroSubB.textContent = 'Loading…';
+      voteBtnA.textContent = '—';
+      voteBtnB.textContent = '—';
+      heroVoteCount.textContent = '0';
+      voteBar.style.width = '50%';
+      votePctA.textContent = '';
+      votePctB.textContent = '';
+      voteRow.classList.remove('voted');
+      voteBtnA.classList.remove('picked');
+      voteBtnB.classList.remove('picked');
+      return;
+    }
     setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
     setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
     heroNameA.textContent = m.a.name.toUpperCase();
@@ -1623,15 +1787,16 @@
     voteBtnB.textContent = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
     aiStatsResult.innerHTML = 'Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.';
     updatePercentages();
-    const voted = votedState[activeIdx];
+    const voted = votedState[m.id];
     voteRow.classList.toggle('voted', !!voted);
     voteBtnA.classList.toggle('picked', voted === 'a');
     voteBtnB.classList.toggle('picked', voted === 'b');
   }
 
   aiStatsButton.addEventListener('click', () => {
+    const m = matchups[activeIdx];
+    if (!m) { showToast('Matchups are still loading — try again in a moment'); return; }
     withSpinner(aiStatsButton, 'THINKING…', () => {
-      const m = matchups[activeIdx];
       const statsA = aiStatsProfiles[m.a.name] || [70,70,70,70];
       const statsB = aiStatsProfiles[m.b.name] || [70,70,70,70];
       const labels = ['Strength', 'Speed', 'Durability', 'Battle IQ'];
@@ -1651,6 +1816,7 @@
 
   function updatePercentages(){
     const m = matchups[activeIdx];
+    if (!m) return;
     const total = m.votesA + m.votesB;
     heroVoteCount.textContent = total.toLocaleString();
     const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
@@ -1661,16 +1827,33 @@
   }
 
   function castVote(side){
-    if (votedState[activeIdx]) return; // already voted on this matchup
     const m = matchups[activeIdx];
-    if (side === 'a') m.votesA++; else m.votesB++;
-    votedState[activeIdx] = side;
+    if (!m) { showToast('Matchups are still loading — try again in a moment'); return; }
+    if (votedState[m.id]) return; // already voted on this matchup
+    const field = side === 'a' ? 'votesA' : 'votesB';
+    // Optimistic local bump so the UI feels instant; the Firestore
+    // listener reconciles with the authoritative shared count moments
+    // later (and corrects it if the write ends up failing).
+    m[field]++;
+    votedState[m.id] = side;
+    persistVotedState();
     updatePercentages();
     voteRow.classList.add('voted');
     voteBtnA.classList.toggle('picked', side === 'a');
     voteBtnB.classList.toggle('picked', side === 'b');
     const pickedName = side === 'a' ? m.a.name.split(' ')[0] : m.b.name.split(' ')[0];
     showToast(`Vote locked in for ${pickedName}`);
+    updateDoc(doc(matchupsCol, m.id), { [field]: increment(1) }).catch(err => {
+      console.warn('[vote] failed to record vote in Firestore:', err);
+      m[field]--; // roll back the optimistic bump
+      delete votedState[m.id];
+      persistVotedState();
+      updatePercentages();
+      voteRow.classList.remove('voted');
+      voteBtnA.classList.remove('picked');
+      voteBtnB.classList.remove('picked');
+      showToast('Could not record your vote — check your connection');
+    });
   }
 
   voteBtnA.addEventListener('click', () => castVote('a'));
@@ -1855,18 +2038,24 @@
       return;
     }
     withSpinner(submitMatchupBtn, 'POSTING…', () => {
-      matchups.push({
+      const newId = makeMatchupId();
+      const payload = {
         a: { name: nameA, version: versionA, sub: versionA || 'Fan Submission', initials: initialsFor(nameA) },
         b: { name: nameB, version: versionB, sub: versionB || 'Fan Submission', initials: initialsFor(nameB) },
-        votesA: 0, votesB: 0, community: true
-      });
-      activeIdx = matchups.length - 1;
-      renderTrendScroll();
-      renderHero();
-      refreshCharacterSuggestions();
-      submitOverlay.classList.remove('show');
-      document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
-      showToast(`${charLabel(matchups[activeIdx].a)} vs ${charLabel(matchups[activeIdx].b)} is live!`);
+        votesA: 0, votesB: 0, community: true, createdAt: Date.now()
+      };
+      pendingActiveId = newId; // so the listener focuses this matchup once it lands
+      setDoc(doc(matchupsCol, newId), payload)
+        .then(() => {
+          submitOverlay.classList.remove('show');
+          document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
+          showToast(`${charLabel(payload.a)} vs ${charLabel(payload.b)} is live!`);
+        })
+        .catch(err => {
+          console.warn('[submit] failed to post matchup to Firestore:', err);
+          pendingActiveId = null;
+          showToast('Could not post that matchup — check your connection');
+        });
     }, 700);
   });
 
