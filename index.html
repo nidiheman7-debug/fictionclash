@@ -1429,33 +1429,86 @@
   }
 
   // ---------- real character photos ----------
-  // Looks up a real thumbnail for a character via Wikipedia's public REST API
-  // (CORS-enabled, no key needed). Falls back to the generated placeholder
-  // avatar above if nothing is found or the request fails.
+  // 1) CUSTOM_IMAGE_OVERRIDES — for characters/variants that no public API will
+  //    ever resolve correctly (fan nicknames, alt skins, obscure variants like
+  //    "RKT"). Add a direct image URL here and it's used with no network call.
+  const CUSTOM_IMAGE_OVERRIDES = {
+    // 'RKT': 'https://example.com/path/to/rkt-art.png',
+  };
+
+  // 2) FRANCHISE_HINTS — disambiguates common one-word names (e.g. plain
+  //    "Thor" resolves to the Norse god on Wikipedia, not the Marvel hero) by
+  //    adding franchise context to the search query.
+  const FRANCHISE_HINTS = {
+    'Gojo Satoru':'Jujutsu Kaisen', 'Saitama':'One Punch Man', 'Goku':'Dragon Ball',
+    'Vegeta':'Dragon Ball', 'Naruto':'Naruto', 'Sasuke Uchiha':'Naruto',
+    'Itachi Uchiha':'Naruto', 'Kakashi Hatake':'Naruto', 'Monkey D. Luffy':'One Piece',
+    'Roronoa Zoro':'One Piece', 'Ichigo Kurosaki':'Bleach', 'Levi Ackerman':'Attack on Titan',
+    'Eren Yeager':'Attack on Titan', 'All Might':'My Hero Academia', 'Izuku Midoriya':'My Hero Academia',
+    'Light Yagami':'Death Note', 'Edward Elric':'Fullmetal Alchemist', 'Natsu Dragneel':'Fairy Tail',
+    'Killua Zoldyck':'Hunter x Hunter', 'Gon Freecss':'Hunter x Hunter', 'Meliodas':'Seven Deadly Sins',
+    'Rimuru Tempest':'That Time I Got Reincarnated as a Slime',
+    'Spider-Man':'Marvel Comics', 'Iron Man':'Marvel Comics', 'Thor':'Marvel Comics',
+    'Hulk':'Marvel Comics', 'Captain America':'Marvel Comics', 'Wolverine':'Marvel Comics',
+    'Deadpool':'Marvel Comics', 'Thanos':'Marvel Comics', 'Doctor Strange':'Marvel Comics',
+    'Scarlet Witch':'Marvel Comics', 'Magneto':'Marvel Comics', 'Venom':'Marvel Comics',
+    'Batman':'DC Comics', 'Superman':'DC Comics', 'Wonder Woman':'DC Comics',
+    'The Flash':'DC Comics', 'Joker':'DC Comics', 'Aquaman':'DC Comics',
+    'Darkseid':'DC Comics', 'Green Lantern':'DC Comics',
+    'Master Chief':'Halo', 'Kratos':'God of War', 'Link':'The Legend of Zelda',
+    'Sephiroth':'Final Fantasy VII', 'Dante':'Devil May Cry', 'Geralt of Rivia':'The Witcher',
+    'Solid Snake':'Metal Gear', 'Doom Slayer':'Doom video game',
+    'John Wick':'film', 'Jack Sparrow':'Pirates of the Caribbean', 'Neo':'The Matrix',
+    'Darth Vader':'Star Wars', 'Yoda':'Star Wars', 'James Bond':'film',
+    'The Terminator':'film', 'Ellen Ripley':'Alien film', 'Rocky Balboa':'film'
+  };
+
+  // Looks up a real photo for a character. Order: manual override → Wikipedia
+  // search with a franchise hint (fixes ambiguous names like "Thor") →
+  // Wikipedia's plain summary API as a last resort. Falls back to the
+  // generated placeholder avatar if nothing usable is found.
   const characterImageCache = {}; // name -> url string | null (null = no photo found, use placeholder)
 
-  async function fetchCharacterImage(name){
+  async function searchWikipediaImage(query){
+    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=300&format=json&origin=*`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('search failed');
+    const data = await res.json();
+    const pages = data.query && data.query.pages;
+    if (!pages) return null;
+    const page = Object.values(pages)[0];
+    return (page && page.thumbnail && page.thumbnail.source) ? page.thumbnail.source : null;
+  }
+
+  async function fetchCharacterImage(name, hint){
+    if (CUSTOM_IMAGE_OVERRIDES[name]) return CUSTOM_IMAGE_OVERRIDES[name];
     if (Object.prototype.hasOwnProperty.call(characterImageCache, name)) {
       return characterImageCache[name];
     }
+    const franchise = hint || FRANCHISE_HINTS[name];
+    let url = null;
     try {
-      const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
-      if (!res.ok) throw new Error('not found');
-      const data = await res.json();
-      const url = (data.thumbnail && data.thumbnail.source) ? data.thumbnail.source : null;
-      characterImageCache[name] = url;
-      return url;
+      if (franchise) url = await searchWikipediaImage(`${name} ${franchise}`);
+      if (!url) url = await searchWikipediaImage(name);
+      if (!url) {
+        const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
+        if (res.ok) {
+          const data = await res.json();
+          url = (data.thumbnail && data.thumbnail.source) ? data.thumbnail.source : null;
+        }
+      }
     } catch (err) {
-      characterImageCache[name] = null;
-      return null;
+      url = null;
     }
+    characterImageCache[name] = url;
+    return url;
   }
 
   // Renders the placeholder immediately, then swaps in the real photo (if one
   // is found) once it loads, so the UI never blocks on the network request.
-  function setAvatarPhoto(el, name, initials, altSuffix){
+  function setAvatarPhoto(el, name, initials, altSuffix, hint){
     el.innerHTML = `<img src="${avatarUrl(name, initials)}" alt="${name}${altSuffix || ''}">`;
-    fetchCharacterImage(name).then(url => {
+    fetchCharacterImage(name, hint).then(url => {
       if (!url) return;
       const img = el.querySelector('img');
       if (!img) return;
@@ -1465,10 +1518,26 @@
     });
   }
 
+  // For photos rendered via innerHTML template strings (compare tool,
+  // leaderboard, team list): mark the <img> with data-char-photo="Name" and
+  // call this after inserting the HTML to upgrade placeholders to real photos.
+  function hydrateCharacterPhotos(root){
+    root.querySelectorAll('img[data-char-photo]').forEach(img => {
+      const name = img.getAttribute('data-char-photo');
+      const hint = img.getAttribute('data-char-hint') || FRANCHISE_HINTS[name];
+      fetchCharacterImage(name, hint).then(url => {
+        if (!url) return;
+        const real = new Image();
+        real.onload = () => { img.src = url; };
+        real.src = url;
+      });
+    });
+  }
+
   function renderHero(){
     const m = matchups[activeIdx];
-    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar');
-    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar');
+    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.sub);
+    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.sub);
     heroNameA.textContent = m.a.name.toUpperCase();
     heroNameB.textContent = m.b.name.toUpperCase();
     heroSubA.textContent = m.a.sub;
@@ -1593,11 +1662,12 @@
       compareResult.hidden = false;
       compareResult.innerHTML = `
         <div class="compare-heads">
-          <div class="compare-head"><img src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
-          <div class="compare-head"><img src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameA)}" src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameB)}" src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
         </div>
         <div class="ai-stat-bars">${bars}</div>
         <div class="compare-verdict">${verdict} Stats reflect this app's own ratings, not an official source — reasonable people will disagree.</div>`;
+      hydrateCharacterPhotos(compareResult);
     }, 700);
   });
 
@@ -1623,13 +1693,14 @@
     leaderboardList.innerHTML = ranked.map((entry, index) => `
       <div class="leaderboard-row ${index < 3 ? 'top' + (index + 1) : ''}">
         <div class="leaderboard-rank">${medals[index] || (index + 1)}</div>
-        <img class="leaderboard-avatar" src="${avatarUrl(entry.name, entry.initials)}" alt="">
+        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.sub)}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
         <div class="leaderboard-info">
           <div class="leaderboard-name">${escapeHtml(entry.name)}</div>
           <div class="leaderboard-sub">${escapeHtml(entry.sub)}</div>
         </div>
         <div class="leaderboard-votes">${entry.votes.toLocaleString()}<br>votes</div>
       </div>`).join('');
+    hydrateCharacterPhotos(leaderboardList);
   }
 
   document.getElementById('qaLeaderboard').addEventListener('click', () => {
@@ -1947,8 +2018,9 @@
   function renderTeams(){
     const render = (list, team) => {
       list.innerHTML = teams[team].map((name, index) =>
-        `<li><span class="team-character"><img src="${avatarUrl(name, name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase())}" alt=""><span>${escapeHtml(name)}</span></span><button type="button" data-remove-team="${team}" data-remove-index="${index}" aria-label="Remove ${escapeHtml(name)}">×</button></li>`
+        `<li><span class="team-character"><img data-char-photo="${escapeHtml(name)}" src="${avatarUrl(name, name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase())}" alt=""><span>${escapeHtml(name)}</span></span><button type="button" data-remove-team="${team}" data-remove-index="${index}" aria-label="Remove ${escapeHtml(name)}">×</button></li>`
       ).join('');
+      hydrateCharacterPhotos(list);
     };
     render(teamAlphaList, 'alpha');
     render(teamOmegaList, 'omega');
