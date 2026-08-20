@@ -27,6 +27,7 @@
     padding:32px 12px;
     font-family:'Manrope',sans-serif;
      min-height:100vh;
+     min-height:100dvh;
      overflow-x:hidden;
   }
   svg{ display:block; }
@@ -34,20 +35,25 @@
   .phone{
      width:390px;
      height:calc(100vh - 64px);
+     height:calc(100dvh - 64px);
     background:var(--bg);
     color:var(--text);
     border-radius:36px;
+    overflow:hidden;
+    box-shadow:0 40px 80px rgba(0,0,0,.7);
+     border:8px solid #000;
+     position:relative;
+  }
+  .phone-scroll{
+    width:100%; height:100%;
     overflow-y:auto;
     overflow-x:hidden;
     scrollbar-width:none;
     -webkit-overflow-scrolling:touch;
-    box-shadow:0 40px 80px rgba(0,0,0,.7);
-     border:8px solid #000;
-     position:relative;
-     display:flex;
-     flex-direction:column;
+    display:flex;
+    flex-direction:column;
   }
-  .phone::-webkit-scrollbar{ display:none; }
+  .phone-scroll::-webkit-scrollbar{ display:none; }
   .phone-main{ flex:1 0 auto; display:flex; flex-direction:column; }
   .statusbar{
     display:flex; justify-content:space-between; align-items:center;
@@ -760,6 +766,7 @@
       .phone{
         width:100%;
         height:100vh;
+        height:100dvh;
         border:0;
         border-radius:0;
         box-shadow:none;
@@ -784,6 +791,7 @@
 <body>
 
 <div class="phone">
+  <div class="phone-scroll">
   <div class="statusbar">
   </div>
 
@@ -1158,6 +1166,7 @@
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       Account
     </div>
+  </div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -2106,7 +2115,7 @@
       newsSection.classList.toggle('hidden', !isNews);
       teamSection.classList.toggle('hidden', !isTeam);
       accountSection.classList.toggle('hidden', !isAccount);
-      document.querySelector('.phone').scrollTo({ top: 0, behavior: 'instant' });
+      document.querySelector('.phone-scroll').scrollTo({ top: 0, behavior: 'instant' });
       if (section !== 'Matchups' && !isMovies && !isNews && !isTeam && !isAccount) showToast(`${section} — coming soon`);
     });
   });
