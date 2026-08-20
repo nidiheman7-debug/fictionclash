@@ -1572,14 +1572,23 @@
   // Tries a character's own name as the page title on their franchise's
   // Fandom wiki (falls back to "Name (character)" too, since some wikis
   // disambiguate that way). Returns null immediately if the franchise has
-  // no known wiki mapped, so this never guesses at a subdomain.
+  // no known wiki mapped. Self-contained try/catch: Fandom wikis don't
+  // reliably support cross-origin requests the way Wikipedia does, so a
+  // blocked/failed call here must never take down the rest of the lookup
+  // chain (that was the "not even one is showing up" regression — an
+  // uncaught Fandom error was bubbling up and skipping the Wikipedia
+  // search and Jikan fallbacks entirely).
   async function fetchFandomImage(name, franchise){
     const subdomain = FANDOM_WIKIS[franchise];
     if (!subdomain) return null;
-    const domain = `${subdomain}.fandom.com`;
-    let url = await fetchExactPage(name, domain);
-    if (!url) url = await fetchExactPage(`${name} (character)`, domain);
-    return url;
+    try {
+      const domain = `${subdomain}.fandom.com`;
+      let url = await fetchExactPage(name, domain);
+      if (!url) url = await fetchExactPage(`${name} (character)`, domain);
+      return url;
+    } catch (err) {
+      return null;
+    }
   }
 
   async function searchWikipediaImage(query, name){
