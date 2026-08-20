@@ -631,6 +631,25 @@
    .signin-btn:hover{border-color:var(--ember);}
    .signin-btn:hover svg{ stroke:var(--ember); }
    body.light .signin-btn{background:var(--surface2);border-color:var(--line);}
+   .signin-btn.is-avatar{
+     background:var(--ember); color:#0A0806; font:800 12px 'Bricolage Grotesque',sans-serif;
+     overflow:hidden; border-color:var(--ember);
+   }
+   .signin-btn.is-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
+   .account-menu-wrap{ position:relative; }
+   .account-dropdown{
+     position:absolute; top:38px; right:0; min-width:150px;
+     background:var(--surface); border:1px solid var(--line); border-radius:12px;
+     padding:6px; box-shadow:0 12px 24px rgba(0,0,0,.45); z-index:50;
+     display:flex; flex-direction:column; gap:2px;
+   }
+   .account-dropdown[hidden]{ display:none; }
+   .account-dropdown-item{
+     background:transparent; border:0; text-align:left; padding:9px 10px; border-radius:8px;
+     font:700 11.5px 'Instrument Sans',sans-serif; color:var(--text); cursor:pointer;
+   }
+   .account-dropdown-item:hover{ background:var(--surface2); }
+   .account-dropdown-item.danger{ color:#e15c5c; }
 
    body.light{
       --bg:#f6f0e2;
@@ -805,9 +824,15 @@
       <span>Fiction<br><b>Clash</b><small class="brand-small">CHARACTER MATCHUPS</small></span>
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
-      <button class="signin-btn" id="signinBtn" aria-label="Sign in" title="Sign in">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      </button>
+      <div class="account-menu-wrap" id="accountMenuWrap">
+        <button class="signin-btn" id="signinBtn" aria-label="Sign in" title="Sign in">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </button>
+        <div class="account-dropdown" id="accountDropdown" hidden>
+          <button class="account-dropdown-item" id="dropdownAccountBtn" type="button">Account</button>
+          <button class="account-dropdown-item danger" id="dropdownSignOutBtn" type="button">Sign out</button>
+        </div>
+      </div>
       <button class="theme-toggle" id="themeToggle" aria-label="Switch to light theme" title="Toggle theme">
         <svg class="sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         <svg class="moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -1292,6 +1317,8 @@
   import {
     GoogleAuthProvider,
     signInWithPopup,
+    signInWithRedirect,
+    getRedirectResult,
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
     onAuthStateChanged,
@@ -2041,6 +2068,30 @@
   const removeAvatarBtn = document.getElementById('removeAvatarBtn');
   let avatarDataUrl = '';
 
+  // ---------- topbar sign-in icon <-> avatar ----------
+  const signinBtn = document.getElementById('signinBtn');
+  const SIGNIN_DEFAULT_ICON = signinBtn.innerHTML;
+
+  function syncTopbarAvatar(){
+    const user = window.firebaseAuth && window.firebaseAuth.currentUser;
+    if (user) {
+      signinBtn.classList.add('is-avatar');
+      signinBtn.setAttribute('aria-label', 'Account menu');
+      signinBtn.title = 'Account';
+      if (avatarDataUrl) {
+        signinBtn.innerHTML = `<img src="${avatarDataUrl}" alt="Profile picture">`;
+      } else {
+        const name = profileName.value.trim() || user.displayName || (user.email ? user.email.split('@')[0] : '') || 'Your account';
+        signinBtn.textContent = name === 'Your account' ? 'YU' : name.trim().charAt(0).toUpperCase();
+      }
+    } else {
+      signinBtn.classList.remove('is-avatar');
+      signinBtn.setAttribute('aria-label', 'Sign in');
+      signinBtn.title = 'Sign in';
+      signinBtn.innerHTML = SIGNIN_DEFAULT_ICON;
+    }
+  }
+
   function renderAvatar(){
     if (avatarDataUrl) {
       accountAvatar.innerHTML = `<img src="${avatarDataUrl}" alt="Profile picture">`;
@@ -2050,6 +2101,7 @@
       accountAvatar.textContent = name === 'Your account' ? 'YU' : name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase();
       removeAvatarBtn.hidden = true;
     }
+    syncTopbarAvatar();
   }
 
   function updateAccountHeader(){
@@ -2134,9 +2186,51 @@
       case 'auth/wrong-password':
       case 'auth/invalid-credential': return 'Incorrect email or password';
       case 'auth/popup-closed-by-user': return 'Sign-in popup closed';
+      case 'auth/popup-blocked': return 'Pop-up blocked — check your browser\'s pop-up settings';
+      case 'auth/unauthorized-domain': return 'This domain isn\'t authorized for Google sign-in yet';
+      case 'auth/cancelled-popup-request': return 'Sign-in already in progress';
       default: return 'Something went wrong — please try again';
     }
   }
+
+  // Immediate (non-delayed) button loading helper — used for popup-based sign-in
+  // so the call to signInWithPopup happens synchronously inside the click handler.
+  // Wrapping it in a setTimeout (like withSpinner does) breaks the "user gesture"
+  // requirement and causes browsers to silently block the Google popup.
+  function beginLoading(btn, loadingLabel){
+    if (btn.disabled) return null;
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="btn-spinner"></span><span>${loadingLabel}</span>`;
+    return () => { btn.innerHTML = original; btn.disabled = false; };
+  }
+
+  function googleSignIn(btn, onSuccess){
+    const endLoading = beginLoading(btn, 'CONNECTING…');
+    if (!endLoading) return;
+    signInWithPopup(auth, googleProvider)
+      .then(() => { endLoading(); onSuccess(); })
+      .catch((error) => {
+        // If the popup itself couldn't open (blocked, or unsupported in this
+        // environment, e.g. an embedded/sandboxed webview), fall back to a
+        // full-page redirect flow instead of failing silently.
+        if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
+          signInWithRedirect(auth, googleProvider).catch((redirectError) => {
+            endLoading();
+            showToast(authErrorMessage(redirectError));
+          });
+          return;
+        }
+        endLoading();
+        showToast(authErrorMessage(error));
+      });
+  }
+
+  // Handle the case where signInWithPopup fell back to signInWithRedirect —
+  // the result comes back here after the page reloads.
+  getRedirectResult(auth).then((result) => {
+    if (result && result.user) showToast('Signed in with Google');
+  }).catch((error) => showToast(authErrorMessage(error)));
 
   async function emailSignInOrSignUp(email, password){
     try {
@@ -2162,6 +2256,8 @@
       signedOutView.hidden = false;
       signedInView.hidden = true;
       signedInEmail.textContent = '';
+      syncTopbarAvatar();
+      closeAccountDropdown();
     }
   });
 
@@ -2171,11 +2267,7 @@
 
   const googleSignInBtn = document.getElementById('googleSignIn');
   googleSignInBtn.addEventListener('click', () => {
-    withSpinner(googleSignInBtn, 'CONNECTING…', () => {
-      signInWithPopup(auth, googleProvider)
-        .then(() => showToast('Signed in with Google'))
-        .catch((error) => showToast(authErrorMessage(error)));
-    });
+    googleSignIn(googleSignInBtn, () => showToast('Signed in with Google'));
   });
   const emailSignInBtn = document.getElementById('emailSignIn');
   emailSignInBtn.addEventListener('click', () => {
@@ -2232,27 +2324,51 @@
   });
 
   // ---------- sign-in modal ----------
-  const signinBtn = document.getElementById('signinBtn');
   const signinOverlay = document.getElementById('signinOverlay');
   const signinCancel = document.getElementById('signinCancel');
   const signinSubmit = document.getElementById('signinSubmit');
   const signinEmail = document.getElementById('signinEmail');
   const signinPassword = document.getElementById('signinPassword');
 
-  signinBtn.addEventListener('click', () => signinOverlay.classList.add('show'));
+  // ---------- topbar account menu ----------
+  const accountMenuWrap = document.getElementById('accountMenuWrap');
+  const accountDropdown = document.getElementById('accountDropdown');
+  const dropdownAccountBtn = document.getElementById('dropdownAccountBtn');
+  const dropdownSignOutBtn = document.getElementById('dropdownSignOutBtn');
+
+  function closeAccountDropdown(){ accountDropdown.hidden = true; }
+  function toggleAccountDropdown(){ accountDropdown.hidden = !accountDropdown.hidden; }
+
+  signinBtn.addEventListener('click', (e) => {
+    if (auth.currentUser) {
+      e.stopPropagation();
+      toggleAccountDropdown();
+    } else {
+      signinOverlay.classList.add('show');
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!accountDropdown.hidden && !accountMenuWrap.contains(e.target)) closeAccountDropdown();
+  });
+  dropdownAccountBtn.addEventListener('click', () => {
+    closeAccountDropdown();
+    const accountNavItem = document.querySelector('.nav-item[data-nav="Account"]');
+    if (accountNavItem) accountNavItem.click();
+  });
+  dropdownSignOutBtn.addEventListener('click', () => {
+    closeAccountDropdown();
+    signOut(auth).then(() => showToast('Signed out'));
+  });
+
   signinCancel.addEventListener('click', () => signinOverlay.classList.remove('show'));
   signinOverlay.addEventListener('click', (e) => {
     if (e.target === signinOverlay) signinOverlay.classList.remove('show');
   });
   const modalGoogleSignIn = document.getElementById('modalGoogleSignIn');
   modalGoogleSignIn.addEventListener('click', () => {
-    withSpinner(modalGoogleSignIn, 'CONNECTING…', () => {
-      signInWithPopup(auth, googleProvider)
-        .then(() => {
-          signinOverlay.classList.remove('show');
-          showToast('Signed in with Google');
-        })
-        .catch((error) => showToast(authErrorMessage(error)));
+    googleSignIn(modalGoogleSignIn, () => {
+      signinOverlay.classList.remove('show');
+      showToast('Signed in with Google');
     });
   });
   signinSubmit.addEventListener('click', () => {
