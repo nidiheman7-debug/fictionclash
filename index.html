@@ -1104,21 +1104,29 @@
       </div>
       <div><h2 id="accountDisplayName">Your account</h2><p id="accountDisplayHandle">Sign in to save your clashes</p></div>
     </div>
-    <div class="account-card">
-      <h3>Sign in or create account</h3>
-      <p>Save votes, follow your favourite characters, and keep your profile across devices.</p>
-      <button class="google-signin" id="googleSignIn" type="button">
-        <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-          <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
-          <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-          <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.68 9c0-.593.102-1.17.284-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
-          <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58z"/>
-        </svg>
-        <span class="btn-label">CONTINUE WITH GOOGLE</span>
-      </button>
-      <div class="account-divider">OR USE EMAIL</div>
-      <input class="account-input" id="accountEmail" type="email" placeholder="Email address" aria-label="Email address">
-      <button class="email-signin" id="emailSignIn" type="button">CONTINUE WITH EMAIL</button>
+    <div class="account-card" id="signInCard">
+      <div id="signedOutView">
+        <h3>Sign in or create account</h3>
+        <p>Save votes, follow your favourite characters, and keep your profile across devices.</p>
+        <button class="google-signin" id="googleSignIn" type="button">
+          <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+            <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.68 9c0-.593.102-1.17.284-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
+            <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58z"/>
+          </svg>
+          <span class="btn-label">CONTINUE WITH GOOGLE</span>
+        </button>
+        <div class="account-divider">OR USE EMAIL</div>
+        <input class="account-input" id="accountEmail" type="email" placeholder="Email address" aria-label="Email address">
+        <input class="account-input" id="accountPassword" type="password" placeholder="Password (min. 6 characters)" aria-label="Password">
+        <button class="email-signin" id="emailSignIn" type="button">CONTINUE WITH EMAIL</button>
+      </div>
+      <div id="signedInView" hidden>
+        <h3>You're signed in</h3>
+        <p id="signedInEmail"></p>
+        <button class="remove-avatar-btn" id="signOutBtn" type="button">Sign out</button>
+      </div>
     </div>
     <div class="account-card">
       <h3>App theme</h3>
@@ -1186,6 +1194,7 @@
       </button>
       <div class="account-divider">OR USE EMAIL</div>
       <input class="modal-input" type="email" placeholder="Email address" id="signinEmail">
+      <input class="modal-input" type="password" placeholder="Password (min. 6 characters)" id="signinPassword">
       <button class="modal-submit" id="signinSubmit">Continue</button>
       <button class="modal-close" id="signinCancel">Not now</button>
     </div>
@@ -1252,7 +1261,8 @@
   // Import the functions you need from the SDKs you need
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics.js";
-  // TODO: Add SDKs for Firebase products that you want to use
+  import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  // TODO: Add more SDKs for Firebase products as you need them (e.g. Firestore, Storage)
   // https://firebase.google.com/docs/web/setup#available-libraries
 
   // Your web app's Firebase configuration
@@ -1270,13 +1280,27 @@
   // Initialize Firebase
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
+  const auth = getAuth(app);
 
-  // Exposed for the rest of the page's (non-module) script to use later
+  // Exposed for the rest of the page's module script to use
   window.firebaseApp = app;
   window.firebaseAnalytics = analytics;
+  window.firebaseAuth = auth;
 </script>
 
-<script>
+<script type="module">
+  import {
+    GoogleAuthProvider,
+    signInWithPopup,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
+    onAuthStateChanged,
+    signOut
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+  const auth = window.firebaseAuth;
+  const googleProvider = new GoogleAuthProvider();
+
   // ---------- theme toggle ----------
   const themeToggle = document.getElementById('themeToggle');
   themeToggle.addEventListener('click', () => {
@@ -2094,29 +2118,88 @@
     }
   } catch (error) {}
 
+  // ---------- firebase auth ----------
+  const accountPassword = document.getElementById('accountPassword');
+  const signedOutView = document.getElementById('signedOutView');
+  const signedInView = document.getElementById('signedInView');
+  const signedInEmail = document.getElementById('signedInEmail');
+  const signOutBtn = document.getElementById('signOutBtn');
+
+  function authErrorMessage(error){
+    switch (error.code) {
+      case 'auth/invalid-email': return 'That email address looks invalid';
+      case 'auth/missing-password':
+      case 'auth/weak-password': return 'Password must be at least 6 characters';
+      case 'auth/email-already-in-use': return 'That email is already in use — check your password';
+      case 'auth/wrong-password':
+      case 'auth/invalid-credential': return 'Incorrect email or password';
+      case 'auth/popup-closed-by-user': return 'Sign-in popup closed';
+      default: return 'Something went wrong — please try again';
+    }
+  }
+
+  async function emailSignInOrSignUp(email, password){
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      signedOutView.hidden = true;
+      signedInView.hidden = false;
+      signedInEmail.textContent = user.email || user.displayName || 'Signed in';
+      profileName.value = profileName.value || user.displayName || (user.email ? user.email.split('@')[0] : '');
+      profileHandle.value = profileHandle.value || (user.email ? `@${user.email.split('@')[0]}` : '');
+      updateAccountHeader();
+    } else {
+      signedOutView.hidden = false;
+      signedInView.hidden = true;
+      signedInEmail.textContent = '';
+    }
+  });
+
+  signOutBtn.addEventListener('click', () => {
+    signOut(auth).then(() => showToast('Signed out'));
+  });
+
   const googleSignInBtn = document.getElementById('googleSignIn');
   googleSignInBtn.addEventListener('click', () => {
     withSpinner(googleSignInBtn, 'CONNECTING…', () => {
-      profileName.value = profileName.value || 'Google User';
-      profileHandle.value = profileHandle.value || '@googleuser';
-      updateAccountHeader();
-      showToast('Google sign-in ready');
+      signInWithPopup(auth, googleProvider)
+        .then(() => showToast('Signed in with Google'))
+        .catch((error) => showToast(authErrorMessage(error)));
     });
   });
   const emailSignInBtn = document.getElementById('emailSignIn');
   emailSignInBtn.addEventListener('click', () => {
     const email = accountEmail.value.trim();
+    const password = accountPassword.value;
     if (!email || !email.includes('@')) {
       accountEmail.style.borderColor = '#c0392b';
       showToast('Enter a valid email');
       return;
     }
+    if (!password || password.length < 6) {
+      accountPassword.style.borderColor = '#c0392b';
+      showToast('Password must be at least 6 characters');
+      return;
+    }
     withSpinner(emailSignInBtn, 'SIGNING IN…', () => {
-      profileName.value = profileName.value || email.split('@')[0];
-      profileHandle.value = profileHandle.value || `@${email.split('@')[0]}`;
-      accountEmail.style.borderColor = '';
-      updateAccountHeader();
-      showToast('Signed in with email');
+      emailSignInOrSignUp(email, password)
+        .then(() => {
+          accountEmail.style.borderColor = '';
+          accountPassword.style.borderColor = '';
+          accountPassword.value = '';
+          showToast('Signed in with email');
+        })
+        .catch((error) => showToast(authErrorMessage(error)));
     });
   });
   document.getElementById('saveProfile').addEventListener('click', () => {
@@ -2154,6 +2237,7 @@
   const signinCancel = document.getElementById('signinCancel');
   const signinSubmit = document.getElementById('signinSubmit');
   const signinEmail = document.getElementById('signinEmail');
+  const signinPassword = document.getElementById('signinPassword');
 
   signinBtn.addEventListener('click', () => signinOverlay.classList.add('show'));
   signinCancel.addEventListener('click', () => signinOverlay.classList.remove('show'));
@@ -2163,24 +2247,37 @@
   const modalGoogleSignIn = document.getElementById('modalGoogleSignIn');
   modalGoogleSignIn.addEventListener('click', () => {
     withSpinner(modalGoogleSignIn, 'CONNECTING…', () => {
-      profileName.value = profileName.value || 'Google User';
-      profileHandle.value = profileHandle.value || '@googleuser';
-      updateAccountHeader();
-      signinOverlay.classList.remove('show');
-      showToast('Signed in with Google');
+      signInWithPopup(auth, googleProvider)
+        .then(() => {
+          signinOverlay.classList.remove('show');
+          showToast('Signed in with Google');
+        })
+        .catch((error) => showToast(authErrorMessage(error)));
     });
   });
   signinSubmit.addEventListener('click', () => {
     const email = signinEmail.value.trim();
+    const password = signinPassword.value;
     if (!email || !email.includes('@')) {
       signinEmail.style.borderColor = '#c0392b';
       return;
     }
+    if (!password || password.length < 6) {
+      signinPassword.style.borderColor = '#c0392b';
+      showToast('Password must be at least 6 characters');
+      return;
+    }
     withSpinner(signinSubmit, 'CONTINUE', () => {
-      signinOverlay.classList.remove('show');
-      showToast('Signed in — welcome!');
-      signinEmail.value = '';
-      signinEmail.style.borderColor = '';
+      emailSignInOrSignUp(email, password)
+        .then(() => {
+          signinOverlay.classList.remove('show');
+          showToast('Signed in — welcome!');
+          signinEmail.value = '';
+          signinPassword.value = '';
+          signinEmail.style.borderColor = '';
+          signinPassword.style.borderColor = '';
+        })
+        .catch((error) => showToast(authErrorMessage(error)));
     }, 700);
   });
 
