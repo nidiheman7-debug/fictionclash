@@ -1502,18 +1502,41 @@
     'The Terminator':'film', 'Ellen Ripley':'Alien film', 'Rocky Balboa':'film'
   };
 
+  // 4) FANDOM_WIKIS — the fandom.com wiki subdomain for a franchise, used to
+  //    look up a character's own wiki page when Wikipedia doesn't have (or
+  //    has merged away) a standalone article for them — e.g. "All Might"
+  //    isn't its own Wikipedia page, but has a proper page with official art
+  //    on the My Hero Academia wiki. Same MediaWiki API shape as Wikipedia,
+  //    just a different host.
+  const FANDOM_WIKIS = {
+    'Jujutsu Kaisen':'jujutsu-kaisen', 'One Punch Man':'onepunchman', 'Dragon Ball':'dragonball',
+    'Naruto':'naruto', 'One Piece':'onepiece', 'Bleach':'bleach', 'Attack on Titan':'attackontitan',
+    'My Hero Academia':'myheroacademia', 'Death Note':'deathnote', 'Fullmetal Alchemist':'fma',
+    'Fairy Tail':'fairytail', 'Hunter x Hunter':'hunterxhunter', 'Seven Deadly Sins':'nanatsu-no-taizai',
+    'That Time I Got Reincarnated as a Slime':'tensura', 'Marvel Comics':'marvel', 'DC Comics':'dc',
+    'Halo':'halo', 'God of War':'godofwar', 'The Legend of Zelda':'zelda', 'Final Fantasy VII':'finalfantasy',
+    'Devil May Cry':'devilmaycry', 'The Witcher':'witcher', 'Metal Gear':'metalgear',
+    'Doom video game':'doom', 'Pirates of the Caribbean':'pirates', 'The Matrix':'matrix',
+    'Star Wars':'starwars', 'Alien film':'avp'
+  };
+
   // Looks up a real photo for a character. Order:
   //   1. Manual override (no network call)
-  //   2. Jikan (MyAnimeList) — for anime/manga characters this is far more
-  //      reliable than Wikipedia: it's a purpose-built character database,
-  //      so a match is guaranteed to be *that* character's own art, never a
-  //      random page about the wider series or franchise. Only accepted on
-  //      an exact name/nickname match, so it never guesses.
-  //   3. Exact-title Wikipedia lookups (curated title, then plain name, then
-  //      a couple of common disambiguation patterns) via redirects=1 — for
-  //      movies, comics, and games, which Jikan doesn't cover.
+  //   2. Exact-title Wikipedia lookups (curated title, then plain name, then
+  //      a couple of common disambiguation patterns) via redirects=1 — a
+  //      direct title match is the most reliable source there is.
+  //   3. The franchise's Fandom wiki, exact title — catches characters
+  //      Wikipedia doesn't have a standalone page for (common for anime/
+  //      game side characters merged into a "List of..." article), while
+  //      still being an exact-title lookup rather than a guess.
   //   4. Full-text Wikipedia search as a last resort, for names with no good
-  //      exact title (mostly obscure or user-submitted characters).
+  //      exact title anywhere (mostly obscure or user-submitted characters).
+  //      Title-checked against the character name so it can't drift onto an
+  //      unrelated page (e.g. a real person coincidentally sharing the name).
+  //   5. Jikan (MyAnimeList), only if nothing above found anything — it
+  //      matches by loose name/nickname search across its whole database,
+  //      which can pull in the wrong character's art from an unrelated
+  //      anime, so it's a last resort rather than a first stop.
   // Disambiguation pages are always skipped. Falls back to the generated
   // placeholder avatar if nothing usable is found anywhere.
   const characterImageCache = {}; // name -> url string | null (null = no photo found, use placeholder)
@@ -1533,8 +1556,8 @@
     }
   }
 
-  async function fetchExactPage(title){
-    const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
+  async function fetchExactPage(title, domain){
+    const url = `https://${domain || 'en.wikipedia.org'}/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
@@ -1544,6 +1567,19 @@
     if (!page || page.missing !== undefined) return null; // title doesn't exist
     if (page.pageprops && page.pageprops.disambiguation !== undefined) return null; // e.g. "Flash (disambiguation)"
     return (page.thumbnail && page.thumbnail.source) ? page.thumbnail.source : null;
+  }
+
+  // Tries a character's own name as the page title on their franchise's
+  // Fandom wiki (falls back to "Name (character)" too, since some wikis
+  // disambiguate that way). Returns null immediately if the franchise has
+  // no known wiki mapped, so this never guesses at a subdomain.
+  async function fetchFandomImage(name, franchise){
+    const subdomain = FANDOM_WIKIS[franchise];
+    if (!subdomain) return null;
+    const domain = `${subdomain}.fandom.com`;
+    let url = await fetchExactPage(name, domain);
+    if (!url) url = await fetchExactPage(`${name} (character)`, domain);
+    return url;
   }
 
   async function searchWikipediaImage(query, name){
@@ -1603,6 +1639,7 @@
         url = await fetchExactPage(title);
         if (url) break;
       }
+      if (!url) url = await fetchFandomImage(name, franchise);
       if (!url) url = await searchWikipediaImage(franchise ? `${name} ${franchise}` : name, name);
       if (!url) url = await searchWikipediaImage(name, name);
       if (!url) url = await fetchJikanImage(name);
