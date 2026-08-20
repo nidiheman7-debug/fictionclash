@@ -1546,7 +1546,7 @@
     return (page.thumbnail && page.thumbnail.source) ? page.thumbnail.source : null;
   }
 
-  async function searchWikipediaImage(query){
+  async function searchWikipediaImage(query, name){
     const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=5&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -1559,8 +1559,21 @@
     // was the main cause of "wrong picture": the old code just grabbed
     // whichever page happened to come out of Object.values first.)
     const ranked = Object.values(pages).sort((a, b) => (a.index || 0) - (b.index || 0));
+    // Full-text search can rank an entirely unrelated page highly just
+    // because the query words appear somewhere in its body (e.g. "All
+    // Might" or "Dante" matching a real person of the same name). Only
+    // accept a page whose TITLE is actually the character — either an
+    // exact match, or "Name (something)" — never a loose body-text hit.
+    // This is what previously let real people's photos slip in for
+    // fictional characters like "All Might" or "Dante".
+    const normalizedName = (name || query).trim().toLowerCase();
+    const titleMatches = (title) => {
+      const t = title.trim().toLowerCase();
+      return t === normalizedName || t.startsWith(`${normalizedName} (`);
+    };
     for (const page of ranked) {
       if (page.pageprops && page.pageprops.disambiguation !== undefined) continue;
+      if (!page.title || !titleMatches(page.title)) continue;
       if (page.thumbnail && page.thumbnail.source) return page.thumbnail.source;
     }
     return null;
@@ -1573,22 +1586,26 @@
     }
     let url = null;
     try {
-      url = await fetchJikanImage(name);
-      if (!url) {
-        const franchise = hint || FRANCHISE_HINTS[name];
-        const exactCandidates = [
-          WIKI_TITLE_OVERRIDES[name],
-          name,
-          franchise ? `${name} (${franchise})` : null,
-          `${name} (character)`
-        ].filter(Boolean);
-        for (const title of exactCandidates) {
-          url = await fetchExactPage(title);
-          if (url) break;
-        }
-        if (!url) url = await searchWikipediaImage(franchise ? `${name} ${franchise}` : name);
-        if (!url) url = await searchWikipediaImage(name);
+      // Wikipedia's exact-title lookups (curated title, then plain name,
+      // then franchise-qualified variants) go first — a direct title match
+      // is far more reliable than Jikan's loose name/nickname search across
+      // its whole database, which was pulling in the wrong character's art
+      // from an unrelated anime. Jikan is now only a last resort, after
+      // every Wikipedia exact-title candidate has failed.
+      const franchise = hint || FRANCHISE_HINTS[name];
+      const exactCandidates = [
+        WIKI_TITLE_OVERRIDES[name],
+        name,
+        franchise ? `${name} (${franchise})` : null,
+        `${name} (character)`
+      ].filter(Boolean);
+      for (const title of exactCandidates) {
+        url = await fetchExactPage(title);
+        if (url) break;
       }
+      if (!url) url = await searchWikipediaImage(franchise ? `${name} ${franchise}` : name, name);
+      if (!url) url = await searchWikipediaImage(name, name);
+      if (!url) url = await fetchJikanImage(name);
     } catch (err) {
       url = null;
     }
@@ -1672,7 +1689,7 @@
     const m = matchups[activeIdx];
     const total = m.votesA + m.votesB;
     heroVoteCount.textContent = total.toLocaleString();
-    const pctA = Math.round((m.votesA / total) * 100);
+    const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
     const pctB = 100 - pctA;
     voteBar.style.width = pctA + '%';
     votePctA.textContent = `${pctA}% ${m.a.name.split(' ')[0]}`;
