@@ -44,8 +44,11 @@
     box-shadow:0 40px 80px rgba(0,0,0,.7);
      border:8px solid #000;
      position:relative;
+     display:flex;
+     flex-direction:column;
   }
   .phone::-webkit-scrollbar{ display:none; }
+  .phone-main{ flex:1 0 auto; display:flex; flex-direction:column; }
   .statusbar{
     display:flex; justify-content:space-between; align-items:center;
      padding:14px 22px 6px; font-size:13px; color:var(--text); font-weight:700;
@@ -804,6 +807,7 @@
     </div>
   </div>
 
+  <div class="phone-main">
   <div class="quick-actions">
     <div class="qa" id="qaVote">
       <div class="qa-icon filled">
@@ -1131,6 +1135,7 @@
       <button class="remove-avatar-btn" id="removeAvatarBtn" type="button" hidden>Remove profile picture</button>
     </div>
   </section>
+  </div>
 
   <div class="bottomnav" id="bottomNav">
     <div class="nav-item active" data-nav="Matchups">
@@ -2101,6 +2106,7 @@
       newsSection.classList.toggle('hidden', !isNews);
       teamSection.classList.toggle('hidden', !isTeam);
       accountSection.classList.toggle('hidden', !isAccount);
+      document.querySelector('.phone').scrollTo({ top: 0, behavior: 'instant' });
       if (section !== 'Matchups' && !isMovies && !isNews && !isTeam && !isAccount) showToast(`${section} — coming soon`);
     });
   });
