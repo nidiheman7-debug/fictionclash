@@ -631,25 +631,6 @@
    .signin-btn:hover{border-color:var(--ember);}
    .signin-btn:hover svg{ stroke:var(--ember); }
    body.light .signin-btn{background:var(--surface2);border-color:var(--line);}
-   .signin-btn.is-avatar{
-     background:var(--ember); color:#0A0806; font:800 12px 'Bricolage Grotesque',sans-serif;
-     overflow:hidden; border-color:var(--ember);
-   }
-   .signin-btn.is-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
-   .account-menu-wrap{ position:relative; }
-   .account-dropdown{
-     position:absolute; top:38px; right:0; min-width:150px;
-     background:var(--surface); border:1px solid var(--line); border-radius:12px;
-     padding:6px; box-shadow:0 12px 24px rgba(0,0,0,.45); z-index:50;
-     display:flex; flex-direction:column; gap:2px;
-   }
-   .account-dropdown[hidden]{ display:none; }
-   .account-dropdown-item{
-     background:transparent; border:0; text-align:left; padding:9px 10px; border-radius:8px;
-     font:700 11.5px 'Instrument Sans',sans-serif; color:var(--text); cursor:pointer;
-   }
-   .account-dropdown-item:hover{ background:var(--surface2); }
-   .account-dropdown-item.danger{ color:#e15c5c; }
 
    body.light{
       --bg:#f6f0e2;
@@ -738,9 +719,6 @@
       background-size:5px 5px, 5px 5px; background-repeat:no-repeat;
     }
     .compare-vs{ font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:11px; color:var(--muted); flex-shrink:0; }
-    .submit-char-col{ flex:1; display:flex; flex-direction:column; gap:6px; min-width:0; }
-    .submit-char-col .submit-input{ margin-bottom:0; }
-    .submit-version-input{ margin-bottom:0; font-size:11.5px; padding:9px 12px; }
     .submit-input{ background-image:none; }
     .compare-result{ margin:14px 0; }
     .compare-heads{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:12px; }
@@ -827,15 +805,9 @@
       <span>Fiction<br><b>Clash</b><small class="brand-small">CHARACTER MATCHUPS</small></span>
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
-      <div class="account-menu-wrap" id="accountMenuWrap">
-        <button class="signin-btn" id="signinBtn" aria-label="Sign in" title="Sign in">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        </button>
-        <div class="account-dropdown" id="accountDropdown" hidden>
-          <button class="account-dropdown-item" id="dropdownAccountBtn" type="button">Account</button>
-          <button class="account-dropdown-item danger" id="dropdownSignOutBtn" type="button">Sign out</button>
-        </div>
-      </div>
+      <button class="signin-btn" id="signinBtn" aria-label="Sign in" title="Sign in">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      </button>
       <button class="theme-toggle" id="themeToggle" aria-label="Switch to light theme" title="Toggle theme">
         <svg class="sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         <svg class="moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -1231,11 +1203,11 @@
   <div class="modal-overlay" id="compareOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Compare Characters</div>
-      <div class="modal-sub">Search any two characters — from any movie, anime, or show — to see how they stack up.</div>
+      <div class="modal-sub">Pick two characters to see how their stats stack up.</div>
       <div class="compare-pickers">
-        <input class="modal-input compare-select submit-input" id="compareCharA" type="text" list="characterSuggestions" placeholder="Character A" aria-label="First character" maxlength="40">
+        <select class="modal-input compare-select" id="compareCharA" aria-label="First character"></select>
         <div class="compare-vs">VS</div>
-        <input class="modal-input compare-select submit-input" id="compareCharB" type="text" list="characterSuggestions" placeholder="Character B" aria-label="Second character" maxlength="40">
+        <select class="modal-input compare-select" id="compareCharB" aria-label="Second character"></select>
       </div>
       <button class="modal-submit" id="compareSubmit" type="button">Compare</button>
       <div class="compare-result" id="compareResult" hidden></div>
@@ -1271,17 +1243,11 @@
   <div class="modal-overlay" id="submitOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Submit a Matchup</div>
-      <div class="modal-sub">Pick two characters — from any movie, anime, or show. Add a version if it matters (e.g. Base, Ultra Instinct, Six Paths Sage Mode).</div>
+      <div class="modal-sub">Pick two characters — from any movie, anime, or show. It goes live for the community to vote on.</div>
       <div class="compare-pickers">
-        <div class="submit-char-col">
-          <input class="modal-input compare-select submit-input" id="submitCharA" type="text" list="characterSuggestions" placeholder="Character A" maxlength="40">
-          <input class="modal-input submit-version-input" id="submitVersionA" type="text" placeholder="Version (optional)" maxlength="30">
-        </div>
+        <input class="modal-input compare-select submit-input" id="submitCharA" type="text" list="characterSuggestions" placeholder="Character A" maxlength="40">
         <div class="compare-vs">VS</div>
-        <div class="submit-char-col">
-          <input class="modal-input compare-select submit-input" id="submitCharB" type="text" list="characterSuggestions" placeholder="Character B" maxlength="40">
-          <input class="modal-input submit-version-input" id="submitVersionB" type="text" placeholder="Version (optional)" maxlength="30">
-        </div>
+        <input class="modal-input compare-select submit-input" id="submitCharB" type="text" list="characterSuggestions" placeholder="Character B" maxlength="40">
       </div>
       <datalist id="characterSuggestions"></datalist>
       <button class="modal-submit" id="submitMatchupBtn" type="button">Post Matchup</button>
@@ -1326,8 +1292,6 @@
   import {
     GoogleAuthProvider,
     signInWithPopup,
-    signInWithRedirect,
-    getRedirectResult,
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
     onAuthStateChanged,
@@ -1375,21 +1339,13 @@
 
   // ---------- matchup data ----------
   const matchups = [
-    { a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', hint:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', hint:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
-    { a:{name:'Goku', sub:'Dragon Ball', hint:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', hint:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
-    { a:{name:'Thanos', sub:'Marvel', hint:'Marvel', initials:'TA'}, b:{name:'Batman', sub:'DC', hint:'DC', initials:'BM'}, votesA:3868, votesB:2472 },
-    { a:{name:'Levi Ackerman', sub:'Attack on Titan', hint:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', hint:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
+    { a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
+    { a:{name:'Goku', sub:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
+    { a:{name:'Thanos', sub:'Marvel', initials:'TA'}, b:{name:'Batman', sub:'DC', initials:'BM'}, votesA:3868, votesB:2472 },
+    { a:{name:'Levi Ackerman', sub:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
   ];
   let activeIdx = 0;
   const votedState = {}; // matchup idx -> 'a' | 'b'
-
-  // A character's "version" (e.g. Base, Ultra Instinct, Six Paths Sage Mode)
-  // is kept separate from `name` on purpose: `name` stays the plain
-  // character name so image lookups (Jikan/Wikipedia) and stat lookups
-  // still match correctly regardless of which version someone picked.
-  function charLabel(char){
-    return char.version ? `${char.name} (${char.version})` : char.name;
-  }
 
   const heroAvatarA = document.getElementById('heroAvatarA');
   const heroAvatarB = document.getElementById('heroAvatarB');
@@ -1445,223 +1401,16 @@
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   }
 
-  // ---------- real character photos ----------
-  // 1) CUSTOM_IMAGE_OVERRIDES — for characters/variants that no public API will
-  //    ever resolve correctly (fan nicknames, alt skins, obscure variants like
-  //    "RKT"). Add a direct image URL here and it's used with no network call.
-  const CUSTOM_IMAGE_OVERRIDES = {
-    // 'RKT': 'https://example.com/path/to/rkt-art.png',
-  };
-
-  // 2) WIKI_TITLE_OVERRIDES — the exact Wikipedia article title for a
-  //    character, when it differs from the display name (e.g. "Naruto" the
-  //    display name is the *series*; the character's own article is titled
-  //    "Naruto Uzumaki"). This is what actually fixes "wrong picture" bugs —
-  //    a direct title lookup can't drift onto an unrelated page the way a
-  //    full-text search can. `redirects=1` in the fetch below means a
-  //    slightly-off guess here still resolves correctly as long as it
-  //    redirects to the right place.
-  const WIKI_TITLE_OVERRIDES = {
-    'Gojo Satoru':'Satoru Gojo', 'Saitama':'Saitama (One-Punch Man)',
-    'Naruto':'Naruto Uzumaki', 'Thor':'Thor (Marvel Comics)',
-    'Hulk':'Hulk (character)', 'Wolverine':'Wolverine (character)',
-    'Deadpool':'Deadpool (character)', 'Doctor Strange':'Doctor Strange (character)',
-    'Scarlet Witch':'Wanda Maximoff', 'Magneto':'Magneto (character)',
-    'Venom':'Venom (character)', 'The Flash':'Flash (character)',
-    'Joker':'Joker (character)', 'Master Chief':'Master Chief (Halo)',
-    'Kratos':'Kratos (God of War)', 'Link':'Link (The Legend of Zelda)',
-    'Sephiroth':'Sephiroth (Final Fantasy)', 'Dante':'Dante (Devil May Cry)',
-    'Doom Slayer':'Doomguy', 'John Wick':'John Wick (character)',
-    'Neo':'Neo (The Matrix)', 'The Terminator':'The Terminator (character)'
-  };
-
-  // 3) FRANCHISE_HINTS — disambiguates common one-word names in the search
-  //    fallback (e.g. plain "Thor" resolves to the Norse god on Wikipedia,
-  //    not the Marvel hero) by adding franchise context to the query.
-  const FRANCHISE_HINTS = {
-    'Gojo Satoru':'Jujutsu Kaisen', 'Saitama':'One Punch Man', 'Goku':'Dragon Ball',
-    'Vegeta':'Dragon Ball', 'Naruto':'Naruto', 'Sasuke Uchiha':'Naruto',
-    'Itachi Uchiha':'Naruto', 'Kakashi Hatake':'Naruto', 'Monkey D. Luffy':'One Piece',
-    'Roronoa Zoro':'One Piece', 'Ichigo Kurosaki':'Bleach', 'Levi Ackerman':'Attack on Titan',
-    'Eren Yeager':'Attack on Titan', 'All Might':'My Hero Academia', 'Izuku Midoriya':'My Hero Academia',
-    'Light Yagami':'Death Note', 'Edward Elric':'Fullmetal Alchemist', 'Natsu Dragneel':'Fairy Tail',
-    'Killua Zoldyck':'Hunter x Hunter', 'Gon Freecss':'Hunter x Hunter', 'Meliodas':'Seven Deadly Sins',
-    'Rimuru Tempest':'That Time I Got Reincarnated as a Slime',
-    'Spider-Man':'Marvel Comics', 'Iron Man':'Marvel Comics', 'Thor':'Marvel Comics',
-    'Hulk':'Marvel Comics', 'Captain America':'Marvel Comics', 'Wolverine':'Marvel Comics',
-    'Deadpool':'Marvel Comics', 'Thanos':'Marvel Comics', 'Doctor Strange':'Marvel Comics',
-    'Scarlet Witch':'Marvel Comics', 'Magneto':'Marvel Comics', 'Venom':'Marvel Comics',
-    'Batman':'DC Comics', 'Superman':'DC Comics', 'Wonder Woman':'DC Comics',
-    'The Flash':'DC Comics', 'Joker':'DC Comics', 'Aquaman':'DC Comics',
-    'Darkseid':'DC Comics', 'Green Lantern':'DC Comics',
-    'Master Chief':'Halo', 'Kratos':'God of War', 'Link':'The Legend of Zelda',
-    'Sephiroth':'Final Fantasy VII', 'Dante':'Devil May Cry', 'Geralt of Rivia':'The Witcher',
-    'Solid Snake':'Metal Gear', 'Doom Slayer':'Doom video game',
-    'John Wick':'film', 'Jack Sparrow':'Pirates of the Caribbean', 'Neo':'The Matrix',
-    'Darth Vader':'Star Wars', 'Yoda':'Star Wars', 'James Bond':'film',
-    'The Terminator':'film', 'Ellen Ripley':'Alien film', 'Rocky Balboa':'film'
-  };
-
-  // Looks up a real photo for a character, using Wikipedia only:
-  //   1. Manual override (no network call)
-  //   2. Exact-title lookups (curated title, then plain name, then a
-  //      couple of common disambiguation patterns) via redirects=1 — a
-  //      direct title match is the most reliable source there is.
-  //   3. Full-text search as a last resort, for names with no good exact
-  //      title (mostly obscure or user-submitted characters). Title-checked
-  //      against the character name so it can't drift onto an unrelated
-  //      page (e.g. a real person coincidentally sharing the name).
-  // Disambiguation pages are always skipped. Falls back to the generated
-  // placeholder avatar if nothing usable is found anywhere.
-  const characterImageCache = {}; // name -> url string | null (null = no photo found, use placeholder)
-
-  // Every network step below is wrapped through this so a single failing
-  // source can only ever cost that ONE step — it logs and returns null
-  // instead of throwing, so remaining fallback attempts still get a chance
-  // to run. Open devtools → Console and look for "[character image]" lines
-  // to see exactly what's resolving (or failing) for a given character.
-  async function safeStep(label, run){
-    try {
-      const result = await run();
-      console.debug(`[character image] ${label} →`, result || '(no match)');
-      return result;
-    } catch (err) {
-      console.warn(`[character image] ${label} FAILED:`, err);
-      return null;
-    }
-  }
-
-  async function fetchExactPage(title){
-    const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const pages = data.query && data.query.pages;
-    if (!pages) return null;
-    const page = Object.values(pages)[0];
-    if (!page || page.missing !== undefined) return null; // title doesn't exist
-    if (page.pageprops && page.pageprops.disambiguation !== undefined) return null; // e.g. "Flash (disambiguation)"
-    return (page.thumbnail && page.thumbnail.source) ? page.thumbnail.source : null;
-  }
-
-  async function searchWikipediaImage(query, name){
-    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=5&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const pages = data.query && data.query.pages;
-    if (!pages) return null;
-    // Object.values() order does NOT match search relevance — MediaWiki
-    // returns pages keyed by page ID. The actual rank lives in each page's
-    // own `index` field, so sort by that before picking a candidate. (This
-    // was the main cause of "wrong picture": the old code just grabbed
-    // whichever page happened to come out of Object.values first.)
-    const ranked = Object.values(pages).sort((a, b) => (a.index || 0) - (b.index || 0));
-    // Full-text search can rank an entirely unrelated page highly just
-    // because the query words appear somewhere in its body (e.g. "All
-    // Might" or "Dante" matching a real person of the same name). Only
-    // accept a page whose TITLE is actually the character — either an
-    // exact match, or "Name (something)" — never a loose body-text hit.
-    // This is what previously let real people's photos slip in for
-    // fictional characters like "All Might" or "Dante".
-    const normalizedName = (name || query).trim().toLowerCase();
-    const titleMatches = (title) => {
-      const t = title.trim().toLowerCase();
-      return t === normalizedName || t.startsWith(`${normalizedName} (`);
-    };
-    for (const page of ranked) {
-      if (page.pageprops && page.pageprops.disambiguation !== undefined) continue;
-      if (!page.title || !titleMatches(page.title)) continue;
-      if (page.thumbnail && page.thumbnail.source) return page.thumbnail.source;
-    }
-    return null;
-  }
-
-  async function fetchCharacterImage(name, hint, version){
-    if (CUSTOM_IMAGE_OVERRIDES[name]) return CUSTOM_IMAGE_OVERRIDES[name];
-    // Different versions of the same character (Base Goku vs Ultra Instinct
-    // Goku) can resolve to different pictures, so they need their own cache
-    // slot — caching by name alone would let one version's photo leak onto
-    // another's.
-    const cacheKey = version ? `${name}|${version}` : name;
-    if (Object.prototype.hasOwnProperty.call(characterImageCache, cacheKey)) {
-      return characterImageCache[cacheKey];
-    }
-    const franchise = hint || FRANCHISE_HINTS[name];
-    const exactCandidates = [
-      // Version-specific title first — this is what actually makes a
-      // submitted version matter, e.g. "Spider-Man (Miles Morales)" or
-      // "Goku (Ultra Instinct)" have their own dedicated Wikipedia
-      // coverage in some cases. Falls through to the base character if
-      // no version-specific page exists.
-      version ? `${name} (${version})` : null,
-      WIKI_TITLE_OVERRIDES[name],
-      name,
-      franchise ? `${name} (${franchise})` : null,
-      `${name} (character)`
-    ].filter(Boolean);
-
-    let url = null;
-    for (const title of exactCandidates) {
-      url = await safeStep(`"${name}" — wikipedia exact "${title}"`, () => fetchExactPage(title));
-      if (url) break;
-    }
-    if (!url && version) url = await safeStep(`"${name}" — wikipedia search (version)`, () => searchWikipediaImage(`${name} ${version} ${franchise || ''}`.trim(), name));
-    if (!url) url = await safeStep(`"${name}" — wikipedia search (franchise)`, () => searchWikipediaImage(franchise ? `${name} ${franchise}` : name, name));
-    if (!url) url = await safeStep(`"${name}" — wikipedia search (plain)`, () => searchWikipediaImage(name, name));
-
-    characterImageCache[cacheKey] = url;
-    console.info(`[character image] "${name}"${version ? ` (${version})` : ''} resolved to:`, url || '(no photo found — using placeholder)');
-    return url;
-  }
-
-  // Renders the placeholder immediately, then swaps in the real photo (if one
-  // is found) once it loads, so the UI never blocks on the network request.
-  function setAvatarPhoto(el, name, initials, altSuffix, hint, version){
-    el.innerHTML = `<img src="${avatarUrl(name, initials)}" alt="${name}${altSuffix || ''}">`;
-    fetchCharacterImage(name, hint, version).then(url => {
-      if (!url) return;
-      const img = el.querySelector('img');
-      if (!img) return;
-      const real = new Image();
-      real.onload = () => { img.src = url; };
-      real.src = url;
-    });
-  }
-
-  // For photos rendered via innerHTML template strings (compare tool,
-  // leaderboard, team list): mark the <img> with data-char-photo="Name",
-  // optionally data-char-hint="Franchise" and data-char-version="Version",
-  // and call this after inserting the HTML to upgrade placeholders to real
-  // photos.
-  function hydrateCharacterPhotos(root){
-    root.querySelectorAll('img[data-char-photo]').forEach(img => {
-      const name = img.getAttribute('data-char-photo');
-      const hint = img.getAttribute('data-char-hint') || FRANCHISE_HINTS[name];
-      const version = img.getAttribute('data-char-version') || undefined;
-      fetchCharacterImage(name, hint, version).then(url => {
-        if (!url) return;
-        const real = new Image();
-        real.onload = () => { img.src = url; };
-        real.src = url;
-      });
-    });
-  }
-
   function renderHero(){
     const m = matchups[activeIdx];
-    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
-    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
+    heroAvatarA.innerHTML = `<img src="${avatarUrl(m.a.name, m.a.initials)}" alt="${m.a.name} avatar">`;
+    heroAvatarB.innerHTML = `<img src="${avatarUrl(m.b.name, m.b.initials)}" alt="${m.b.name} avatar">`;
     heroNameA.textContent = m.a.name.toUpperCase();
     heroNameB.textContent = m.b.name.toUpperCase();
     heroSubA.textContent = m.a.sub;
     heroSubB.textContent = m.b.sub;
-    // If it's the same character in both slots (a version-vs-version grudge
-    // match like Base Goku vs Ultra Instinct Goku), the vote buttons need
-    // the version in the label too, or they'd read identically.
-    const sameBase = m.a.name.toLowerCase() === m.b.name.toLowerCase();
-    voteBtnA.textContent = (sameBase && m.a.version) ? `${m.a.name.split(' ')[0]} (${m.a.version})` : m.a.name.split(' ')[0];
-    voteBtnB.textContent = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
+    voteBtnA.textContent = m.a.name.split(' ')[0];
+    voteBtnB.textContent = m.b.name.split(' ')[0];
     aiStatsResult.innerHTML = 'Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.';
     updatePercentages();
     const voted = votedState[activeIdx];
@@ -1694,7 +1443,7 @@
     const m = matchups[activeIdx];
     const total = m.votesA + m.votesB;
     heroVoteCount.textContent = total.toLocaleString();
-    const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
+    const pctA = Math.round((m.votesA / total) * 100);
     const pctB = 100 - pctA;
     voteBar.style.width = pctA + '%';
     votePctA.textContent = `${pctA}% ${m.a.name.split(' ')[0]}`;
@@ -1739,9 +1488,16 @@
     return name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase();
   }
 
+  function populateCompareSelects(){
+    const options = rosterNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+    compareCharA.innerHTML = options;
+    compareCharB.innerHTML = options;
+    compareCharA.value = rosterNames[0];
+    compareCharB.value = rosterNames[1] || rosterNames[0];
+  }
+  populateCompareSelects();
+
   document.getElementById('qaCompare').addEventListener('click', () => {
-    compareCharA.value = '';
-    compareCharB.value = '';
     compareResult.hidden = true;
     compareOverlay.classList.add('show');
   });
@@ -1751,22 +1507,13 @@
   });
 
   compareSubmit.addEventListener('click', () => {
-    const nameA = compareCharA.value.trim();
-    const nameB = compareCharB.value.trim();
-    if (!nameA || !nameB) {
-      showToast('Enter both characters');
-      return;
-    }
-    if (nameA.toLowerCase() === nameB.toLowerCase()) {
+    const nameA = compareCharA.value;
+    const nameB = compareCharB.value;
+    if (nameA === nameB) {
       showToast('Pick two different characters');
       return;
     }
     withSpinner(compareSubmit, 'COMPARING…', () => {
-      // Any character can be searched; only ones in our curated roster have
-      // hand-tuned stats — everyone else gets a flat baseline with a note,
-      // rather than silently passing off a guess as real analysis.
-      const knownA = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameA);
-      const knownB = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameB);
       const statsA = aiStatsProfiles[nameA] || [70,70,70,70];
       const statsB = aiStatsProfiles[nameB] || [70,70,70,70];
       const labels = ['Strength', 'Speed', 'Durability', 'Battle IQ'];
@@ -1779,20 +1526,14 @@
           <div class="ai-stat-track"><div class="ai-stat-fill" style="width:${Math.max(statsA[i], statsB[i])}%"></div></div>
           <span>${statsA[i]} · ${statsB[i]}</span>
         </div>`).join('');
-      let note = "Stats reflect this app's own ratings, not an official source — reasonable people will disagree.";
-      if (!knownA || !knownB) {
-        const missing = [!knownA ? nameA : null, !knownB ? nameB : null].filter(Boolean).join(' and ');
-        note = `No hand-rated profile yet for ${missing} — showing a flat baseline until stats are added. ${note}`;
-      }
       compareResult.hidden = false;
       compareResult.innerHTML = `
         <div class="compare-heads">
-          <div class="compare-head"><img data-char-photo="${escapeHtml(nameA)}" src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
-          <div class="compare-head"><img data-char-photo="${escapeHtml(nameB)}" src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
+          <div class="compare-head"><img src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
+          <div class="compare-head"><img src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
         </div>
         <div class="ai-stat-bars">${bars}</div>
-        <div class="compare-verdict">${verdict} ${note}</div>`;
-      hydrateCharacterPhotos(compareResult);
+        <div class="compare-verdict">${verdict} Stats reflect this app's own ratings, not an official source — reasonable people will disagree.</div>`;
     }, 700);
   });
 
@@ -1805,9 +1546,8 @@
     const totals = {};
     matchups.forEach(m => {
       [[m.a, m.votesA], [m.b, m.votesB]].forEach(([char, votes]) => {
-        const key = charLabel(char); // different versions rank separately
-        if (!totals[key]) totals[key] = { name: char.name, version: char.version, hint: char.hint, label: key, sub: char.sub, initials: char.initials, votes: 0 };
-        totals[key].votes += votes;
+        if (!totals[char.name]) totals[char.name] = { name: char.name, sub: char.sub, initials: char.initials, votes: 0 };
+        totals[char.name].votes += votes;
       });
     });
     return Object.values(totals).sort((x, y) => y.votes - x.votes);
@@ -1819,14 +1559,13 @@
     leaderboardList.innerHTML = ranked.map((entry, index) => `
       <div class="leaderboard-row ${index < 3 ? 'top' + (index + 1) : ''}">
         <div class="leaderboard-rank">${medals[index] || (index + 1)}</div>
-        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.hint || '')}" data-char-version="${escapeHtml(entry.version || '')}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
+        <img class="leaderboard-avatar" src="${avatarUrl(entry.name, entry.initials)}" alt="">
         <div class="leaderboard-info">
-          <div class="leaderboard-name">${escapeHtml(entry.label)}</div>
+          <div class="leaderboard-name">${escapeHtml(entry.name)}</div>
           <div class="leaderboard-sub">${escapeHtml(entry.sub)}</div>
         </div>
         <div class="leaderboard-votes">${entry.votes.toLocaleString()}<br>votes</div>
       </div>`).join('');
-    hydrateCharacterPhotos(leaderboardList);
   }
 
   document.getElementById('qaLeaderboard').addEventListener('click', () => {
@@ -1843,8 +1582,6 @@
   const submitOverlay = document.getElementById('submitOverlay');
   const submitCharA = document.getElementById('submitCharA');
   const submitCharB = document.getElementById('submitCharB');
-  const submitVersionA = document.getElementById('submitVersionA');
-  const submitVersionB = document.getElementById('submitVersionB');
   const submitMatchupBtn = document.getElementById('submitMatchupBtn');
   const characterSuggestions = document.getElementById('characterSuggestions');
 
@@ -1858,8 +1595,6 @@
   document.getElementById('submitMatchupLink').addEventListener('click', () => {
     submitCharA.value = '';
     submitCharB.value = '';
-    submitVersionA.value = '';
-    submitVersionB.value = '';
     refreshCharacterSuggestions();
     submitOverlay.classList.add('show');
   });
@@ -1871,25 +1606,18 @@
   submitMatchupBtn.addEventListener('click', () => {
     const nameA = submitCharA.value.trim();
     const nameB = submitCharB.value.trim();
-    const versionA = submitVersionA.value.trim();
-    const versionB = submitVersionB.value.trim();
     if (!nameA || !nameB) {
       showToast('Enter both characters');
       return;
     }
-    // Same character is allowed if the versions differ (Base Goku vs Ultra
-    // Instinct Goku is a legit matchup) — only block a true exact duplicate.
-    if (nameA.toLowerCase() === nameB.toLowerCase() && versionA.toLowerCase() === versionB.toLowerCase()) {
-      showToast(versionA ? 'Pick two different versions' : 'Pick two different characters, or add a version');
+    if (nameA.toLowerCase() === nameB.toLowerCase()) {
+      showToast('Pick two different characters');
       return;
     }
-    const keyA = `${nameA.toLowerCase()}|${versionA.toLowerCase()}`;
-    const keyB = `${nameB.toLowerCase()}|${versionB.toLowerCase()}`;
-    const duplicate = matchups.some(m => {
-      const mKeyA = `${m.a.name.toLowerCase()}|${(m.a.version || '').toLowerCase()}`;
-      const mKeyB = `${m.b.name.toLowerCase()}|${(m.b.version || '').toLowerCase()}`;
-      return (mKeyA === keyA && mKeyB === keyB) || (mKeyA === keyB && mKeyB === keyA);
-    });
+    const duplicate = matchups.some(m =>
+      (m.a.name.toLowerCase() === nameA.toLowerCase() && m.b.name.toLowerCase() === nameB.toLowerCase()) ||
+      (m.a.name.toLowerCase() === nameB.toLowerCase() && m.b.name.toLowerCase() === nameA.toLowerCase())
+    );
     if (duplicate) {
       showToast('That matchup already exists — vote on it below');
       submitOverlay.classList.remove('show');
@@ -1897,8 +1625,8 @@
     }
     withSpinner(submitMatchupBtn, 'POSTING…', () => {
       matchups.push({
-        a: { name: nameA, version: versionA, sub: versionA || 'Fan Submission', initials: initialsFor(nameA) },
-        b: { name: nameB, version: versionB, sub: versionB || 'Fan Submission', initials: initialsFor(nameB) },
+        a: { name: nameA, sub: 'Fan Submission', initials: initialsFor(nameA) },
+        b: { name: nameB, sub: 'Fan Submission', initials: initialsFor(nameB) },
         votesA: 0, votesB: 0, community: true
       });
       activeIdx = matchups.length - 1;
@@ -1907,28 +1635,23 @@
       refreshCharacterSuggestions();
       submitOverlay.classList.remove('show');
       document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
-      showToast(`${charLabel(matchups[activeIdx].a)} vs ${charLabel(matchups[activeIdx].b)} is live!`);
+      showToast(`${nameA} vs ${nameB} is live!`);
     }, 700);
   });
 
   // ---------- trending clashes (dynamic, includes user-submitted matchups) ----------
   const trendScroll = document.getElementById('trendScroll');
   function renderTrendScroll(){
-    trendScroll.innerHTML = matchups.map((m, idx) => {
-      const sameBase = m.a.name.toLowerCase() === m.b.name.toLowerCase();
-      const labelA = (sameBase && m.a.version) ? `${m.a.name.split(' ')[0]} (${m.a.version})` : m.a.name.split(' ')[0];
-      const labelB = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
-      return `
+    trendScroll.innerHTML = matchups.map((m, idx) => `
       <div class="trend-card ${idx === activeIdx ? 'active-card' : ''}" data-matchup="${idx}">
         <div class="trend-vs">
           <div class="mini-avatar hi">${escapeHtml(m.a.initials)}</div>
           <div class="mini-vs">VS</div>
           <div class="mini-avatar lo">${escapeHtml(m.b.initials)}</div>
         </div>
-        <div class="trend-label">${escapeHtml(labelA)} vs ${escapeHtml(labelB)}</div>
+        <div class="trend-label">${escapeHtml(m.a.name.split(' ')[0])} vs ${escapeHtml(m.b.name.split(' ')[0])}</div>
         <div class="trend-votes">${(m.votesA + m.votesB).toLocaleString()} votes${m.community ? ' · Community' : ''}</div>
-      </div>`;
-    }).join('');
+      </div>`).join('');
   }
   renderTrendScroll();
 
@@ -2160,9 +1883,8 @@
   function renderTeams(){
     const render = (list, team) => {
       list.innerHTML = teams[team].map((name, index) =>
-        `<li><span class="team-character"><img data-char-photo="${escapeHtml(name)}" src="${avatarUrl(name, name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase())}" alt=""><span>${escapeHtml(name)}</span></span><button type="button" data-remove-team="${team}" data-remove-index="${index}" aria-label="Remove ${escapeHtml(name)}">×</button></li>`
+        `<li><span class="team-character"><img src="${avatarUrl(name, name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase())}" alt=""><span>${escapeHtml(name)}</span></span><button type="button" data-remove-team="${team}" data-remove-index="${index}" aria-label="Remove ${escapeHtml(name)}">×</button></li>`
       ).join('');
-      hydrateCharacterPhotos(list);
     };
     render(teamAlphaList, 'alpha');
     render(teamOmegaList, 'omega');
@@ -2319,30 +2041,6 @@
   const removeAvatarBtn = document.getElementById('removeAvatarBtn');
   let avatarDataUrl = '';
 
-  // ---------- topbar sign-in icon <-> avatar ----------
-  const signinBtn = document.getElementById('signinBtn');
-  const SIGNIN_DEFAULT_ICON = signinBtn.innerHTML;
-
-  function syncTopbarAvatar(){
-    const user = window.firebaseAuth && window.firebaseAuth.currentUser;
-    if (user) {
-      signinBtn.classList.add('is-avatar');
-      signinBtn.setAttribute('aria-label', 'Account menu');
-      signinBtn.title = 'Account';
-      if (avatarDataUrl) {
-        signinBtn.innerHTML = `<img src="${avatarDataUrl}" alt="Profile picture">`;
-      } else {
-        const name = profileName.value.trim() || user.displayName || (user.email ? user.email.split('@')[0] : '') || 'Your account';
-        signinBtn.textContent = name === 'Your account' ? 'YU' : name.trim().charAt(0).toUpperCase();
-      }
-    } else {
-      signinBtn.classList.remove('is-avatar');
-      signinBtn.setAttribute('aria-label', 'Sign in');
-      signinBtn.title = 'Sign in';
-      signinBtn.innerHTML = SIGNIN_DEFAULT_ICON;
-    }
-  }
-
   function renderAvatar(){
     if (avatarDataUrl) {
       accountAvatar.innerHTML = `<img src="${avatarDataUrl}" alt="Profile picture">`;
@@ -2352,7 +2050,6 @@
       accountAvatar.textContent = name === 'Your account' ? 'YU' : name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase();
       removeAvatarBtn.hidden = true;
     }
-    syncTopbarAvatar();
   }
 
   function updateAccountHeader(){
@@ -2437,51 +2134,9 @@
       case 'auth/wrong-password':
       case 'auth/invalid-credential': return 'Incorrect email or password';
       case 'auth/popup-closed-by-user': return 'Sign-in popup closed';
-      case 'auth/popup-blocked': return 'Pop-up blocked — check your browser\'s pop-up settings';
-      case 'auth/unauthorized-domain': return 'This domain isn\'t authorized for Google sign-in yet';
-      case 'auth/cancelled-popup-request': return 'Sign-in already in progress';
       default: return 'Something went wrong — please try again';
     }
   }
-
-  // Immediate (non-delayed) button loading helper — used for popup-based sign-in
-  // so the call to signInWithPopup happens synchronously inside the click handler.
-  // Wrapping it in a setTimeout (like withSpinner does) breaks the "user gesture"
-  // requirement and causes browsers to silently block the Google popup.
-  function beginLoading(btn, loadingLabel){
-    if (btn.disabled) return null;
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = `<span class="btn-spinner"></span><span>${loadingLabel}</span>`;
-    return () => { btn.innerHTML = original; btn.disabled = false; };
-  }
-
-  function googleSignIn(btn, onSuccess){
-    const endLoading = beginLoading(btn, 'CONNECTING…');
-    if (!endLoading) return;
-    signInWithPopup(auth, googleProvider)
-      .then(() => { endLoading(); onSuccess(); })
-      .catch((error) => {
-        // If the popup itself couldn't open (blocked, or unsupported in this
-        // environment, e.g. an embedded/sandboxed webview), fall back to a
-        // full-page redirect flow instead of failing silently.
-        if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
-          signInWithRedirect(auth, googleProvider).catch((redirectError) => {
-            endLoading();
-            showToast(authErrorMessage(redirectError));
-          });
-          return;
-        }
-        endLoading();
-        showToast(authErrorMessage(error));
-      });
-  }
-
-  // Handle the case where signInWithPopup fell back to signInWithRedirect —
-  // the result comes back here after the page reloads.
-  getRedirectResult(auth).then((result) => {
-    if (result && result.user) showToast('Signed in with Google');
-  }).catch((error) => showToast(authErrorMessage(error)));
 
   async function emailSignInOrSignUp(email, password){
     try {
@@ -2507,8 +2162,6 @@
       signedOutView.hidden = false;
       signedInView.hidden = true;
       signedInEmail.textContent = '';
-      syncTopbarAvatar();
-      closeAccountDropdown();
     }
   });
 
@@ -2518,7 +2171,11 @@
 
   const googleSignInBtn = document.getElementById('googleSignIn');
   googleSignInBtn.addEventListener('click', () => {
-    googleSignIn(googleSignInBtn, () => showToast('Signed in with Google'));
+    withSpinner(googleSignInBtn, 'CONNECTING…', () => {
+      signInWithPopup(auth, googleProvider)
+        .then(() => showToast('Signed in with Google'))
+        .catch((error) => showToast(authErrorMessage(error)));
+    });
   });
   const emailSignInBtn = document.getElementById('emailSignIn');
   emailSignInBtn.addEventListener('click', () => {
@@ -2575,51 +2232,27 @@
   });
 
   // ---------- sign-in modal ----------
+  const signinBtn = document.getElementById('signinBtn');
   const signinOverlay = document.getElementById('signinOverlay');
   const signinCancel = document.getElementById('signinCancel');
   const signinSubmit = document.getElementById('signinSubmit');
   const signinEmail = document.getElementById('signinEmail');
   const signinPassword = document.getElementById('signinPassword');
 
-  // ---------- topbar account menu ----------
-  const accountMenuWrap = document.getElementById('accountMenuWrap');
-  const accountDropdown = document.getElementById('accountDropdown');
-  const dropdownAccountBtn = document.getElementById('dropdownAccountBtn');
-  const dropdownSignOutBtn = document.getElementById('dropdownSignOutBtn');
-
-  function closeAccountDropdown(){ accountDropdown.hidden = true; }
-  function toggleAccountDropdown(){ accountDropdown.hidden = !accountDropdown.hidden; }
-
-  signinBtn.addEventListener('click', (e) => {
-    if (auth.currentUser) {
-      e.stopPropagation();
-      toggleAccountDropdown();
-    } else {
-      signinOverlay.classList.add('show');
-    }
-  });
-  document.addEventListener('click', (e) => {
-    if (!accountDropdown.hidden && !accountMenuWrap.contains(e.target)) closeAccountDropdown();
-  });
-  dropdownAccountBtn.addEventListener('click', () => {
-    closeAccountDropdown();
-    const accountNavItem = document.querySelector('.nav-item[data-nav="Account"]');
-    if (accountNavItem) accountNavItem.click();
-  });
-  dropdownSignOutBtn.addEventListener('click', () => {
-    closeAccountDropdown();
-    signOut(auth).then(() => showToast('Signed out'));
-  });
-
+  signinBtn.addEventListener('click', () => signinOverlay.classList.add('show'));
   signinCancel.addEventListener('click', () => signinOverlay.classList.remove('show'));
   signinOverlay.addEventListener('click', (e) => {
     if (e.target === signinOverlay) signinOverlay.classList.remove('show');
   });
   const modalGoogleSignIn = document.getElementById('modalGoogleSignIn');
   modalGoogleSignIn.addEventListener('click', () => {
-    googleSignIn(modalGoogleSignIn, () => {
-      signinOverlay.classList.remove('show');
-      showToast('Signed in with Google');
+    withSpinner(modalGoogleSignIn, 'CONNECTING…', () => {
+      signInWithPopup(auth, googleProvider)
+        .then(() => {
+          signinOverlay.classList.remove('show');
+          showToast('Signed in with Google');
+        })
+        .catch((error) => showToast(authErrorMessage(error)));
     });
   });
   signinSubmit.addEventListener('click', () => {
