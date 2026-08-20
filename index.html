@@ -1502,62 +1502,37 @@
     'The Terminator':'film', 'Ellen Ripley':'Alien film', 'Rocky Balboa':'film'
   };
 
-  // 4) FANDOM_WIKIS — the fandom.com wiki subdomain for a franchise, used to
-  //    look up a character's own wiki page when Wikipedia doesn't have (or
-  //    has merged away) a standalone article for them — e.g. "All Might"
-  //    isn't its own Wikipedia page, but has a proper page with official art
-  //    on the My Hero Academia wiki. Same MediaWiki API shape as Wikipedia,
-  //    just a different host.
-  const FANDOM_WIKIS = {
-    'Jujutsu Kaisen':'jujutsu-kaisen', 'One Punch Man':'onepunchman', 'Dragon Ball':'dragonball',
-    'Naruto':'naruto', 'One Piece':'onepiece', 'Bleach':'bleach', 'Attack on Titan':'attackontitan',
-    'My Hero Academia':'myheroacademia', 'Death Note':'deathnote', 'Fullmetal Alchemist':'fma',
-    'Fairy Tail':'fairytail', 'Hunter x Hunter':'hunterxhunter', 'Seven Deadly Sins':'nanatsu-no-taizai',
-    'That Time I Got Reincarnated as a Slime':'tensura', 'Marvel Comics':'marvel', 'DC Comics':'dc',
-    'Halo':'halo', 'God of War':'godofwar', 'The Legend of Zelda':'zelda', 'Final Fantasy VII':'finalfantasy',
-    'Devil May Cry':'devilmaycry', 'The Witcher':'witcher', 'Metal Gear':'metalgear',
-    'Doom video game':'doom', 'Pirates of the Caribbean':'pirates', 'The Matrix':'matrix',
-    'Star Wars':'starwars', 'Alien film':'avp'
-  };
-
-  // Looks up a real photo for a character. Order:
+  // Looks up a real photo for a character, using Wikipedia only:
   //   1. Manual override (no network call)
-  //   2. Exact-title Wikipedia lookups (curated title, then plain name, then
-  //      a couple of common disambiguation patterns) via redirects=1 — a
+  //   2. Exact-title lookups (curated title, then plain name, then a
+  //      couple of common disambiguation patterns) via redirects=1 — a
   //      direct title match is the most reliable source there is.
-  //   3. The franchise's Fandom wiki, exact title — catches characters
-  //      Wikipedia doesn't have a standalone page for (common for anime/
-  //      game side characters merged into a "List of..." article), while
-  //      still being an exact-title lookup rather than a guess.
-  //   4. Full-text Wikipedia search as a last resort, for names with no good
-  //      exact title anywhere (mostly obscure or user-submitted characters).
-  //      Title-checked against the character name so it can't drift onto an
-  //      unrelated page (e.g. a real person coincidentally sharing the name).
-  //   5. Jikan (MyAnimeList), only if nothing above found anything — it
-  //      matches by loose name/nickname search across its whole database,
-  //      which can pull in the wrong character's art from an unrelated
-  //      anime, so it's a last resort rather than a first stop.
+  //   3. Full-text search as a last resort, for names with no good exact
+  //      title (mostly obscure or user-submitted characters). Title-checked
+  //      against the character name so it can't drift onto an unrelated
+  //      page (e.g. a real person coincidentally sharing the name).
   // Disambiguation pages are always skipped. Falls back to the generated
   // placeholder avatar if nothing usable is found anywhere.
   const characterImageCache = {}; // name -> url string | null (null = no photo found, use placeholder)
 
-  async function fetchJikanImage(name){
+  // Every network step below is wrapped through this so a single failing
+  // source can only ever cost that ONE step — it logs and returns null
+  // instead of throwing, so remaining fallback attempts still get a chance
+  // to run. Open devtools → Console and look for "[character image]" lines
+  // to see exactly what's resolving (or failing) for a given character.
+  async function safeStep(label, run){
     try {
-      const res = await fetch(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(name)}&limit=5`);
-      if (!res.ok) return null;
-      const data = await res.json();
-      const results = (data && data.data) || [];
-      const normalized = name.trim().toLowerCase();
-      const match = results.find(c => c.name && c.name.trim().toLowerCase() === normalized)
-        || results.find(c => Array.isArray(c.nicknames) && c.nicknames.some(n => n.trim().toLowerCase() === normalized));
-      return (match && match.images && match.images.jpg && match.images.jpg.image_url) ? match.images.jpg.image_url : null;
+      const result = await run();
+      console.debug(`[character image] ${label} →`, result || '(no match)');
+      return result;
     } catch (err) {
+      console.warn(`[character image] ${label} FAILED:`, err);
       return null;
     }
   }
 
-  async function fetchExactPage(title, domain){
-    const url = `https://${domain || 'en.wikipedia.org'}/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
+  async function fetchExactPage(title){
+    const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
@@ -1567,28 +1542,6 @@
     if (!page || page.missing !== undefined) return null; // title doesn't exist
     if (page.pageprops && page.pageprops.disambiguation !== undefined) return null; // e.g. "Flash (disambiguation)"
     return (page.thumbnail && page.thumbnail.source) ? page.thumbnail.source : null;
-  }
-
-  // Tries a character's own name as the page title on their franchise's
-  // Fandom wiki (falls back to "Name (character)" too, since some wikis
-  // disambiguate that way). Returns null immediately if the franchise has
-  // no known wiki mapped. Self-contained try/catch: Fandom wikis don't
-  // reliably support cross-origin requests the way Wikipedia does, so a
-  // blocked/failed call here must never take down the rest of the lookup
-  // chain (that was the "not even one is showing up" regression — an
-  // uncaught Fandom error was bubbling up and skipping the Wikipedia
-  // search and Jikan fallbacks entirely).
-  async function fetchFandomImage(name, franchise){
-    const subdomain = FANDOM_WIKIS[franchise];
-    if (!subdomain) return null;
-    try {
-      const domain = `${subdomain}.fandom.com`;
-      let url = await fetchExactPage(name, domain);
-      if (!url) url = await fetchExactPage(`${name} (character)`, domain);
-      return url;
-    } catch (err) {
-      return null;
-    }
   }
 
   async function searchWikipediaImage(query, name){
@@ -1629,33 +1582,24 @@
     if (Object.prototype.hasOwnProperty.call(characterImageCache, name)) {
       return characterImageCache[name];
     }
+    const franchise = hint || FRANCHISE_HINTS[name];
+    const exactCandidates = [
+      WIKI_TITLE_OVERRIDES[name],
+      name,
+      franchise ? `${name} (${franchise})` : null,
+      `${name} (character)`
+    ].filter(Boolean);
+
     let url = null;
-    try {
-      // Wikipedia's exact-title lookups (curated title, then plain name,
-      // then franchise-qualified variants) go first — a direct title match
-      // is far more reliable than Jikan's loose name/nickname search across
-      // its whole database, which was pulling in the wrong character's art
-      // from an unrelated anime. Jikan is now only a last resort, after
-      // every Wikipedia exact-title candidate has failed.
-      const franchise = hint || FRANCHISE_HINTS[name];
-      const exactCandidates = [
-        WIKI_TITLE_OVERRIDES[name],
-        name,
-        franchise ? `${name} (${franchise})` : null,
-        `${name} (character)`
-      ].filter(Boolean);
-      for (const title of exactCandidates) {
-        url = await fetchExactPage(title);
-        if (url) break;
-      }
-      if (!url) url = await fetchFandomImage(name, franchise);
-      if (!url) url = await searchWikipediaImage(franchise ? `${name} ${franchise}` : name, name);
-      if (!url) url = await searchWikipediaImage(name, name);
-      if (!url) url = await fetchJikanImage(name);
-    } catch (err) {
-      url = null;
+    for (const title of exactCandidates) {
+      url = await safeStep(`"${name}" — wikipedia exact "${title}"`, () => fetchExactPage(title));
+      if (url) break;
     }
+    if (!url) url = await safeStep(`"${name}" — wikipedia search (franchise)`, () => searchWikipediaImage(franchise ? `${name} ${franchise}` : name, name));
+    if (!url) url = await safeStep(`"${name}" — wikipedia search (plain)`, () => searchWikipediaImage(name, name));
+
     characterImageCache[name] = url;
+    console.info(`[character image] "${name}" resolved to:`, url || '(no photo found — using placeholder)');
     return url;
   }
 
