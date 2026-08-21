@@ -1231,11 +1231,17 @@
   <div class="modal-overlay" id="compareOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Compare Characters</div>
-      <div class="modal-sub">Search any two characters — from any movie, anime, or show — to see how they stack up.</div>
+      <div class="modal-sub">Search any two characters — from any movie, anime, or show. Add a source for uncommon names (e.g. "DC" for Lobo) to get the right photo.</div>
       <div class="compare-pickers">
-        <input class="modal-input compare-select submit-input" id="compareCharA" type="text" list="characterSuggestions" placeholder="Character A" aria-label="First character" maxlength="40">
+        <div class="submit-char-col">
+          <input class="modal-input compare-select submit-input" id="compareCharA" type="text" list="characterSuggestions" placeholder="Character A" aria-label="First character" maxlength="40">
+          <input class="modal-input submit-version-input" id="compareSourceA" type="text" placeholder="Source (optional)" maxlength="30">
+        </div>
         <div class="compare-vs">VS</div>
-        <input class="modal-input compare-select submit-input" id="compareCharB" type="text" list="characterSuggestions" placeholder="Character B" aria-label="Second character" maxlength="40">
+        <div class="submit-char-col">
+          <input class="modal-input compare-select submit-input" id="compareCharB" type="text" list="characterSuggestions" placeholder="Character B" aria-label="Second character" maxlength="40">
+          <input class="modal-input submit-version-input" id="compareSourceB" type="text" placeholder="Source (optional)" maxlength="30">
+        </div>
       </div>
       <button class="modal-submit" id="compareSubmit" type="button">Compare</button>
       <div class="compare-result" id="compareResult" hidden></div>
@@ -1271,15 +1277,17 @@
   <div class="modal-overlay" id="submitOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Submit a Matchup</div>
-      <div class="modal-sub">Pick two characters — from any movie, anime, or show. Add a version if it matters (e.g. Base, Ultra Instinct, Six Paths Sage Mode).</div>
+      <div class="modal-sub">Pick two characters — from any movie, anime, or show. Add a source if it's an uncommon name (e.g. "DC" for Lobo) and a version if it matters (e.g. Ultra Instinct).</div>
       <div class="compare-pickers">
         <div class="submit-char-col">
           <input class="modal-input compare-select submit-input" id="submitCharA" type="text" list="characterSuggestions" placeholder="Character A" maxlength="40">
+          <input class="modal-input submit-version-input" id="submitSourceA" type="text" placeholder="Source (optional) e.g. Marvel" maxlength="30">
           <input class="modal-input submit-version-input" id="submitVersionA" type="text" placeholder="Version (optional)" maxlength="30">
         </div>
         <div class="compare-vs">VS</div>
         <div class="submit-char-col">
           <input class="modal-input compare-select submit-input" id="submitCharB" type="text" list="characterSuggestions" placeholder="Character B" maxlength="40">
+          <input class="modal-input submit-version-input" id="submitSourceB" type="text" placeholder="Source (optional) e.g. DC" maxlength="30">
           <input class="modal-input submit-version-input" id="submitVersionB" type="text" placeholder="Version (optional)" maxlength="30">
         </div>
       </div>
@@ -1453,9 +1461,31 @@
     // 'RKT': 'https://example.com/path/to/rkt-art.png',
   };
 
-  // 2) FRANCHISE_HINTS — disambiguates common one-word names in the search
-  //    query (e.g. plain "Thor" could match the Norse god rather than the
-  //    Marvel hero) by adding franchise context.
+  // 2) WIKI_TITLE_OVERRIDES — the exact Wikipedia article title for a
+  //    character, when it differs from the display name (e.g. "Naruto" the
+  //    display name is the *series*; the character's own article is titled
+  //    "Naruto Uzumaki"). This is what actually fixes "wrong picture" bugs —
+  //    a direct title lookup can't drift onto an unrelated page the way a
+  //    full-text search can. `redirects=1` in the fetch below means a
+  //    slightly-off guess here still resolves correctly as long as it
+  //    redirects to the right place.
+  const WIKI_TITLE_OVERRIDES = {
+    'Gojo Satoru':'Satoru Gojo', 'Saitama':'Saitama (One-Punch Man)',
+    'Naruto':'Naruto Uzumaki', 'Thor':'Thor (Marvel Comics)',
+    'Hulk':'Hulk (character)', 'Wolverine':'Wolverine (character)',
+    'Deadpool':'Deadpool (character)', 'Doctor Strange':'Doctor Strange (character)',
+    'Scarlet Witch':'Wanda Maximoff', 'Magneto':'Magneto (character)',
+    'Venom':'Venom (character)', 'The Flash':'Flash (character)',
+    'Joker':'Joker (character)', 'Master Chief':'Master Chief (Halo)',
+    'Kratos':'Kratos (God of War)', 'Link':'Link (The Legend of Zelda)',
+    'Sephiroth':'Sephiroth (Final Fantasy)', 'Dante':'Dante (Devil May Cry)',
+    'Doom Slayer':'Doomguy', 'John Wick':'John Wick (character)',
+    'Neo':'Neo (The Matrix)', 'The Terminator':'The Terminator (character)'
+  };
+
+  // 3) FRANCHISE_HINTS — disambiguates common one-word names in the search
+  //    fallback (e.g. plain "Thor" resolves to the Norse god on Wikipedia,
+  //    not the Marvel hero) by adding franchise context to the query.
   const FRANCHISE_HINTS = {
     'Gojo Satoru':'Jujutsu Kaisen', 'Saitama':'One Punch Man', 'Goku':'Dragon Ball',
     'Vegeta':'Dragon Ball', 'Naruto':'Naruto', 'Sasuke Uchiha':'Naruto',
@@ -1480,49 +1510,79 @@
     'The Terminator':'film', 'Ellen Ripley':'Alien film', 'Rocky Balboa':'film'
   };
 
-  // Looks up a real photo for a character. Order:
+  // Looks up a real photo for a character, using Wikipedia only:
   //   1. Manual override (no network call)
-  //   2. Jikan (MyAnimeList) — for anime/manga characters this is far more
-  //      reliable than any general-purpose source: it's a purpose-built
-  //      character database, so a match is guaranteed to be *that*
-  //      character's own art, never a random page about the wider series.
-  //      Only accepted on an exact name/nickname match, so it never guesses.
-  //   3. Comic Vine — for movies, comics, and games (what Jikan doesn't
-  //      cover). This goes through /api/character-image because Comic
-  //      Vine's API has no CORS support and needs a private key, so it
-  //      can't be called directly from the browser like Jikan can.
-  // Falls back to the generated placeholder avatar if nothing usable is
-  // found anywhere (or if Comic Vine simply doesn't have that character —
-  // its coverage is strongest for Marvel/DC and thinner for pure movie/game
-  // characters).
+  //   2. Exact-title lookups (curated title, then plain name, then a
+  //      couple of common disambiguation patterns) via redirects=1 — a
+  //      direct title match is the most reliable source there is.
+  //   3. Full-text search as a last resort, for names with no good exact
+  //      title (mostly obscure or user-submitted characters). Title-checked
+  //      against the character name so it can't drift onto an unrelated
+  //      page (e.g. a real person coincidentally sharing the name).
+  // Disambiguation pages are always skipped. Falls back to the generated
+  // placeholder avatar if nothing usable is found anywhere.
   const characterImageCache = {}; // name -> url string | null (null = no photo found, use placeholder)
 
-  async function fetchJikanImage(name){
+  // Every network step below is wrapped through this so a single failing
+  // source can only ever cost that ONE step — it logs and returns null
+  // instead of throwing, so remaining fallback attempts still get a chance
+  // to run. Open devtools → Console and look for "[character image]" lines
+  // to see exactly what's resolving (or failing) for a given character.
+  async function safeStep(label, run){
     try {
-      const res = await fetch(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(name)}&limit=5`);
-      if (!res.ok) return null;
-      const data = await res.json();
-      const results = (data && data.data) || [];
-      const normalized = name.trim().toLowerCase();
-      const match = results.find(c => c.name && c.name.trim().toLowerCase() === normalized)
-        || results.find(c => Array.isArray(c.nicknames) && c.nicknames.some(n => n.trim().toLowerCase() === normalized));
-      return (match && match.images && match.images.jpg && match.images.jpg.image_url) ? match.images.jpg.image_url : null;
+      const result = await run();
+      console.debug(`[character image] ${label} →`, result || '(no match)');
+      return result;
     } catch (err) {
+      console.warn(`[character image] ${label} FAILED:`, err);
       return null;
     }
   }
 
-  async function fetchComicVineImage(name, hint){
-    try {
-      const params = new URLSearchParams({ name });
-      if (hint) params.set('hint', hint);
-      const res = await fetch(`/api/character-image?${params.toString()}`);
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.url || null;
-    } catch (err) {
-      return null;
+  async function fetchExactPage(title){
+    const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pages = data.query && data.query.pages;
+    if (!pages) return null;
+    const page = Object.values(pages)[0];
+    if (!page || page.missing !== undefined) return null; // title doesn't exist
+    if (page.pageprops && page.pageprops.disambiguation !== undefined) return null; // e.g. "Flash (disambiguation)"
+    return (page.thumbnail && page.thumbnail.source) ? page.thumbnail.source : null;
+  }
+
+  async function searchWikipediaImage(query, name){
+    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=5&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pages = data.query && data.query.pages;
+    if (!pages) return null;
+    // Object.values() order does NOT match search relevance — MediaWiki
+    // returns pages keyed by page ID. The actual rank lives in each page's
+    // own `index` field, so sort by that before picking a candidate. (This
+    // was the main cause of "wrong picture": the old code just grabbed
+    // whichever page happened to come out of Object.values first.)
+    const ranked = Object.values(pages).sort((a, b) => (a.index || 0) - (b.index || 0));
+    // Full-text search can rank an entirely unrelated page highly just
+    // because the query words appear somewhere in its body (e.g. "All
+    // Might" or "Dante" matching a real person of the same name). Only
+    // accept a page whose TITLE is actually the character — either an
+    // exact match, or "Name (something)" — never a loose body-text hit.
+    // This is what previously let real people's photos slip in for
+    // fictional characters like "All Might" or "Dante".
+    const normalizedName = (name || query).trim().toLowerCase();
+    const titleMatches = (title) => {
+      const t = title.trim().toLowerCase();
+      return t === normalizedName || t.startsWith(`${normalizedName} (`);
+    };
+    for (const page of ranked) {
+      if (page.pageprops && page.pageprops.disambiguation !== undefined) continue;
+      if (!page.title || !titleMatches(page.title)) continue;
+      if (page.thumbnail && page.thumbnail.source) return page.thumbnail.source;
     }
+    return null;
   }
 
   async function fetchCharacterImage(name, hint){
@@ -1530,16 +1590,24 @@
     if (Object.prototype.hasOwnProperty.call(characterImageCache, name)) {
       return characterImageCache[name];
     }
+    const franchise = hint || FRANCHISE_HINTS[name];
+    const exactCandidates = [
+      WIKI_TITLE_OVERRIDES[name],
+      name,
+      franchise ? `${name} (${franchise})` : null,
+      `${name} (character)`
+    ].filter(Boolean);
+
     let url = null;
-    try {
-      url = await fetchJikanImage(name);
-      if (!url) {
-        url = await fetchComicVineImage(name, hint || FRANCHISE_HINTS[name]);
-      }
-    } catch (err) {
-      url = null;
+    for (const title of exactCandidates) {
+      url = await safeStep(`"${name}" — wikipedia exact "${title}"`, () => fetchExactPage(title));
+      if (url) break;
     }
+    if (!url) url = await safeStep(`"${name}" — wikipedia search (franchise)`, () => searchWikipediaImage(franchise ? `${name} ${franchise}` : name, name));
+    if (!url) url = await safeStep(`"${name}" — wikipedia search (plain)`, () => searchWikipediaImage(name, name));
+
     characterImageCache[name] = url;
+    console.info(`[character image] "${name}" resolved to:`, url || '(no photo found — using placeholder)');
     return url;
   }
 
@@ -1619,7 +1687,7 @@
     const m = matchups[activeIdx];
     const total = m.votesA + m.votesB;
     heroVoteCount.textContent = total.toLocaleString();
-    const pctA = Math.round((m.votesA / total) * 100);
+    const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
     const pctB = 100 - pctA;
     voteBar.style.width = pctA + '%';
     votePctA.textContent = `${pctA}% ${m.a.name.split(' ')[0]}`;
@@ -1655,6 +1723,8 @@
   const compareOverlay = document.getElementById('compareOverlay');
   const compareCharA = document.getElementById('compareCharA');
   const compareCharB = document.getElementById('compareCharB');
+  const compareSourceA = document.getElementById('compareSourceA');
+  const compareSourceB = document.getElementById('compareSourceB');
   const compareSubmit = document.getElementById('compareSubmit');
   const compareResult = document.getElementById('compareResult');
   const compareClose = document.getElementById('compareClose');
@@ -1667,6 +1737,8 @@
   document.getElementById('qaCompare').addEventListener('click', () => {
     compareCharA.value = '';
     compareCharB.value = '';
+    compareSourceA.value = '';
+    compareSourceB.value = '';
     compareResult.hidden = true;
     compareOverlay.classList.add('show');
   });
@@ -1678,6 +1750,8 @@
   compareSubmit.addEventListener('click', () => {
     const nameA = compareCharA.value.trim();
     const nameB = compareCharB.value.trim();
+    const sourceA = compareSourceA.value.trim();
+    const sourceB = compareSourceB.value.trim();
     if (!nameA || !nameB) {
       showToast('Enter both characters');
       return;
@@ -1712,8 +1786,8 @@
       compareResult.hidden = false;
       compareResult.innerHTML = `
         <div class="compare-heads">
-          <div class="compare-head"><img data-char-photo="${escapeHtml(nameA)}" src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
-          <div class="compare-head"><img data-char-photo="${escapeHtml(nameB)}" src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameA)}" data-char-hint="${escapeHtml(sourceA)}" src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameB)}" data-char-hint="${escapeHtml(sourceB)}" src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
         </div>
         <div class="ai-stat-bars">${bars}</div>
         <div class="compare-verdict">${verdict} ${note}</div>`;
@@ -1768,6 +1842,8 @@
   const submitOverlay = document.getElementById('submitOverlay');
   const submitCharA = document.getElementById('submitCharA');
   const submitCharB = document.getElementById('submitCharB');
+  const submitSourceA = document.getElementById('submitSourceA');
+  const submitSourceB = document.getElementById('submitSourceB');
   const submitVersionA = document.getElementById('submitVersionA');
   const submitVersionB = document.getElementById('submitVersionB');
   const submitMatchupBtn = document.getElementById('submitMatchupBtn');
@@ -1783,6 +1859,8 @@
   document.getElementById('submitMatchupLink').addEventListener('click', () => {
     submitCharA.value = '';
     submitCharB.value = '';
+    submitSourceA.value = '';
+    submitSourceB.value = '';
     submitVersionA.value = '';
     submitVersionB.value = '';
     refreshCharacterSuggestions();
@@ -1796,6 +1874,8 @@
   submitMatchupBtn.addEventListener('click', () => {
     const nameA = submitCharA.value.trim();
     const nameB = submitCharB.value.trim();
+    const sourceA = submitSourceA.value.trim();
+    const sourceB = submitSourceB.value.trim();
     const versionA = submitVersionA.value.trim();
     const versionB = submitVersionB.value.trim();
     if (!nameA || !nameB) {
@@ -1821,9 +1901,15 @@
       return;
     }
     withSpinner(submitMatchupBtn, 'POSTING…', () => {
+      // `hint` (the source/franchise) is used ONLY to disambiguate the
+      // Wikipedia image search — e.g. "Lobo" + "DC" so it doesn't grab the
+      // wrong "Lobo". `sub` is what actually displays under the character's
+      // name, combining version + source if both were given.
+      const subA = [versionA, sourceA].filter(Boolean).join(' · ') || 'Fan Submission';
+      const subB = [versionB, sourceB].filter(Boolean).join(' · ') || 'Fan Submission';
       matchups.push({
-        a: { name: nameA, version: versionA, sub: versionA || 'Fan Submission', initials: initialsFor(nameA) },
-        b: { name: nameB, version: versionB, sub: versionB || 'Fan Submission', initials: initialsFor(nameB) },
+        a: { name: nameA, version: versionA, hint: sourceA || undefined, sub: subA, initials: initialsFor(nameA) },
+        b: { name: nameB, version: versionB, hint: sourceB || undefined, sub: subB, initials: initialsFor(nameB) },
         votesA: 0, votesB: 0, community: true
       });
       activeIdx = matchups.length - 1;
