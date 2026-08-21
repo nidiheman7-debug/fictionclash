@@ -1382,19 +1382,54 @@
   }
 
   // ---------- spinner helper ----------
-  // Shows a spinner inside a button while a (simulated) async action runs,
-  // then restores the button's original content. Swap the setTimeout delay
-  // for a real await once Firebase/Gemini calls are wired in.
-  function withSpinner(btn, loadingLabel, action, delay = 650){
+  // Shows a spinner inside a button while an async action runs, then
+  // restores the button's original content once it resolves (or rejects).
+  function withSpinner(btn, loadingLabel, action, delay = 350){
     if (btn.disabled) return;
     const original = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = `<span class="btn-spinner"></span><span>${loadingLabel}</span>`;
-    setTimeout(() => {
-      action();
-      btn.innerHTML = original;
-      btn.disabled = false;
+    setTimeout(async () => {
+      try {
+        await action();
+      } finally {
+        btn.innerHTML = original;
+        btn.disabled = false;
+      }
     }, delay);
+  }
+
+  // ---------- AI character analysis (Gemini, via /api/character-analysis) ----------
+  // Shared by AI Power Scout (hero), Compare Characters, and Team Builder's
+  // AI feat check — one endpoint, one response shape, three consumers.
+  // Falls back to the local hand-tuned aiStatsProfiles/featProfiles maps if
+  // the API call fails for any reason (not deployed yet, rate limited, no
+  // network) so none of the three features ever hard-break.
+  const aiAnalysisCache = {}; // cacheKey -> parsed response
+
+  function clampStat(n){
+    const num = Math.round(Number(n));
+    return Number.isFinite(num) ? Math.max(0, Math.min(100, num)) : 70;
+  }
+
+  async function fetchCharacterAnalysis(names, question){
+    const cacheKey = `${names.map(n => n.trim().toLowerCase()).sort().join('||')}::${(question || '').trim().toLowerCase()}`;
+    if (aiAnalysisCache[cacheKey]) return aiAnalysisCache[cacheKey];
+    try {
+      const res = await fetch('/api/character-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ characters: names, question: question || undefined })
+      });
+      if (!res.ok) throw new Error('AI analysis request failed: ' + res.status);
+      const data = await res.json();
+      if (!data || typeof data !== 'object' || !data.characters) throw new Error('Unexpected AI response shape');
+      aiAnalysisCache[cacheKey] = data;
+      return data;
+    } catch (err) {
+      console.warn('AI analysis unavailable, falling back to local ratings:', err);
+      return null;
+    }
   }
 
   // ---------- matchup data ----------
@@ -1656,22 +1691,37 @@
   });
 
   aiStatsButton.addEventListener('click', () => {
-    withSpinner(aiStatsButton, 'THINKING…', () => {
+    withSpinner(aiStatsButton, 'THINKING…', async () => {
       const m = matchups[activeIdx];
-      const statsA = aiStatsProfiles[m.a.name] || [70,70,70,70];
-      const statsB = aiStatsProfiles[m.b.name] || [70,70,70,70];
+      const labelA = charLabel(m.a);
+      const labelB = charLabel(m.b);
+      const data = await fetchCharacterAnalysis([labelA, labelB]);
+      const entryA = data && data.characters && (data.characters[labelA] || data.characters[m.a.name]);
+      const entryB = data && data.characters && (data.characters[labelB] || data.characters[m.b.name]);
+      const statsA = entryA
+        ? [clampStat(entryA.strength), clampStat(entryA.speed), clampStat(entryA.durability), clampStat(entryA.battleIQ)]
+        : (aiStatsProfiles[m.a.name] || [70,70,70,70]);
+      const statsB = entryB
+        ? [clampStat(entryB.strength), clampStat(entryB.speed), clampStat(entryB.durability), clampStat(entryB.battleIQ)]
+        : (aiStatsProfiles[m.b.name] || [70,70,70,70]);
       const labels = ['Strength', 'Speed', 'Durability', 'Battle IQ'];
-      const avgA = Math.round(statsA.reduce((sum, value) => sum + value, 0) / statsA.length);
-      const avgB = Math.round(statsB.reduce((sum, value) => sum + value, 0) / statsB.length);
-      const edge = avgA === avgB ? 'This matchup is too close to call.' : `${avgA > avgB ? m.a.name : m.b.name} has the higher overall stat profile.`;
       const bars = labels.map((label, index) => `
         <div class="ai-stat-row">
           <span>${label}</span>
           <div class="ai-stat-track"><div class="ai-stat-fill" style="width:${Math.max(statsA[index], statsB[index])}%"></div></div>
           <span>${statsA[index]} · ${statsB[index]}</span>
         </div>`).join('');
-      aiStatsResult.innerHTML = `<strong>${m.a.name} vs ${m.b.name}</strong>${edge}<div class="ai-stat-bars">${bars}</div>`;
-      showToast('AI stats generated');
+      const verdict = data && data.verdict
+        ? escapeHtml(data.verdict)
+        : (() => {
+            const avgA = Math.round(statsA.reduce((sum, v) => sum + v, 0) / statsA.length);
+            const avgB = Math.round(statsB.reduce((sum, v) => sum + v, 0) / statsB.length);
+            return avgA === avgB ? 'This matchup is too close to call.' : `${avgA > avgB ? labelA : labelB} has the higher overall stat profile.`;
+          })();
+      const analysisA = entryA && entryA.analysis ? `<p><b>${escapeHtml(labelA)}:</b> ${escapeHtml(entryA.analysis)}</p>` : '';
+      const analysisB = entryB && entryB.analysis ? `<p><b>${escapeHtml(labelB)}:</b> ${escapeHtml(entryB.analysis)}</p>` : '';
+      aiStatsResult.innerHTML = `<strong>${escapeHtml(labelA)} vs ${escapeHtml(labelB)}</strong>${verdict}<div class="ai-stat-bars">${bars}</div>${analysisA}${analysisB}`;
+      showToast(data ? 'AI stats generated' : 'AI unavailable — showing saved ratings');
     });
   });
 
@@ -1761,29 +1811,38 @@
       showToast('Pick two different characters');
       return;
     }
-    withSpinner(compareSubmit, 'COMPARING…', () => {
-      // Any character can be searched; only ones in our curated roster have
-      // hand-tuned stats — everyone else gets a flat baseline with a note,
-      // rather than silently passing off a guess as real analysis.
-      const knownA = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameA);
-      const knownB = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameB);
-      const statsA = aiStatsProfiles[nameA] || [70,70,70,70];
-      const statsB = aiStatsProfiles[nameB] || [70,70,70,70];
+    withSpinner(compareSubmit, 'COMPARING…', async () => {
+      const data = await fetchCharacterAnalysis([nameA, nameB]);
+      const entryA = data && data.characters && data.characters[nameA];
+      const entryB = data && data.characters && data.characters[nameB];
+      const statsA = entryA
+        ? [clampStat(entryA.strength), clampStat(entryA.speed), clampStat(entryA.durability), clampStat(entryA.battleIQ)]
+        : (aiStatsProfiles[nameA] || [70,70,70,70]);
+      const statsB = entryB
+        ? [clampStat(entryB.strength), clampStat(entryB.speed), clampStat(entryB.durability), clampStat(entryB.battleIQ)]
+        : (aiStatsProfiles[nameB] || [70,70,70,70]);
       const labels = ['Strength', 'Speed', 'Durability', 'Battle IQ'];
-      const avgA = Math.round(statsA.reduce((sum, v) => sum + v, 0) / statsA.length);
-      const avgB = Math.round(statsB.reduce((sum, v) => sum + v, 0) / statsB.length);
-      const verdict = avgA === avgB ? 'This one is too close to call.' : `${avgA > avgB ? nameA : nameB} has the higher overall stat profile.`;
       const bars = labels.map((label, i) => `
         <div class="ai-stat-row">
           <span>${label}</span>
           <div class="ai-stat-track"><div class="ai-stat-fill" style="width:${Math.max(statsA[i], statsB[i])}%"></div></div>
           <span>${statsA[i]} · ${statsB[i]}</span>
         </div>`).join('');
-      let note = "Stats reflect this app's own ratings, not an official source — reasonable people will disagree.";
-      if (!knownA || !knownB) {
-        const missing = [!knownA ? nameA : null, !knownB ? nameB : null].filter(Boolean).join(' and ');
-        note = `No hand-rated profile yet for ${missing} — showing a flat baseline until stats are added. ${note}`;
+      let note;
+      if (data && data.verdict) {
+        note = escapeHtml(data.verdict);
+      } else {
+        const avgA = Math.round(statsA.reduce((sum, v) => sum + v, 0) / statsA.length);
+        const avgB = Math.round(statsB.reduce((sum, v) => sum + v, 0) / statsB.length);
+        const verdict = avgA === avgB ? 'This one is too close to call.' : `${avgA > avgB ? nameA : nameB} has the higher overall stat profile.`;
+        const knownA = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameA);
+        const knownB = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameB);
+        note = knownA && knownB
+          ? `${verdict} AI ratings are unavailable right now — showing saved baseline ratings instead.`
+          : `AI ratings are unavailable right now, and there's no saved profile yet for ${[!knownA ? nameA : null, !knownB ? nameB : null].filter(Boolean).join(' and ')} — showing a flat baseline. Try again in a moment.`;
       }
+      const analysisA = entryA && entryA.analysis ? `<p><b>${escapeHtml(nameA)}:</b> ${escapeHtml(entryA.analysis)}</p>` : '';
+      const analysisB = entryB && entryB.analysis ? `<p><b>${escapeHtml(nameB)}:</b> ${escapeHtml(entryB.analysis)}</p>` : '';
       compareResult.hidden = false;
       compareResult.innerHTML = `
         <div class="compare-heads">
@@ -1791,9 +1850,9 @@
           <div class="compare-head"><img data-char-photo="${escapeHtml(nameB)}" src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
         </div>
         <div class="ai-stat-bars">${bars}</div>
-        <div class="compare-verdict">${verdict} ${note}</div>`;
+        <div class="compare-verdict">${note}</div>${analysisA}${analysisB}`;
       hydrateCharacterPhotos(compareResult);
-    }, 700);
+    }, 300);
   });
 
   // ---------- quick action: clash leaderboard ----------
@@ -2464,13 +2523,22 @@
       return;
     }
     const analyseBtn = aiFeatsForm.querySelector('button[type="submit"]');
-    withSpinner(analyseBtn, 'ANALYSING…', () => {
-      const profile = name => featProfiles[name] || 'No verified profile loaded yet — evaluate this character from the specific source and version you mean.';
+    withSpinner(analyseBtn, 'ANALYSING…', async () => {
+      const allNames = [...teams.alpha, ...teams.omega];
+      const data = await fetchCharacterAnalysis(allNames, question);
+      const profile = name => {
+        const entry = data && data.characters && data.characters[name];
+        if (entry && entry.analysis) return entry.analysis;
+        return featProfiles[name] || 'No verified profile loaded yet — evaluate this character from the specific source and version you mean.';
+      };
       const alpha = teams.alpha.map(name => `<b>${escapeHtml(name)}</b>: ${escapeHtml(profile(name))}`).join('<br>');
       const omega = teams.omega.map(name => `<b>${escapeHtml(name)}</b>: ${escapeHtml(profile(name))}`).join('<br>');
+      const verdict = data && data.verdict
+        ? escapeHtml(data.verdict)
+        : 'AI analysis is unavailable right now — showing saved profiles where available. Verdict depends on versions, conditions, and whether cross-universe abilities are equalized.';
       aiFeatsResult.hidden = false;
-      aiFeatsResult.innerHTML = `<strong>AI feat check</strong><span><b>Question:</b> ${escapeHtml(question)}</span><br><br><b>Team Alpha</b><br>${alpha}<br><br><b>Team Omega</b><br>${omega}<br><br><span style="color:var(--muted)">Verdict depends on versions, conditions, and whether cross-universe abilities are equalized.</span>`;
-    }, 800);
+      aiFeatsResult.innerHTML = `<strong>AI feat check</strong><span><b>Question:</b> ${escapeHtml(question)}</span><br><br><b>Team Alpha</b><br>${alpha}<br><br><b>Team Omega</b><br>${omega}<br><br><span style="color:var(--muted)">${verdict}</span>`;
+    }, 300);
   });
 
   renderTeams();
@@ -2503,6 +2571,9 @@
     root.setProperty('--ember', theme.ember);
     root.setProperty('--ember-dim', theme.emberDim);
     root.setProperty('--navy', theme.navy);
+    document.querySelectorAll('.news-feed-block').forEach(el => {
+      el.style.background = `radial-gradient(circle at 50% 0%,${theme.navyGlow} 0%,${theme.navy} 70%)`;
+    });
     document.querySelectorAll('.theme-swatch').forEach(sw => sw.classList.toggle('active', sw.dataset.theme === name));
     localStorage.setItem('fictionClashTheme', name);
   }
