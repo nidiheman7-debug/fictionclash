@@ -836,6 +836,9 @@
           <button class="account-dropdown-item danger" id="dropdownSignOutBtn" type="button">Sign out</button>
         </div>
       </div>
+      <button class="theme-toggle" id="imgDebugToggle" aria-label="Toggle image lookup debug panel" title="Image lookup debug panel">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.5 1.5M16 2l-1.5 1.5"/><path d="M12 8v13"/><path d="M19 13h2M3 13h2M19 7l1.5-1.5M5 7 3.5 5.5M19 20l1.5 1.5M5 20l-1.5 1.5"/><circle cx="12" cy="8" r="5"/></svg>
+      </button>
       <button class="theme-toggle" id="themeToggle" aria-label="Switch to light theme" title="Toggle theme">
         <svg class="sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         <svg class="moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -1505,18 +1508,44 @@
 
   const characterImageCache = {}; // "name|version" -> url string | null (null = nothing found anywhere)
 
+  // ---------- on-screen image debug panel ----------
+  // Temporary diagnostic tool: mirrors every image-lookup result into a
+  // visible panel (tap the 🐞 button next to the theme toggle), so this can
+  // be debugged from a phone screenshot without needing browser DevTools.
+  // Safe to delete this whole block (and the button/panel HTML) once image
+  // lookups are confirmed working reliably.
+  const imgDebugLines = [];
+  function logImgDebug(line){
+    imgDebugLines.push(line);
+    if (imgDebugLines.length > 60) imgDebugLines.shift();
+    const panel = document.getElementById('imgDebugPanel');
+    if (panel && !panel.hidden) panel.textContent = imgDebugLines.join('\n');
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('imgDebugToggle');
+    const panel = document.getElementById('imgDebugPanel');
+    if (btn && panel) {
+      btn.addEventListener('click', () => {
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden) panel.textContent = imgDebugLines.join('\n') || '(no image lookups yet — switch matchups, open the leaderboard, or use Compare to trigger some)';
+      });
+    }
+  });
+
   // Every network step is wrapped through this so a single failing source
   // only costs that ONE step — it logs and returns null instead of
   // throwing, so remaining fallback attempts still get a chance to run.
-  // Open devtools → Console and look for "[character image]" lines to see
-  // exactly what's resolving (or failing) for a given character.
   async function safeStep(label, run){
     try {
       const result = await run();
-      console.debug(`[character image] ${label} →`, result || '(no match)');
+      const line = `${label} → ${result || '(no match)'}`;
+      console.debug(`[character image] ${line}`);
+      logImgDebug(line);
       return result;
     } catch (err) {
-      console.warn(`[character image] ${label} FAILED:`, err);
+      const line = `${label} FAILED: ${err && err.message ? err.message : err}`;
+      console.warn(`[character image] ${line}`);
+      logImgDebug(line);
       return null;
     }
   }
@@ -1604,7 +1633,9 @@
     if (!url && franchise) url = await safeStep(`"${name}" — franchise emblem "${franchise}"`, () => fetchExactPage(franchise));
 
     characterImageCache[cacheKey] = url;
-    console.info(`[character image] "${name}"${version ? ` (${version})` : ''} resolved to:`, url || '(no photo found anywhere — using placeholder)');
+    const finalLine = `"${name}"${version ? ` (${version})` : ''} RESOLVED: ${url || '(nothing found — placeholder used)'}`;
+    console.info(`[character image] ${finalLine}`);
+    logImgDebug(`— ${finalLine}`);
     return url;
   }
 
@@ -2656,5 +2687,6 @@
   renderHero();
 </script>
 
+  <pre id="imgDebugPanel" hidden style="position:fixed;left:8px;right:8px;bottom:70px;max-height:45vh;overflow:auto;background:#000;color:#6f6;font:10px/1.4 'Martian Mono',monospace;padding:10px;border:1px solid #333;border-radius:8px;z-index:9999;white-space:pre-wrap;word-break:break-all;"></pre>
 </body>
 </html>
