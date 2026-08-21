@@ -340,6 +340,16 @@
      display:flex;align-items:center;justify-content:center;gap:8px;
    }
    .clip-submit:active{ transform:scale(.98); }
+   .submit-avatar-picker{
+     display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:2px;
+   }
+   .submit-avatar-preview{
+     width:36px; height:36px; border-radius:50%; flex-shrink:0;
+     border:1px dashed var(--ember); display:flex; align-items:center; justify-content:center;
+     font-size:8px; font-weight:800; color:var(--ember); overflow:hidden; background:var(--surface2);
+     text-align:center; line-height:1.1;
+   }
+   .submit-avatar-preview img{ width:100%; height:100%; object-fit:cover; display:block; }
    .clip-card video{
      width:100%; max-height:190px; display:block; background:#000; border-radius:10px;
      margin-bottom:12px;
@@ -1295,12 +1305,20 @@
           <input class="modal-input compare-select submit-input" id="submitCharA" type="text" list="characterSuggestions" placeholder="Character A" maxlength="40">
           <input class="modal-input submit-version-input" id="submitSourceA" type="text" placeholder="Source (optional) e.g. Marvel" maxlength="30">
           <input class="modal-input submit-version-input" id="submitVersionA" type="text" placeholder="Version (optional)" maxlength="30">
+          <label class="submit-avatar-picker" for="submitAvatarFileA">
+            <span class="submit-avatar-preview" id="submitAvatarPreviewA">＋ Photo</span>
+            <input id="submitAvatarFileA" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+          </label>
         </div>
         <div class="compare-vs">VS</div>
         <div class="submit-char-col">
           <input class="modal-input compare-select submit-input" id="submitCharB" type="text" list="characterSuggestions" placeholder="Character B" maxlength="40">
           <input class="modal-input submit-version-input" id="submitSourceB" type="text" placeholder="Source (optional) e.g. DC" maxlength="30">
           <input class="modal-input submit-version-input" id="submitVersionB" type="text" placeholder="Version (optional)" maxlength="30">
+          <label class="submit-avatar-picker" for="submitAvatarFileB">
+            <span class="submit-avatar-preview" id="submitAvatarPreviewB">＋ Photo</span>
+            <input id="submitAvatarFileB" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+          </label>
         </div>
       </div>
       <datalist id="characterSuggestions"></datalist>
@@ -1833,6 +1851,39 @@
   const submitVersionB = document.getElementById('submitVersionB');
   const submitMatchupBtn = document.getElementById('submitMatchupBtn');
   const characterSuggestions = document.getElementById('characterSuggestions');
+  const submitAvatarFileA = document.getElementById('submitAvatarFileA');
+  const submitAvatarFileB = document.getElementById('submitAvatarFileB');
+  const submitAvatarPreviewA = document.getElementById('submitAvatarPreviewA');
+  const submitAvatarPreviewB = document.getElementById('submitAvatarPreviewB');
+  let pendingSubmitAvatarA = null; // { file, dataUrl } | null
+  let pendingSubmitAvatarB = null;
+
+  // Wires a submit-modal photo picker to a { file, dataUrl } holder and its preview thumbnail.
+  function wireSubmitAvatarPicker(fileInput, previewEl, setPending){
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        showToast('Please choose an image file');
+        fileInput.value = '';
+        return;
+      }
+      if (file.size > 4 * 1024 * 1024) {
+        showToast('Image must be under 4MB');
+        fileInput.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPending({ file, dataUrl: reader.result });
+        previewEl.innerHTML = `<img src="${reader.result}" alt="">`;
+      };
+      reader.onerror = () => showToast('Could not read that image');
+      reader.readAsDataURL(file);
+    });
+  }
+  wireSubmitAvatarPicker(submitAvatarFileA, submitAvatarPreviewA, val => { pendingSubmitAvatarA = val; });
+  wireSubmitAvatarPicker(submitAvatarFileB, submitAvatarPreviewB, val => { pendingSubmitAvatarB = val; });
 
   function refreshCharacterSuggestions(){
     const names = new Set(rosterNames);
@@ -1848,6 +1899,12 @@
     submitSourceB.value = '';
     submitVersionA.value = '';
     submitVersionB.value = '';
+    submitAvatarFileA.value = '';
+    submitAvatarFileB.value = '';
+    pendingSubmitAvatarA = null;
+    pendingSubmitAvatarB = null;
+    submitAvatarPreviewA.innerHTML = '＋ Photo';
+    submitAvatarPreviewB.innerHTML = '＋ Photo';
     refreshCharacterSuggestions();
     submitOverlay.classList.add('show');
   });
@@ -1897,6 +1954,11 @@
         b: { name: nameB, version: versionB, sub: subB, initials: initialsFor(nameB) },
         votesA: 0, votesB: 0, community: true
       };
+      // Apply any photos picked in the submit form the same way the
+      // hero-card camera icon does — instant local paint, then a
+      // compressed copy synced to Firestore so it shows up everywhere.
+      if (pendingSubmitAvatarA) setCharacterAvatarOverride(nameA, versionA, pendingSubmitAvatarA.dataUrl, pendingSubmitAvatarA.file);
+      if (pendingSubmitAvatarB) setCharacterAvatarOverride(nameB, versionB, pendingSubmitAvatarB.dataUrl, pendingSubmitAvatarB.file);
       matchups.push(newMatchup);
       activeIdx = matchups.length - 1;
       renderTrendScroll();
