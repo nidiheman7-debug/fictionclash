@@ -1296,8 +1296,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics.js";
   import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-  // TODO: Add more SDKs for Firebase products as you need them (e.g. Storage)
+  // TODO: Add more SDKs for Firebase products as you need them (e.g. Firestore, Storage)
   // https://firebase.google.com/docs/web/setup#available-libraries
 
   // Your web app's Firebase configuration
@@ -1316,13 +1315,11 @@
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
   const auth = getAuth(app);
-  const db = getFirestore(app);
 
   // Exposed for the rest of the page's module script to use
   window.firebaseApp = app;
   window.firebaseAnalytics = analytics;
   window.firebaseAuth = auth;
-  window.firebaseDb = db;
 </script>
 
 <script type="module">
@@ -1336,17 +1333,6 @@
     onAuthStateChanged,
     signOut
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-  import {
-    collection,
-    doc,
-    getDoc,
-    setDoc,
-    updateDoc,
-    onSnapshot,
-    query,
-    where,
-    increment
-  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   const auth = window.firebaseAuth;
   const googleProvider = new GoogleAuthProvider();
@@ -1387,149 +1373,20 @@
     }, delay);
   }
 
-  // ---------- matchup data (shared via Firestore) ----------
-  // Matchups — including the 4 starter ones below — now live in a
-  // Firestore "matchups" collection instead of localStorage, so every
-  // visitor sees the same live list and the same vote counts, not just
-  // whatever happened to be saved in their own browser. Each matchup stays
-  // live for MATCHUP_LIFETIME_MS from the moment it was created; after
-  // that it drops out of the live query, the starter matchups included.
-  //
-  // Requires two things set up once in the Firebase console for this
-  // project (fictionclash-c1557):
-  //   1. Firestore Database must actually be created — Build → Firestore
-  //      Database → Create database. It isn't enabled automatically just
-  //      because Auth is configured.
-  //   2. Security rules that allow public read, a constrained create
-  //      (must start at 0 votes), vote-only updates, and no deletes.
-  const db = window.firebaseDb;
-  const matchupsCol = collection(db, 'matchups');
-
-  const MATCHUP_LIFETIME_MS = 2 * 24 * 60 * 60 * 1000; // 2 days
-  const VOTED_STATE_STORAGE_KEY = 'fictionClashVotedState'; // per-browser "already voted" marker — vote counts themselves live in Firestore, not this
-
-  const SEED_MATCHUPS = [
-    { id:'seed-1', a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', hint:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', hint:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
-    { id:'seed-2', a:{name:'Goku', sub:'Dragon Ball', hint:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', hint:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
-    { id:'seed-3', a:{name:'Thanos', sub:'Marvel', hint:'Marvel', initials:'TA'}, b:{name:'Batman', sub:'DC', hint:'DC', initials:'BM'}, votesA:3868, votesB:2472 },
-    { id:'seed-4', a:{name:'Levi Ackerman', sub:'Attack on Titan', hint:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', hint:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
+  // ---------- matchup data ----------
+  const matchups = [
+    { a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', hint:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', hint:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
+    { a:{name:'Goku', sub:'Dragon Ball', hint:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', hint:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
+    { a:{name:'Thanos', sub:'Marvel', hint:'Marvel', initials:'TA'}, b:{name:'Batman', sub:'DC', hint:'DC', initials:'BM'}, votesA:3868, votesB:2472 },
+    { a:{name:'Levi Ackerman', sub:'Attack on Titan', hint:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', hint:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
   ];
-
-  function makeMatchupId(){
-    return `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  }
-
-  function loadVotedState(){
-    try { return JSON.parse(localStorage.getItem(VOTED_STATE_STORAGE_KEY) || '{}'); } catch (err) { return {}; }
-  }
-  function persistVotedState(){
-    try { localStorage.setItem(VOTED_STATE_STORAGE_KEY, JSON.stringify(votedState)); } catch (err) {}
-  }
-
-  // `matchups` keeps a STABLE array reference — every place elsewhere in
-  // this file that reads it (hero card, trend scroll, leaderboard,
-  // character suggestions) just reads this same array, which the
-  // Firestore listener below refills in place whenever the live data
-  // changes, on this device or anyone else's.
-  const matchups = [];
   let activeIdx = 0;
-  let pendingActiveId = null; // matchup id to focus once its snapshot arrives (e.g. right after submitting)
-  const votedState = loadVotedState(); // matchup id -> 'a' | 'b'
-
-  let seeding = false;
-  async function renewOrSeedMatchup(seed, now){
-    const ref = doc(matchupsCol, seed.id);
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      // It exists but fell outside the live window — renew its timestamp
-      // so it comes back into view WITHOUT touching its accumulated votes.
-      await updateDoc(ref, { createdAt: now });
-    } else {
-      await setDoc(ref, { a: seed.a, b: seed.b, votesA: seed.votesA, votesB: seed.votesB, community: false, createdAt: now });
-    }
-  }
-  async function ensureLiveSeedMatchups(){
-    if (seeding) return;
-    seeding = true;
-    try {
-      const now = Date.now();
-      await Promise.all(SEED_MATCHUPS.map(seed => renewOrSeedMatchup(seed, now)));
-    } catch (err) {
-      console.warn('[matchups] failed to seed/renew starter matchups in Firestore:', err);
-    } finally {
-      seeding = false;
-    }
-  }
-
-  function applyMatchupsSnapshot(snapshot){
-    const prevId = pendingActiveId || (matchups[activeIdx] && matchups[activeIdx].id) || null;
-    pendingActiveId = null;
-
-    const list = [];
-    snapshot.forEach(docSnap => {
-      const data = docSnap.data();
-      list.push({
-        id: docSnap.id,
-        a: data.a, b: data.b,
-        votesA: data.votesA || 0, votesB: data.votesB || 0,
-        community: !!data.community,
-        createdAt: data.createdAt || 0
-      });
-    });
-    list.sort((x, y) => x.createdAt - y.createdAt);
-
-    matchups.length = 0;
-    matchups.push(...list);
-
-    if (!matchups.length) {
-      // Nothing live at all — first-ever visit, or everything expired.
-      // Seed/renew the starter matchups; the listener fires again once
-      // that write lands.
-      ensureLiveSeedMatchups();
-      renderTrendScroll();
-      renderHero();
-      return;
-    }
-
-    let idx = prevId ? matchups.findIndex(m => m.id === prevId) : -1;
-    if (idx === -1) idx = 0;
-    activeIdx = idx;
-
-    // Drop "already voted" markers for matchups no longer live.
-    const liveIds = new Set(matchups.map(m => m.id));
-    let votedChanged = false;
-    Object.keys(votedState).forEach(id => {
-      if (!liveIds.has(id)) { delete votedState[id]; votedChanged = true; }
-    });
-    if (votedChanged) persistVotedState();
-
-    renderTrendScroll();
-    renderHero();
-    refreshCharacterSuggestions();
-  }
-
-  let unsubscribeMatchups = null;
-  function subscribeMatchups(){
-    if (unsubscribeMatchups) unsubscribeMatchups();
-    const cutoff = Date.now() - MATCHUP_LIFETIME_MS;
-    const liveQuery = query(matchupsCol, where('createdAt', '>=', cutoff));
-    unsubscribeMatchups = onSnapshot(liveQuery, applyMatchupsSnapshot, (err) => {
-      console.warn('[matchups] Firestore listener error — check Firestore is enabled and rules allow read:', err);
-      showToast('Could not load live matchups — check your connection');
-    });
-  }
-  subscribeMatchups();
-  // The `where('createdAt', '>=', cutoff)` bound is fixed at query time, so
-  // a matchup aging past MATCHUP_LIFETIME_MS while the tab stays open
-  // wouldn't otherwise drop out on its own — periodically rebuild the
-  // query with a fresh cutoff so long-open tabs still expire things.
-  setInterval(subscribeMatchups, 5 * 60 * 1000);
-
+  const votedState = {}; // matchup idx -> 'a' | 'b'
 
   // A character's "version" (e.g. Base, Ultra Instinct, Six Paths Sage Mode)
   // is kept separate from `name` on purpose: `name` stays the plain
-  // character name so image lookups (Wikipedia) and stat lookups still
-  // match correctly regardless of which version someone picked.
+  // character name so image lookups (Jikan/Wikipedia) and stat lookups
+  // still match correctly regardless of which version someone picked.
   function charLabel(char){
     return char.version ? `${char.name} (${char.version})` : char.name;
   }
@@ -1589,9 +1446,9 @@
   }
 
   // ---------- real character photos ----------
-  // 1) CUSTOM_IMAGE_OVERRIDES — for characters/variants no title guess will
-  //    ever resolve correctly (fan nicknames, alt skins, obscure variants).
-  //    Add a direct image URL here and it's used with no network call.
+  // 1) CUSTOM_IMAGE_OVERRIDES — for characters/variants that no public API will
+  //    ever resolve correctly (fan nicknames, alt skins, obscure variants like
+  //    "RKT"). Add a direct image URL here and it's used with no network call.
   const CUSTOM_IMAGE_OVERRIDES = {
     // 'RKT': 'https://example.com/path/to/rkt-art.png',
   };
@@ -1599,7 +1456,9 @@
   // 2) WIKI_TITLE_OVERRIDES — the exact Wikipedia article title for a
   //    character, when it differs from the display name (e.g. "Naruto" the
   //    display name is the *series*; the character's own article is titled
-  //    "Naruto Uzumaki"). `redirects=1` in the fetch below means a
+  //    "Naruto Uzumaki"). This is what actually fixes "wrong picture" bugs —
+  //    a direct title lookup can't drift onto an unrelated page the way a
+  //    full-text search can. `redirects=1` in the fetch below means a
   //    slightly-off guess here still resolves correctly as long as it
   //    redirects to the right place.
   const WIKI_TITLE_OVERRIDES = {
@@ -1616,8 +1475,9 @@
     'Neo':'Neo (The Matrix)', 'The Terminator':'The Terminator (character)'
   };
 
-  // 3) FRANCHISE_HINTS — used only to build extra *exact-title* candidates
-  //    like "Name (Franchise)" — never used for full-text search.
+  // 3) FRANCHISE_HINTS — disambiguates common one-word names in the search
+  //    fallback (e.g. plain "Thor" resolves to the Norse god on Wikipedia,
+  //    not the Marvel hero) by adding franchise context to the query.
   const FRANCHISE_HINTS = {
     'Gojo Satoru':'Jujutsu Kaisen', 'Saitama':'One Punch Man', 'Goku':'Dragon Ball',
     'Vegeta':'Dragon Ball', 'Naruto':'Naruto', 'Sasuke Uchiha':'Naruto',
@@ -1642,27 +1502,33 @@
     'The Terminator':'film', 'Ellen Ripley':'Alien film', 'Rocky Balboa':'film'
   };
 
-  // Looks up a real photo for a character using Wikipedia EXACT-TITLE
-  // lookups only — no full-text search. A full-text search can rank a
-  // same-named real person or place above the actual character (e.g.
-  // "Hulk" the wrestler, "Saitama" the city) since it just matches words
-  // anywhere in the article body. An exact title either is the character's
-  // real article or it isn't, so this can't drift onto the wrong page —
-  // it just falls back to the placeholder avatar instead of guessing.
+  // Looks up a real photo for a character. Order:
+  //   1. Manual override (no network call)
+  //   2. Jikan (MyAnimeList) — for anime/manga characters this is far more
+  //      reliable than Wikipedia: it's a purpose-built character database,
+  //      so a match is guaranteed to be *that* character's own art, never a
+  //      random page about the wider series or franchise. Only accepted on
+  //      an exact name/nickname match, so it never guesses.
+  //   3. Exact-title Wikipedia lookups (curated title, then plain name, then
+  //      a couple of common disambiguation patterns) via redirects=1 — for
+  //      movies, comics, and games, which Jikan doesn't cover.
+  //   4. Full-text Wikipedia search as a last resort, for names with no good
+  //      exact title (mostly obscure or user-submitted characters).
+  // Disambiguation pages are always skipped. Falls back to the generated
+  // placeholder avatar if nothing usable is found anywhere.
   const characterImageCache = {}; // name -> url string | null (null = no photo found, use placeholder)
 
-  // Every network step below is wrapped through this so a single failing
-  // title lookup can only ever cost that ONE step — it logs and returns
-  // null instead of throwing, so remaining candidate titles still get a
-  // chance. Open devtools → Console and look for "[character image]" lines
-  // to see exactly what's resolving (or failing) for a given character.
-  async function safeStep(label, run){
+  async function fetchJikanImage(name){
     try {
-      const result = await run();
-      console.debug(`[character image] ${label} →`, result || '(no match)');
-      return result;
+      const res = await fetch(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(name)}&limit=5`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const results = (data && data.data) || [];
+      const normalized = name.trim().toLowerCase();
+      const match = results.find(c => c.name && c.name.trim().toLowerCase() === normalized)
+        || results.find(c => Array.isArray(c.nicknames) && c.nicknames.some(n => n.trim().toLowerCase() === normalized));
+      return (match && match.images && match.images.jpg && match.images.jpg.image_url) ? match.images.jpg.image_url : null;
     } catch (err) {
-      console.warn(`[character image] ${label} FAILED:`, err);
       return null;
     }
   }
@@ -1680,48 +1546,61 @@
     return (page.thumbnail && page.thumbnail.source) ? page.thumbnail.source : null;
   }
 
-  async function fetchCharacterImage(name, hint, version){
+  async function searchWikipediaImage(query){
+    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=5&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pages = data.query && data.query.pages;
+    if (!pages) return null;
+    // Object.values() order does NOT match search relevance — MediaWiki
+    // returns pages keyed by page ID. The actual rank lives in each page's
+    // own `index` field, so sort by that before picking a candidate. (This
+    // was the main cause of "wrong picture": the old code just grabbed
+    // whichever page happened to come out of Object.values first.)
+    const ranked = Object.values(pages).sort((a, b) => (a.index || 0) - (b.index || 0));
+    for (const page of ranked) {
+      if (page.pageprops && page.pageprops.disambiguation !== undefined) continue;
+      if (page.thumbnail && page.thumbnail.source) return page.thumbnail.source;
+    }
+    return null;
+  }
+
+  async function fetchCharacterImage(name, hint){
     if (CUSTOM_IMAGE_OVERRIDES[name]) return CUSTOM_IMAGE_OVERRIDES[name];
-    // Different versions of the same character (Base Goku vs Ultra Instinct
-    // Goku) can resolve to different pictures, so they need their own cache
-    // slot — caching by name alone would let one version's photo leak onto
-    // another's.
-    const cacheKey = version ? `${name}|${version}` : name;
-    if (Object.prototype.hasOwnProperty.call(characterImageCache, cacheKey)) {
-      return characterImageCache[cacheKey];
+    if (Object.prototype.hasOwnProperty.call(characterImageCache, name)) {
+      return characterImageCache[name];
     }
-    const franchise = hint || FRANCHISE_HINTS[name];
-    const exactCandidates = [
-      // Version-specific title first — e.g. "Spider-Man (Miles Morales)" or
-      // "Goku (Ultra Instinct)" have their own dedicated Wikipedia coverage
-      // in some cases. Falls through to the base character if no
-      // version-specific page exists.
-      version ? `${name} (${version})` : null,
-      WIKI_TITLE_OVERRIDES[name],
-      name,
-      franchise ? `${name} (${franchise})` : null,
-      `${name} (character)`
-    ].filter(Boolean);
-
     let url = null;
-    for (const title of exactCandidates) {
-      url = await safeStep(`"${name}" — wikipedia exact "${title}"`, () => fetchExactPage(title));
-      if (url) break;
+    try {
+      url = await fetchJikanImage(name);
+      if (!url) {
+        const franchise = hint || FRANCHISE_HINTS[name];
+        const exactCandidates = [
+          WIKI_TITLE_OVERRIDES[name],
+          name,
+          franchise ? `${name} (${franchise})` : null,
+          `${name} (character)`
+        ].filter(Boolean);
+        for (const title of exactCandidates) {
+          url = await fetchExactPage(title);
+          if (url) break;
+        }
+        if (!url) url = await searchWikipediaImage(franchise ? `${name} ${franchise}` : name);
+        if (!url) url = await searchWikipediaImage(name);
+      }
+    } catch (err) {
+      url = null;
     }
-    // Deliberately NO full-text search fallback here — an unresolved exact
-    // title just means "use the placeholder avatar," which is the safer
-    // failure mode than risking a wrong photo for an unmapped character.
-
-    characterImageCache[cacheKey] = url;
-    console.info(`[character image] "${name}"${version ? ` (${version})` : ''} resolved to:`, url || '(no exact match — using placeholder)');
+    characterImageCache[name] = url;
     return url;
   }
 
   // Renders the placeholder immediately, then swaps in the real photo (if one
   // is found) once it loads, so the UI never blocks on the network request.
-  function setAvatarPhoto(el, name, initials, altSuffix, hint, version){
+  function setAvatarPhoto(el, name, initials, altSuffix, hint){
     el.innerHTML = `<img src="${avatarUrl(name, initials)}" alt="${name}${altSuffix || ''}">`;
-    fetchCharacterImage(name, hint, version).then(url => {
+    fetchCharacterImage(name, hint).then(url => {
       if (!url) return;
       const img = el.querySelector('img');
       if (!img) return;
@@ -1732,16 +1611,13 @@
   }
 
   // For photos rendered via innerHTML template strings (compare tool,
-  // leaderboard, team list): mark the <img> with data-char-photo="Name",
-  // optionally data-char-hint="Franchise" and data-char-version="Version",
-  // and call this after inserting the HTML to upgrade placeholders to real
-  // photos.
+  // leaderboard, team list): mark the <img> with data-char-photo="Name" and
+  // call this after inserting the HTML to upgrade placeholders to real photos.
   function hydrateCharacterPhotos(root){
     root.querySelectorAll('img[data-char-photo]').forEach(img => {
       const name = img.getAttribute('data-char-photo');
       const hint = img.getAttribute('data-char-hint') || FRANCHISE_HINTS[name];
-      const version = img.getAttribute('data-char-version') || undefined;
-      fetchCharacterImage(name, hint, version).then(url => {
+      fetchCharacterImage(name, hint).then(url => {
         if (!url) return;
         const real = new Image();
         real.onload = () => { img.src = url; };
@@ -1752,29 +1628,8 @@
 
   function renderHero(){
     const m = matchups[activeIdx];
-    if (!m) {
-      // No live data yet (still loading from Firestore) or nothing live
-      // at all right this moment — show a neutral loading state instead
-      // of throwing on undefined character data.
-      heroAvatarA.innerHTML = '';
-      heroAvatarB.innerHTML = '';
-      heroNameA.textContent = '';
-      heroNameB.textContent = '';
-      heroSubA.textContent = '';
-      heroSubB.textContent = 'Loading…';
-      voteBtnA.textContent = '—';
-      voteBtnB.textContent = '—';
-      heroVoteCount.textContent = '0';
-      voteBar.style.width = '50%';
-      votePctA.textContent = '';
-      votePctB.textContent = '';
-      voteRow.classList.remove('voted');
-      voteBtnA.classList.remove('picked');
-      voteBtnB.classList.remove('picked');
-      return;
-    }
-    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
-    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
+    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint);
+    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint);
     heroNameA.textContent = m.a.name.toUpperCase();
     heroNameB.textContent = m.b.name.toUpperCase();
     heroSubA.textContent = m.a.sub;
@@ -1787,16 +1642,15 @@
     voteBtnB.textContent = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
     aiStatsResult.innerHTML = 'Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.';
     updatePercentages();
-    const voted = votedState[m.id];
+    const voted = votedState[activeIdx];
     voteRow.classList.toggle('voted', !!voted);
     voteBtnA.classList.toggle('picked', voted === 'a');
     voteBtnB.classList.toggle('picked', voted === 'b');
   }
 
   aiStatsButton.addEventListener('click', () => {
-    const m = matchups[activeIdx];
-    if (!m) { showToast('Matchups are still loading — try again in a moment'); return; }
     withSpinner(aiStatsButton, 'THINKING…', () => {
+      const m = matchups[activeIdx];
       const statsA = aiStatsProfiles[m.a.name] || [70,70,70,70];
       const statsB = aiStatsProfiles[m.b.name] || [70,70,70,70];
       const labels = ['Strength', 'Speed', 'Durability', 'Battle IQ'];
@@ -1816,10 +1670,9 @@
 
   function updatePercentages(){
     const m = matchups[activeIdx];
-    if (!m) return;
     const total = m.votesA + m.votesB;
     heroVoteCount.textContent = total.toLocaleString();
-    const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
+    const pctA = Math.round((m.votesA / total) * 100);
     const pctB = 100 - pctA;
     voteBar.style.width = pctA + '%';
     votePctA.textContent = `${pctA}% ${m.a.name.split(' ')[0]}`;
@@ -1827,33 +1680,16 @@
   }
 
   function castVote(side){
+    if (votedState[activeIdx]) return; // already voted on this matchup
     const m = matchups[activeIdx];
-    if (!m) { showToast('Matchups are still loading — try again in a moment'); return; }
-    if (votedState[m.id]) return; // already voted on this matchup
-    const field = side === 'a' ? 'votesA' : 'votesB';
-    // Optimistic local bump so the UI feels instant; the Firestore
-    // listener reconciles with the authoritative shared count moments
-    // later (and corrects it if the write ends up failing).
-    m[field]++;
-    votedState[m.id] = side;
-    persistVotedState();
+    if (side === 'a') m.votesA++; else m.votesB++;
+    votedState[activeIdx] = side;
     updatePercentages();
     voteRow.classList.add('voted');
     voteBtnA.classList.toggle('picked', side === 'a');
     voteBtnB.classList.toggle('picked', side === 'b');
     const pickedName = side === 'a' ? m.a.name.split(' ')[0] : m.b.name.split(' ')[0];
     showToast(`Vote locked in for ${pickedName}`);
-    updateDoc(doc(matchupsCol, m.id), { [field]: increment(1) }).catch(err => {
-      console.warn('[vote] failed to record vote in Firestore:', err);
-      m[field]--; // roll back the optimistic bump
-      delete votedState[m.id];
-      persistVotedState();
-      updatePercentages();
-      voteRow.classList.remove('voted');
-      voteBtnA.classList.remove('picked');
-      voteBtnB.classList.remove('picked');
-      showToast('Could not record your vote — check your connection');
-    });
   }
 
   voteBtnA.addEventListener('click', () => castVote('a'));
@@ -1961,7 +1797,7 @@
     leaderboardList.innerHTML = ranked.map((entry, index) => `
       <div class="leaderboard-row ${index < 3 ? 'top' + (index + 1) : ''}">
         <div class="leaderboard-rank">${medals[index] || (index + 1)}</div>
-        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.hint || '')}" data-char-version="${escapeHtml(entry.version || '')}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
+        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.hint || '')}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
         <div class="leaderboard-info">
           <div class="leaderboard-name">${escapeHtml(entry.label)}</div>
           <div class="leaderboard-sub">${escapeHtml(entry.sub)}</div>
@@ -2038,24 +1874,18 @@
       return;
     }
     withSpinner(submitMatchupBtn, 'POSTING…', () => {
-      const newId = makeMatchupId();
-      const payload = {
+      matchups.push({
         a: { name: nameA, version: versionA, sub: versionA || 'Fan Submission', initials: initialsFor(nameA) },
         b: { name: nameB, version: versionB, sub: versionB || 'Fan Submission', initials: initialsFor(nameB) },
-        votesA: 0, votesB: 0, community: true, createdAt: Date.now()
-      };
-      pendingActiveId = newId; // so the listener focuses this matchup once it lands
-      setDoc(doc(matchupsCol, newId), payload)
-        .then(() => {
-          submitOverlay.classList.remove('show');
-          document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
-          showToast(`${charLabel(payload.a)} vs ${charLabel(payload.b)} is live!`);
-        })
-        .catch(err => {
-          console.warn('[submit] failed to post matchup to Firestore:', err);
-          pendingActiveId = null;
-          showToast('Could not post that matchup — check your connection');
-        });
+        votesA: 0, votesB: 0, community: true
+      });
+      activeIdx = matchups.length - 1;
+      renderTrendScroll();
+      renderHero();
+      refreshCharacterSuggestions();
+      submitOverlay.classList.remove('show');
+      document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
+      showToast(`${charLabel(matchups[activeIdx].a)} vs ${charLabel(matchups[activeIdx].b)} is live!`);
     }, 700);
   });
 
