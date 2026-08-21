@@ -2115,6 +2115,35 @@
     showToast('More clashes coming soon');
   });
 
+  // ---------- hero auto-rotate ----------
+  // The featured matchup used to just sit on whatever was first in the
+  // list forever. This cycles it through every matchup automatically,
+  // and backs off the moment someone actually touches it — a vote, a
+  // manual pick from the trend row, or the tab going into the background
+  // — so nothing changes out from under a tap.
+  const HERO_ROTATE_MS = 7000;
+  const heroCardEl = document.getElementById('heroCard');
+  let heroRotateTimer = null;
+
+  function scheduleHeroRotate(){
+    clearTimeout(heroRotateTimer);
+    if (matchups.length < 2) return; // nothing to flex between
+    heroRotateTimer = setTimeout(() => {
+      if (document.hidden) { scheduleHeroRotate(); return; } // tab not visible — just reschedule, don't burn a cycle
+      activeIdx = (activeIdx + 1) % matchups.length;
+      renderTrendScroll();
+      renderHero();
+      scheduleHeroRotate();
+    }, HERO_ROTATE_MS);
+  }
+  scheduleHeroRotate();
+
+  // Any manual interaction resets the clock so auto-rotate never fights
+  // something the person just did.
+  heroCardEl.addEventListener('pointerdown', scheduleHeroRotate);
+  trendScroll.addEventListener('click', scheduleHeroRotate);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleHeroRotate(); });
+
   // ---------- movie clips ----------
   const moviesSection = document.getElementById('moviesSection');
   const clipUploaderOverlay = document.getElementById('clipUploaderOverlay');
