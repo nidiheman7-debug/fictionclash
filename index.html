@@ -432,13 +432,6 @@
      border-bottom:1px solid var(--line);
    }
    .news-story:last-child{border-bottom:0;}
-   .story-thumb{
-     width:44px;height:44px;border-radius:10px;flex-shrink:0;overflow:hidden;
-     background:var(--surface);border:1px solid var(--line);
-     display:flex;align-items:center;justify-content:center;
-     font-family:'Bricolage Grotesque',sans-serif; font-weight:800;font-size:15px;color:var(--muted);
-   }
-   .story-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
    .story-tag{color:var(--muted);font:600 9px 'Martian Mono',monospace;letter-spacing:.5px;margin-bottom:4px;text-transform:uppercase;}
    .news-story > div{flex:1;min-width:0;}
    .news-story h4{font-family:'Bricolage Grotesque',sans-serif;font-size:13.5px;line-height:1.35;font-weight:800;color:var(--text);}
@@ -793,7 +786,7 @@
     }
     .hero.pulse{ animation:heroPulse .9s ease; }
 
-    @media (max-width:430px){
+    @media (max-width:430px), (hover:none) and (pointer:coarse){
       body{
         padding:0;
         display:block;
@@ -1021,7 +1014,6 @@
       <div class="news-feed-title"><span id="newsFeedHeading">Music</span><span>CURATED FOR YOU</span></div>
       <div id="newsFeed">
         <article class="news-story">
-          <div class="story-thumb">♫</div>
           <div style="flex:1;min-width:0;">
             <div class="story-tag">MUSIC · NEW RELEASE</div>
             <h4>The albums bringing a little more colour to this week's playlist</h4>
@@ -1029,7 +1021,6 @@
           <div class="story-time">2H</div>
         </article>
         <article class="news-story">
-          <div class="story-thumb">♫</div>
           <div style="flex:1;min-width:0;">
             <div class="story-tag">MUSIC · CULTURE</div>
             <h4>Why intimate live sessions are having a moment again</h4>
@@ -2296,7 +2287,6 @@
     ]
   };
 
-  const newsTabIcons = { 'Music':'♫', 'Latest Movies':'▣', 'Football':'◉', 'Discovery':'✦' };
   document.querySelectorAll('.news-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       const name = tab.dataset.newsCategory;
@@ -2305,7 +2295,6 @@
       newsFeedHeading.textContent = name;
       newsFeed.innerHTML = newsStories[name].map(story => `
         <article class="news-story">
-          <div class="story-thumb">${newsTabIcons[name] || '✦'}</div>
           <div style="flex:1;min-width:0;">
             <div class="story-tag">${story[0]}</div>
             <h4>${story[1]}</h4>
