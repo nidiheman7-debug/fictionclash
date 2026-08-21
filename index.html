@@ -344,6 +344,13 @@
      width:100%; max-height:190px; display:block; background:#000; border-radius:10px;
      margin-bottom:12px;
    }
+   .clip-video-wrap{
+     position:relative; width:100%; padding-top:56.25%; margin-bottom:12px;
+     border-radius:10px; overflow:hidden; background:#000;
+   }
+   .clip-video-wrap iframe{
+     position:absolute; top:0; left:0; width:100%; height:100%; border:0; display:block;
+   }
    .clip-card h3{ font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:15px; margin-bottom:5px; }
    .clip-review{ color:var(--muted); font-size:12px; line-height:1.45; margin-bottom:13px; }
    .clip-meta{
@@ -1269,12 +1276,9 @@
   <div class="modal-overlay" id="clipUploaderOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Share a movie scene</div>
-      <div class="modal-sub">Keep clips short and use content you have permission to share.</div>
-      <label class="file-drop" for="clipFile">
-        <span>＋ Choose a video clip</span>
-        <input id="clipFile" type="file" accept="video/mp4,video/webm,video/quicktime">
-      </label>
-      <div class="file-name" id="clipFileName">No clip selected</div>
+      <div class="modal-sub">Paste a YouTube link to the scene — no file upload needed.</div>
+      <input class="clip-field" id="clipYoutubeUrl" type="text" placeholder="YouTube link e.g. https://youtu.be/dQw4w9WgXcQ">
+      <div class="file-name" id="clipFileName">Paste a link above to preview it here</div>
       <input class="clip-field" id="clipTitle" type="text" placeholder="Scene title e.g. The final hallway shot">
       <textarea class="clip-field" id="clipReview" placeholder="Write a short review or tell us what makes this scene work..."></textarea>
       <button class="clip-submit" id="publishClip">PUBLISH CLIP &amp; REVIEW</button>
@@ -1313,7 +1317,6 @@
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics.js";
   import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import { getFirestore } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-  import { getStorage } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
   // Your web app's Firebase configuration
   // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -1332,14 +1335,12 @@
   const analytics = getAnalytics(app);
   const auth = getAuth(app);
   const db = getFirestore(app);
-  const storage = getStorage(app);
 
   // Exposed for the rest of the page's module script to use
   window.firebaseApp = app;
   window.firebaseAnalytics = analytics;
   window.firebaseAuth = auth;
   window.firebaseDb = db;
-  window.firebaseStorage = storage;
 </script>
 
 <script type="module">
@@ -1357,13 +1358,9 @@
     doc, getDoc, setDoc, addDoc, collection, onSnapshot,
     query, orderBy, serverTimestamp, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-  import {
-    ref as storageRef, uploadBytes, getDownloadURL
-  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
   const auth = window.firebaseAuth;
   const db = window.firebaseDb;
-  const storage = window.firebaseStorage;
   const googleProvider = new GoogleAuthProvider();
 
   // Turns any string into a safe Firestore document ID / Storage path
@@ -1997,29 +1994,28 @@
   clipUploaderOverlay.addEventListener('click', event => {
     if (event.target === clipUploaderOverlay) clipUploaderOverlay.classList.remove('show');
   });
-  const clipFile = document.getElementById('clipFile');
+  const clipYoutubeUrl = document.getElementById('clipYoutubeUrl');
   const clipFileName = document.getElementById('clipFileName');
   const clipTitle = document.getElementById('clipTitle');
   const clipReview = document.getElementById('clipReview');
   const publishClip = document.getElementById('publishClip');
   const clipFeed = document.getElementById('clipFeed');
-  let selectedClipUrl = '';
 
-  clipFile.addEventListener('change', () => {
-    const file = clipFile.files[0];
-    if (!file) {
-      clipFileName.textContent = 'No clip selected';
-      return;
-    }
-    if (!file.type.startsWith('video/')) {
-      clipFile.value = '';
-      clipFileName.textContent = 'Please choose a video file';
-      showToast('That file is not a video');
-      return;
-    }
-    if (selectedClipUrl) URL.revokeObjectURL(selectedClipUrl);
-    selectedClipUrl = URL.createObjectURL(file);
-    clipFileName.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+  // Pulls the 11-character video ID out of any common YouTube URL shape
+  // (watch?v=, youtu.be/, shorts/, embed/), or accepts a bare ID typed in.
+  function extractYoutubeId(input){
+    const value = (input || '').trim();
+    if (!value) return null;
+    if (/^[a-zA-Z0-9_-]{11}$/.test(value)) return value;
+    const match = value.match(/(?:youtube\.com\/watch\?[^#]*\bv=|youtube\.com\/shorts\/|youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    return match ? match[1] : null;
+  }
+
+  clipYoutubeUrl.addEventListener('input', () => {
+    const id = extractYoutubeId(clipYoutubeUrl.value);
+    if (id) clipFileName.textContent = `Looks good — ready to publish`;
+    else if (clipYoutubeUrl.value.trim()) clipFileName.textContent = "That doesn't look like a YouTube link";
+    else clipFileName.textContent = 'Paste a link above to preview it here';
   });
 
   function escapeHtml(value){
@@ -2104,35 +2100,12 @@
     wireClipComments(form.dataset.commentsFor, form);
   });
 
-  // Posts a clip that only exists on this device (Storage isn't available
-  // — e.g. still on the free Spark plan — so the video file itself can't
-  // be synced anywhere). Comments on it still go through Firestore under
-  // this local id, so at least the conversation works normally.
-  function publishClipLocallyOnly(identity, title, review){
-    const localId = `local-${Date.now()}`;
-    const card = document.createElement('article');
-    card.className = 'clip-card';
-    card.dataset.clipId = localId;
-    card.innerHTML = `
-      <video controls preload="metadata" src="${selectedClipUrl}"></video>
-      <h3>${escapeHtml(title)}</h3>
-      <p class="clip-review">${escapeHtml(review)}</p>
-      <div class="clip-meta"><span>Posted by ${escapeHtml(identity.name)}</span><span>★ New · only on this device</span></div>
-      <div class="comments-title">Conversation</div>
-      <form class="comment-form" data-comments-for="${localId}">
-        <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
-        <button type="submit">POST</button>
-      </form>`;
-    clipFeed.prepend(card);
-    wireClipComments(localId, card.querySelector('.comment-form'));
-  }
-
   publishClip.addEventListener('click', () => {
-    const file = clipFile.files[0];
+    const youtubeId = extractYoutubeId(clipYoutubeUrl.value);
     const title = clipTitle.value.trim();
     const review = clipReview.value.trim();
-    if (!file || !selectedClipUrl) {
-      showToast('Choose a video clip first');
+    if (!youtubeId) {
+      showToast('Paste a valid YouTube link first');
       return;
     }
     if (!title || !review) {
@@ -2141,37 +2114,27 @@
     }
     const identity = currentUserIdentity();
     if (!identity) { requireSignIn('Sign in to post a clip'); return; }
-    withSpinner(publishClip, 'UPLOADING…', () => {
-      const path = `movieClips/${identity.uid}/${Date.now()}-${file.name}`;
-      uploadBytes(storageRef(storage, path), file)
-        .then(snap => getDownloadURL(snap.ref))
-        .then(videoUrl => addDoc(collection(db, 'movieClips'), {
-          title, review, videoUrl,
-          postedByUid: identity.uid, postedByName: identity.name, postedByAvatar: identity.avatarUrl,
-          createdAt: serverTimestamp()
-        }))
+    withSpinner(publishClip, 'POSTING…', () => {
+      // No file upload involved — just the YouTube video ID — so this
+      // works on Firebase's free Spark plan (no Blaze billing needed).
+      addDoc(collection(db, 'movieClips'), {
+        title, review, youtubeId,
+        postedByUid: identity.uid, postedByName: identity.name, postedByAvatar: identity.avatarUrl,
+        createdAt: serverTimestamp()
+      })
         .then(() => {
-          clipFile.value = '';
-          clipFileName.textContent = 'No clip selected';
+          clipYoutubeUrl.value = '';
+          clipFileName.textContent = 'Paste a link above to preview it here';
           clipTitle.value = '';
           clipReview.value = '';
-          if (selectedClipUrl) URL.revokeObjectURL(selectedClipUrl); // video now lives in Storage, blob no longer needed
-          selectedClipUrl = '';
           clipUploaderOverlay.classList.remove('show');
           showToast('Clip published');
         })
         .catch(err => {
-          console.error('Clip upload failed (falling back to local-only post)', err);
-          publishClipLocallyOnly(identity, title, review);
-          clipFile.value = '';
-          clipFileName.textContent = 'No clip selected';
-          clipTitle.value = '';
-          clipReview.value = '';
-          selectedClipUrl = '';
-          clipUploaderOverlay.classList.remove('show');
-          showToast('Posted here — video sync needs Firebase Storage enabled to show on other devices');
+          console.error('Clip post failed', err);
+          showToast('Could not post that clip — check your connection and try again');
         });
-    }, 900);
+    }, 500);
   });
 
   // Real-time: community-posted clips (from any browser) render here,
@@ -2188,8 +2151,9 @@
           const card = document.createElement('article');
           card.className = 'clip-card';
           card.dataset.clipId = id;
+          const ytId = escapeHtml(data.youtubeId || '');
           card.innerHTML = `
-            <video controls preload="metadata" src="${data.videoUrl || ''}"></video>
+            <div class="clip-video-wrap"><iframe src="https://www.youtube.com/embed/${ytId}" title="${escapeHtml(data.title || 'Clip')}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
             <h3>${escapeHtml(data.title || '')}</h3>
             <p class="clip-review">${escapeHtml(data.review || '')}</p>
             <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><span>★ New</span></div>
@@ -2701,16 +2665,29 @@
     }
   }
 
+  // Tracks which account's data is currently on screen, so switching to a
+  // *different* signed-in account doesn't leave the previous account's
+  // name/handle/bio/picture visible until the cloud profile finishes loading.
+  let lastSignedInUid = null;
+
   onAuthStateChanged(auth, (user) => {
     if (user) {
       signedOutView.hidden = true;
       signedInView.hidden = false;
       signedInEmail.textContent = user.email || user.displayName || 'Signed in';
-      profileName.value = profileName.value || user.displayName || (user.email ? user.email.split('@')[0] : '');
-      profileHandle.value = profileHandle.value || (user.email ? `@${user.email.split('@')[0]}` : '');
+      if (lastSignedInUid !== user.uid) {
+        // New account this session — start from this account's own
+        // defaults rather than whatever the previous account/guest left on screen.
+        profileName.value = user.displayName || (user.email ? user.email.split('@')[0] : '');
+        profileHandle.value = user.email ? `@${user.email.split('@')[0]}` : '';
+        profileBio.value = '';
+        avatarDataUrl = user.photoURL || '';
+      }
+      lastSignedInUid = user.uid;
       updateAccountHeader();
-      loadCloudProfile(user.uid);
+      loadCloudProfile(user.uid); // overwrites the above with synced data, if any exists
     } else {
+      lastSignedInUid = null;
       signedOutView.hidden = false;
       signedInView.hidden = true;
       signedInEmail.textContent = '';
@@ -2753,10 +2730,12 @@
     });
   });
   document.getElementById('saveProfile').addEventListener('click', () => {
-    const profile = {name:profileName.value.trim(), handle:profileHandle.value.trim(), bio:profileBio.value.trim(), avatar:avatarDataUrl};
-    localStorage.setItem('fictionClashProfile', JSON.stringify(profile));
+    // persistProfile() writes to localStorage AND, when signed in, syncs
+    // name/handle/bio/avatar to Firestore under this account's uid so it
+    // shows up the same way on any other browser signed into that account.
+    persistProfile();
     updateAccountHeader();
-    showToast('Profile saved');
+    showToast(auth.currentUser ? 'Profile saved and synced' : 'Profile saved (sign in to sync it everywhere)');
   });
 
   // ---------- bottom nav ----------
