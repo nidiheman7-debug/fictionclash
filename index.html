@@ -1374,7 +1374,7 @@
     signOut
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
-    doc, getDoc, setDoc, addDoc, collection, onSnapshot,
+    doc, getDoc, setDoc, addDoc, updateDoc, increment, collection, onSnapshot,
     query, orderBy, serverTimestamp, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
@@ -1433,7 +1433,17 @@
     { a:{name:'Levi Ackerman', sub:'Attack on Titan', hint:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', hint:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
   ];
   let activeIdx = 0;
-  const votedState = {}; // matchup idx -> 'a' | 'b'
+  const VOTED_STATE_KEY = 'fictionClashVotedState';
+  const VOTE_DELTA_KEY = 'fictionClashVoteDeltas'; // extra votes this browser cast on built-in (non-Firestore) matchups
+  const votedState = JSON.parse(localStorage.getItem(VOTED_STATE_KEY) || '{}'); // matchupKey -> 'a' | 'b'
+  const voteDeltas = JSON.parse(localStorage.getItem(VOTE_DELTA_KEY) || '{}'); // matchupKey -> {a:n,b:n}
+  // Re-apply any votes this browser previously cast on the built-in matchups
+  // (they have no Firestore doc to persist to, so localStorage is their
+  // only record — otherwise a refresh would silently wipe them too).
+  matchups.forEach(m => {
+    const delta = voteDeltas[matchupPairKey(m)];
+    if (delta) { m.votesA += delta.a || 0; m.votesB += delta.b || 0; }
+  });
 
   // A character's "version" (e.g. Base, Ultra Instinct, Six Paths Sage Mode)
   // is kept separate from `name` on purpose: `name` stays the plain
@@ -1621,7 +1631,7 @@
     voteBtnB.textContent = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
     aiStatsResult.innerHTML = 'Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.';
     updatePercentages();
-    const voted = votedState[activeIdx];
+    const voted = votedState[matchupPairKey(m)];
     voteRow.classList.toggle('voted', !!voted);
     voteBtnA.classList.toggle('picked', voted === 'a');
     voteBtnB.classList.toggle('picked', voted === 'b');
@@ -1705,10 +1715,25 @@
   }
 
   function castVote(side){
-    if (votedState[activeIdx]) return; // already voted on this matchup
     const m = matchups[activeIdx];
+    const key = matchupPairKey(m);
+    if (votedState[key]) return; // already voted on this matchup
     if (side === 'a') m.votesA++; else m.votesB++;
-    votedState[activeIdx] = side;
+    votedState[key] = side;
+    localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+    if (m.docId) {
+      // Community matchup — write the vote to Firestore so it persists
+      // and shows up the same way on any other browser/device.
+      updateDoc(doc(db, 'matchups', m.docId), side === 'a' ? { votesA: increment(1) } : { votesB: increment(1) })
+        .catch(err => console.error('Vote sync failed', err));
+    } else {
+      // Built-in matchup — no Firestore doc, so remember the extra vote
+      // in this browser's localStorage or it'd be lost on refresh.
+      const delta = voteDeltas[key] || { a: 0, b: 0 };
+      delta[side]++;
+      voteDeltas[key] = delta;
+      localStorage.setItem(VOTE_DELTA_KEY, JSON.stringify(voteDeltas));
+    }
     updatePercentages();
     voteRow.classList.add('voted');
     voteBtnA.classList.toggle('picked', side === 'a');
@@ -2002,9 +2027,15 @@
     snapshot.forEach(docSnap => {
       const data = docSnap.data();
       if (!data.a || !data.b) return;
-      const existing = matchups.some(m => matchupPairKey(m) === matchupPairKey(data));
-      if (existing) return;
-      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true });
+      const existingMatchup = matchups.find(m => matchupPairKey(m) === matchupPairKey(data));
+      if (existingMatchup) {
+        // Already showing locally (e.g. the one we just optimistically
+        // pushed on submit) — just attach the Firestore doc id so votes
+        // on it can be written back, without duplicating the card.
+        if (!existingMatchup.docId) existingMatchup.docId = docSnap.id;
+        return;
+      }
+      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id });
       added = true;
     });
     if (added) {
