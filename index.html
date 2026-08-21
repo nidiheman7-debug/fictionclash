@@ -836,9 +836,6 @@
           <button class="account-dropdown-item danger" id="dropdownSignOutBtn" type="button">Sign out</button>
         </div>
       </div>
-      <button class="theme-toggle" id="imgDebugToggle" aria-label="Toggle image lookup debug panel" title="Image lookup debug panel">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.5 1.5M16 2l-1.5 1.5"/><path d="M12 8v13"/><path d="M19 13h2M3 13h2M19 7l1.5-1.5M5 7 3.5 5.5M19 20l1.5 1.5M5 20l-1.5 1.5"/><circle cx="12" cy="8" r="5"/></svg>
-      </button>
       <button class="theme-toggle" id="themeToggle" aria-label="Switch to light theme" title="Toggle theme">
         <svg class="sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         <svg class="moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -1234,11 +1231,17 @@
   <div class="modal-overlay" id="compareOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Compare Characters</div>
-      <div class="modal-sub">Search any two characters — from any movie, anime, or show — to see how they stack up.</div>
+      <div class="modal-sub">Search any two characters — from any movie, anime, or show. Add a source for uncommon names (e.g. "DC" for Lobo) to get the right photo.</div>
       <div class="compare-pickers">
-        <input class="modal-input compare-select submit-input" id="compareCharA" type="text" list="characterSuggestions" placeholder="Character A" aria-label="First character" maxlength="40">
+        <div class="submit-char-col">
+          <input class="modal-input compare-select submit-input" id="compareCharA" type="text" list="characterSuggestions" placeholder="Character A" aria-label="First character" maxlength="40">
+          <input class="modal-input submit-version-input" id="compareSourceA" type="text" placeholder="Source (optional)" maxlength="30">
+        </div>
         <div class="compare-vs">VS</div>
-        <input class="modal-input compare-select submit-input" id="compareCharB" type="text" list="characterSuggestions" placeholder="Character B" aria-label="Second character" maxlength="40">
+        <div class="submit-char-col">
+          <input class="modal-input compare-select submit-input" id="compareCharB" type="text" list="characterSuggestions" placeholder="Character B" aria-label="Second character" maxlength="40">
+          <input class="modal-input submit-version-input" id="compareSourceB" type="text" placeholder="Source (optional)" maxlength="30">
+        </div>
       </div>
       <button class="modal-submit" id="compareSubmit" type="button">Compare</button>
       <div class="compare-result" id="compareResult" hidden></div>
@@ -1452,17 +1455,20 @@
 
   // ---------- real character photos ----------
   // 1) CUSTOM_IMAGE_OVERRIDES — for characters/variants that no public API will
-  //    ever resolve correctly (fan nicknames, alt skins, obscure variants).
-  //    Add a direct image URL here and it's used with no network call.
+  //    ever resolve correctly (fan nicknames, alt skins, obscure variants like
+  //    "RKT"). Add a direct image URL here and it's used with no network call.
   const CUSTOM_IMAGE_OVERRIDES = {
     // 'RKT': 'https://example.com/path/to/rkt-art.png',
   };
 
   // 2) WIKI_TITLE_OVERRIDES — the exact Wikipedia article title for a
-  //    character, when it differs from the display name. A direct title
-  //    lookup can't drift onto an unrelated page the way a full-text search
-  //    can. redirects=1 in the fetch means a slightly-off guess here still
-  //    resolves correctly as long as it redirects to the right place.
+  //    character, when it differs from the display name (e.g. "Naruto" the
+  //    display name is the *series*; the character's own article is titled
+  //    "Naruto Uzumaki"). This is what actually fixes "wrong picture" bugs —
+  //    a direct title lookup can't drift onto an unrelated page the way a
+  //    full-text search can. `redirects=1` in the fetch below means a
+  //    slightly-off guess here still resolves correctly as long as it
+  //    redirects to the right place.
   const WIKI_TITLE_OVERRIDES = {
     'Gojo Satoru':'Satoru Gojo', 'Saitama':'Saitama (One-Punch Man)',
     'Naruto':'Naruto Uzumaki', 'Thor':'Thor (Marvel Comics)',
@@ -1479,9 +1485,7 @@
 
   // 3) FRANCHISE_HINTS — disambiguates common one-word names in the search
   //    fallback (e.g. plain "Thor" resolves to the Norse god on Wikipedia,
-  //    not the Marvel hero) by adding franchise context to the query, and
-  //    also doubles as the title to fall back to for the franchise's own
-  //    logo/key art when no character-specific picture can be found.
+  //    not the Marvel hero) by adding franchise context to the query.
   const FRANCHISE_HINTS = {
     'Gojo Satoru':'Jujutsu Kaisen', 'Saitama':'One Punch Man', 'Goku':'Dragon Ball',
     'Vegeta':'Dragon Ball', 'Naruto':'Naruto', 'Sasuke Uchiha':'Naruto',
@@ -1506,75 +1510,37 @@
     'The Terminator':'film', 'Ellen Ripley':'Alien film', 'Rocky Balboa':'film'
   };
 
-  // 4) FANDOM_WIKIS — the fandom.com wiki subdomain for a franchise. This is
-  //    the actual fix for "no picture found" on Wikipedia for most fictional
-  //    characters: Wikipedia's image API only serves freely-licensed photos,
-  //    and almost all anime/comic/game character art on Wikipedia is
-  //    fair-use — so the API silently omits it even though the page and
-  //    image both clearly exist (confirmed via the debug panel: Gojo and
-  //    Saitama's own Wikipedia pages both returned "no match" for exactly
-  //    this reason). Fandom wikis host their character art directly, not
-  //    subject to that restriction. Exact-title lookup only — no loose
-  //    search on Fandom — so this can't drift onto the wrong page.
-  const FANDOM_WIKIS = {
-    'Jujutsu Kaisen':'jujutsu-kaisen', 'One Punch Man':'onepunchman', 'Dragon Ball':'dragonball',
-    'Naruto':'naruto', 'One Piece':'onepiece', 'Bleach':'bleach', 'Attack on Titan':'attackontitan',
-    'My Hero Academia':'myheroacademia', 'Death Note':'deathnote', 'Fullmetal Alchemist':'fma',
-    'Fairy Tail':'fairytail', 'Hunter x Hunter':'hunterxhunter', 'Seven Deadly Sins':'nanatsu-no-taizai',
-    'That Time I Got Reincarnated as a Slime':'tensura',
-    'Marvel Comics':'marvel', 'DC Comics':'dc',
-    'Halo':'halo', 'God of War':'godofwar', 'The Legend of Zelda':'zelda', 'Final Fantasy VII':'finalfantasy',
-    'Devil May Cry':'devilmaycry', 'The Witcher':'witcher', 'Metal Gear':'metalgear',
-    'Doom video game':'doom', 'Pirates of the Caribbean':'pirates', 'The Matrix':'matrix',
-    'Star Wars':'starwars', 'Alien film':'avp'
-  };
+  // Looks up a real photo for a character, using Wikipedia only:
+  //   1. Manual override (no network call)
+  //   2. Exact-title lookups (curated title, then plain name, then a
+  //      couple of common disambiguation patterns) via redirects=1 — a
+  //      direct title match is the most reliable source there is.
+  //   3. Full-text search as a last resort, for names with no good exact
+  //      title (mostly obscure or user-submitted characters). Title-checked
+  //      against the character name so it can't drift onto an unrelated
+  //      page (e.g. a real person coincidentally sharing the name).
+  // Disambiguation pages are always skipped. Falls back to the generated
+  // placeholder avatar if nothing usable is found anywhere.
+  const characterImageCache = {}; // name -> url string | null (null = no photo found, use placeholder)
 
-  const characterImageCache = {}; // "name|version" -> url string | null (null = nothing found anywhere)
-
-  // ---------- on-screen image debug panel ----------
-  // Temporary diagnostic tool: mirrors every image-lookup result into a
-  // visible panel (tap the 🐞 button next to the theme toggle), so this can
-  // be debugged from a phone screenshot without needing browser DevTools.
-  // Safe to delete this whole block (and the button/panel HTML) once image
-  // lookups are confirmed working reliably.
-  const imgDebugLines = [];
-  function logImgDebug(line){
-    imgDebugLines.push(line);
-    if (imgDebugLines.length > 60) imgDebugLines.shift();
-    const panel = document.getElementById('imgDebugPanel');
-    if (panel && !panel.hidden) panel.textContent = imgDebugLines.join('\n');
-  }
-  document.addEventListener('DOMContentLoaded', () => {
-    const btn = document.getElementById('imgDebugToggle');
-    const panel = document.getElementById('imgDebugPanel');
-    if (btn && panel) {
-      btn.addEventListener('click', () => {
-        panel.hidden = !panel.hidden;
-        if (!panel.hidden) panel.textContent = imgDebugLines.join('\n') || '(no image lookups yet — switch matchups, open the leaderboard, or use Compare to trigger some)';
-      });
-    }
-  });
-
-  // Every network step is wrapped through this so a single failing source
-  // only costs that ONE step — it logs and returns null instead of
-  // throwing, so remaining fallback attempts still get a chance to run.
+  // Every network step below is wrapped through this so a single failing
+  // source can only ever cost that ONE step — it logs and returns null
+  // instead of throwing, so remaining fallback attempts still get a chance
+  // to run. Open devtools → Console and look for "[character image]" lines
+  // to see exactly what's resolving (or failing) for a given character.
   async function safeStep(label, run){
     try {
       const result = await run();
-      const line = `${label} → ${result || '(no match)'}`;
-      console.debug(`[character image] ${line}`);
-      logImgDebug(line);
+      console.debug(`[character image] ${label} →`, result || '(no match)');
       return result;
     } catch (err) {
-      const line = `${label} FAILED: ${err && err.message ? err.message : err}`;
-      console.warn(`[character image] ${line}`);
-      logImgDebug(line);
+      console.warn(`[character image] ${label} FAILED:`, err);
       return null;
     }
   }
 
-  async function fetchExactPage(title, domain){
-    const url = `https://${domain || 'en.wikipedia.org'}/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
+  async function fetchExactPage(title){
+    const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
@@ -1586,34 +1552,6 @@
     return (page.thumbnail && page.thumbnail.source) ? page.thumbnail.source : null;
   }
 
-  // Tries a character's own name as the page title on their franchise's
-  // Fandom wiki (then "Name (character)" too, since some wikis disambiguate
-  // that way). Returns null immediately if the franchise has no known wiki
-  // mapped — never guesses at a subdomain.
-  async function fetchFandomImage(name, franchise){
-    const subdomain = FANDOM_WIKIS[franchise];
-    if (!subdomain) return null;
-    const domain = `${subdomain}.fandom.com`;
-    let url = await fetchExactPage(name, domain);
-    if (!url) url = await fetchExactPage(`${name} (character)`, domain);
-    return url;
-  }
-
-  // MyAnimeList character art, via Jikan — hosted by MAL specifically for
-  // this purpose, so (unlike Wikipedia) not subject to a fair-use filter.
-  // Only accepted on an exact name/nickname match, so it never guesses at
-  // an unrelated character sharing a name.
-  async function fetchJikanImage(name){
-    const res = await fetch(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(name)}&limit=5`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const results = (data && data.data) || [];
-    const normalized = name.trim().toLowerCase();
-    const match = results.find(c => c.name && c.name.trim().toLowerCase() === normalized)
-      || results.find(c => Array.isArray(c.nicknames) && c.nicknames.some(n => n.trim().toLowerCase() === normalized));
-    return (match && match.images && match.images.jpg && match.images.jpg.image_url) ? match.images.jpg.image_url : null;
-  }
-
   async function searchWikipediaImage(query, name){
     const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=5&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
     const res = await fetch(url);
@@ -1622,13 +1560,18 @@
     const pages = data.query && data.query.pages;
     if (!pages) return null;
     // Object.values() order does NOT match search relevance — MediaWiki
-    // returns pages keyed by page ID, so sort by each page's own `index`.
+    // returns pages keyed by page ID. The actual rank lives in each page's
+    // own `index` field, so sort by that before picking a candidate. (This
+    // was the main cause of "wrong picture": the old code just grabbed
+    // whichever page happened to come out of Object.values first.)
     const ranked = Object.values(pages).sort((a, b) => (a.index || 0) - (b.index || 0));
     // Full-text search can rank an entirely unrelated page highly just
     // because the query words appear somewhere in its body (e.g. "All
     // Might" or "Dante" matching a real person of the same name). Only
-    // accept a page whose TITLE is actually the character — exact match,
-    // or "Name (something)" — never a loose body-text hit.
+    // accept a page whose TITLE is actually the character — either an
+    // exact match, or "Name (something)" — never a loose body-text hit.
+    // This is what previously let real people's photos slip in for
+    // fictional characters like "All Might" or "Dante".
     const normalizedName = (name || query).trim().toLowerCase();
     const titleMatches = (title) => {
       const t = title.trim().toLowerCase();
@@ -1642,43 +1585,13 @@
     return null;
   }
 
-  // Looks up a picture for a character, in order:
-  //   1. Manual override (no network call)
-  //   2. Exact-title Wikipedia lookups for the CHARACTER (version-qualified
-  //      title first if given, then curated title, then plain name, then
-  //      franchise-qualified variants) — but this mostly only succeeds for
-  //      characters with a freely-licensed photo, which is rare for
-  //      fictional characters (see note below).
-  //   3. The franchise's Fandom wiki, exact title — THIS is what actually
-  //      finds most anime/comic/game character art. Wikipedia's image API
-  //      only serves freely-licensed photos, and nearly all fictional
-  //      character art on Wikipedia is fair-use, so step 2 silently comes
-  //      up empty even when the Wikipedia page and image both clearly
-  //      exist (confirmed live: Gojo and Saitama's own Wikipedia articles
-  //      both returned no image for exactly this reason). Fandom wikis
-  //      host character art directly, without that restriction.
-  //   4. Jikan (MyAnimeList) — same idea as Fandom, for anime/manga
-  //      specifically. Only accepted on an exact name/nickname match.
-  //   5. Title-checked full-text Wikipedia search — last resort for
-  //      characters with no Fandom/Jikan coverage. Title-checked against
-  //      the character name so it can't drift onto an unrelated page (e.g.
-  //      a real person coincidentally sharing the name — this is what
-  //      caused the wrong "Saitama" city-skyline photo previously).
-  //   6. The franchise/show's OWN Wikipedia page (its logo/key art) — if we
-  //      can't find the character themselves, their series' emblem is more
-  //      useful than a blank placeholder.
-  // Disambiguation pages are always skipped. Every step is isolated via
-  // safeStep, so one failing source can never block the others. Falls back
-  // to the generated placeholder only if every step above comes up empty.
-  async function fetchCharacterImage(name, hint, version){
+  async function fetchCharacterImage(name, hint){
     if (CUSTOM_IMAGE_OVERRIDES[name]) return CUSTOM_IMAGE_OVERRIDES[name];
-    const cacheKey = version ? `${name}|${version}` : name;
-    if (Object.prototype.hasOwnProperty.call(characterImageCache, cacheKey)) {
-      return characterImageCache[cacheKey];
+    if (Object.prototype.hasOwnProperty.call(characterImageCache, name)) {
+      return characterImageCache[name];
     }
     const franchise = hint || FRANCHISE_HINTS[name];
     const exactCandidates = [
-      version ? `${name} (${version})` : null,
       WIKI_TITLE_OVERRIDES[name],
       name,
       franchise ? `${name} (${franchise})` : null,
@@ -1690,25 +1603,19 @@
       url = await safeStep(`"${name}" — wikipedia exact "${title}"`, () => fetchExactPage(title));
       if (url) break;
     }
-    if (!url) url = await safeStep(`"${name}" — fandom wiki`, () => fetchFandomImage(name, franchise));
-    if (!url) url = await safeStep(`"${name}" — jikan`, () => fetchJikanImage(name));
-    if (!url && version) url = await safeStep(`"${name}" — wikipedia search (version)`, () => searchWikipediaImage(`${name} ${version} ${franchise || ''}`.trim(), name));
     if (!url) url = await safeStep(`"${name}" — wikipedia search (franchise)`, () => searchWikipediaImage(franchise ? `${name} ${franchise}` : name, name));
     if (!url) url = await safeStep(`"${name}" — wikipedia search (plain)`, () => searchWikipediaImage(name, name));
-    if (!url && franchise) url = await safeStep(`"${name}" — franchise emblem "${franchise}"`, () => fetchExactPage(franchise));
 
-    characterImageCache[cacheKey] = url;
-    const finalLine = `"${name}"${version ? ` (${version})` : ''} RESOLVED: ${url || '(nothing found — placeholder used)'}`;
-    console.info(`[character image] ${finalLine}`);
-    logImgDebug(`— ${finalLine}`);
+    characterImageCache[name] = url;
+    console.info(`[character image] "${name}" resolved to:`, url || '(no photo found — using placeholder)');
     return url;
   }
 
-  // Renders the placeholder immediately, then swaps in the real photo (if
-  // one is found) once it loads, so the UI never blocks on the network.
-  function setAvatarPhoto(el, name, initials, altSuffix, hint, version){
+  // Renders the placeholder immediately, then swaps in the real photo (if one
+  // is found) once it loads, so the UI never blocks on the network request.
+  function setAvatarPhoto(el, name, initials, altSuffix, hint){
     el.innerHTML = `<img src="${avatarUrl(name, initials)}" alt="${name}${altSuffix || ''}">`;
-    fetchCharacterImage(name, hint, version).then(url => {
+    fetchCharacterImage(name, hint).then(url => {
       if (!url) return;
       const img = el.querySelector('img');
       if (!img) return;
@@ -1719,16 +1626,13 @@
   }
 
   // For photos rendered via innerHTML template strings (compare tool,
-  // leaderboard, team list): mark the <img> with data-char-photo="Name",
-  // optionally data-char-hint="Franchise" and data-char-version="Version",
-  // and call this after inserting the HTML to upgrade placeholders to
-  // real photos.
+  // leaderboard, team list): mark the <img> with data-char-photo="Name" and
+  // call this after inserting the HTML to upgrade placeholders to real photos.
   function hydrateCharacterPhotos(root){
     root.querySelectorAll('img[data-char-photo]').forEach(img => {
       const name = img.getAttribute('data-char-photo');
       const hint = img.getAttribute('data-char-hint') || FRANCHISE_HINTS[name];
-      const version = img.getAttribute('data-char-version') || undefined;
-      fetchCharacterImage(name, hint, version).then(url => {
+      fetchCharacterImage(name, hint).then(url => {
         if (!url) return;
         const real = new Image();
         real.onload = () => { img.src = url; };
@@ -1739,8 +1643,8 @@
 
   function renderHero(){
     const m = matchups[activeIdx];
-    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
-    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
+    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint);
+    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint);
     heroNameA.textContent = m.a.name.toUpperCase();
     heroNameB.textContent = m.b.name.toUpperCase();
     heroSubA.textContent = m.a.sub;
@@ -1819,6 +1723,8 @@
   const compareOverlay = document.getElementById('compareOverlay');
   const compareCharA = document.getElementById('compareCharA');
   const compareCharB = document.getElementById('compareCharB');
+  const compareSourceA = document.getElementById('compareSourceA');
+  const compareSourceB = document.getElementById('compareSourceB');
   const compareSubmit = document.getElementById('compareSubmit');
   const compareResult = document.getElementById('compareResult');
   const compareClose = document.getElementById('compareClose');
@@ -1831,6 +1737,8 @@
   document.getElementById('qaCompare').addEventListener('click', () => {
     compareCharA.value = '';
     compareCharB.value = '';
+    compareSourceA.value = '';
+    compareSourceB.value = '';
     compareResult.hidden = true;
     compareOverlay.classList.add('show');
   });
@@ -1842,6 +1750,8 @@
   compareSubmit.addEventListener('click', () => {
     const nameA = compareCharA.value.trim();
     const nameB = compareCharB.value.trim();
+    const sourceA = compareSourceA.value.trim();
+    const sourceB = compareSourceB.value.trim();
     if (!nameA || !nameB) {
       showToast('Enter both characters');
       return;
@@ -1876,8 +1786,8 @@
       compareResult.hidden = false;
       compareResult.innerHTML = `
         <div class="compare-heads">
-          <div class="compare-head"><img data-char-photo="${escapeHtml(nameA)}" src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
-          <div class="compare-head"><img data-char-photo="${escapeHtml(nameB)}" src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameA)}" data-char-hint="${escapeHtml(sourceA)}" src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameB)}" data-char-hint="${escapeHtml(sourceB)}" src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
         </div>
         <div class="ai-stat-bars">${bars}</div>
         <div class="compare-verdict">${verdict} ${note}</div>`;
@@ -1908,7 +1818,7 @@
     leaderboardList.innerHTML = ranked.map((entry, index) => `
       <div class="leaderboard-row ${index < 3 ? 'top' + (index + 1) : ''}">
         <div class="leaderboard-rank">${medals[index] || (index + 1)}</div>
-        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.hint || '')}" data-char-version="${escapeHtml(entry.version || '')}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
+        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.hint || '')}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
         <div class="leaderboard-info">
           <div class="leaderboard-name">${escapeHtml(entry.label)}</div>
           <div class="leaderboard-sub">${escapeHtml(entry.sub)}</div>
@@ -2752,6 +2662,5 @@
   renderHero();
 </script>
 
-  <pre id="imgDebugPanel" hidden style="position:fixed;left:8px;right:8px;bottom:70px;max-height:45vh;overflow:auto;background:#000;color:#6f6;font:10px/1.4 'Martian Mono',monospace;padding:10px;border:1px solid #333;border-radius:8px;z-index:9999;white-space:pre-wrap;word-break:break-all;"></pre>
 </body>
 </html>
