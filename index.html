@@ -1286,8 +1286,8 @@
   <div class="modal-overlay" id="clipUploaderOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Share a movie scene</div>
-      <div class="modal-sub">Paste a YouTube link to the scene — no file upload needed.</div>
-      <input class="clip-field" id="clipYoutubeUrl" type="text" placeholder="YouTube link e.g. https://youtu.be/dQw4w9WgXcQ">
+      <div class="modal-sub">Paste a YouTube or Facebook link to the scene — no file upload needed.</div>
+      <input class="clip-field" id="clipYoutubeUrl" type="text" placeholder="YouTube or Facebook video link">
       <div class="file-name" id="clipFileName">Paste a link above to preview it here</div>
       <input class="clip-field" id="clipTitle" type="text" placeholder="Scene title e.g. The final hallway shot">
       <textarea class="clip-field" id="clipReview" placeholder="Write a short review or tell us what makes this scene work..."></textarea>
@@ -2073,10 +2073,37 @@
     return match ? match[1] : null;
   }
 
+  // Recognizes a Facebook video/reel/watch/share link. Facebook's embed
+  // plugin takes the *whole* permalink as a query param rather than a
+  // short id, so this just validates + normalizes the URL.
+  function extractFacebookVideoUrl(input){
+    const value = (input || '').trim();
+    if (!value) return null;
+    if (!/^https?:\/\//i.test(value)) return null;
+    try {
+      const url = new URL(value);
+      const host = url.hostname.replace(/^www\.|^m\.|^web\./, '');
+      if (host === 'facebook.com' || host === 'fb.watch') return url.toString();
+      return null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // Figures out which platform a pasted link belongs to and returns
+  // { source: 'youtube', youtubeId } or { source: 'facebook', facebookUrl }.
+  function parseClipLink(input){
+    const youtubeId = extractYoutubeId(input);
+    if (youtubeId) return { source: 'youtube', youtubeId };
+    const facebookUrl = extractFacebookVideoUrl(input);
+    if (facebookUrl) return { source: 'facebook', facebookUrl };
+    return null;
+  }
+
   clipYoutubeUrl.addEventListener('input', () => {
-    const id = extractYoutubeId(clipYoutubeUrl.value);
-    if (id) clipFileName.textContent = `Looks good — ready to publish`;
-    else if (clipYoutubeUrl.value.trim()) clipFileName.textContent = "That doesn't look like a YouTube link";
+    const parsed = parseClipLink(clipYoutubeUrl.value);
+    if (parsed) clipFileName.textContent = `Looks good — ready to publish (${parsed.source === 'youtube' ? 'YouTube' : 'Facebook'})`;
+    else if (clipYoutubeUrl.value.trim()) clipFileName.textContent = "That doesn't look like a YouTube or Facebook video link";
     else clipFileName.textContent = 'Paste a link above to preview it here';
   });
 
@@ -2163,11 +2190,11 @@
   });
 
   publishClip.addEventListener('click', () => {
-    const youtubeId = extractYoutubeId(clipYoutubeUrl.value);
+    const parsed = parseClipLink(clipYoutubeUrl.value);
     const title = clipTitle.value.trim();
     const review = clipReview.value.trim();
-    if (!youtubeId) {
-      showToast('Paste a valid YouTube link first');
+    if (!parsed) {
+      showToast('Paste a valid YouTube or Facebook video link first');
       return;
     }
     if (!title || !review) {
@@ -2177,13 +2204,16 @@
     const identity = currentUserIdentity();
     if (!identity) { requireSignIn('Sign in to post a clip'); return; }
     withSpinner(publishClip, 'POSTING…', () => {
-      // No file upload involved — just the YouTube video ID — so this
-      // works on Firebase's free Spark plan (no Blaze billing needed).
-      addDoc(collection(db, 'movieClips'), {
-        title, review, youtubeId,
+      // No file upload involved — just a video id/link — so this works on
+      // Firebase's free Spark plan (no Blaze billing needed).
+      const clipDoc = {
+        title, review, videoSource: parsed.source,
         postedByUid: identity.uid, postedByName: identity.name, postedByAvatar: identity.avatarUrl,
         createdAt: serverTimestamp()
-      })
+      };
+      if (parsed.source === 'youtube') clipDoc.youtubeId = parsed.youtubeId;
+      else clipDoc.facebookUrl = parsed.facebookUrl;
+      addDoc(collection(db, 'movieClips'), clipDoc)
         .then(() => {
           clipYoutubeUrl.value = '';
           clipFileName.textContent = 'Paste a link above to preview it here';
@@ -2213,9 +2243,11 @@
           const card = document.createElement('article');
           card.className = 'clip-card';
           card.dataset.clipId = id;
-          const ytId = escapeHtml(data.youtubeId || '');
+          const embedSrc = data.videoSource === 'facebook'
+            ? `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(data.facebookUrl || '')}&show_text=false`
+            : `https://www.youtube.com/embed/${data.youtubeId || ''}`;
           card.innerHTML = `
-            <div class="clip-video-wrap"><iframe src="https://www.youtube.com/embed/${ytId}" title="${escapeHtml(data.title || 'Clip')}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
+            <div class="clip-video-wrap"><iframe src="${escapeHtml(embedSrc)}" title="${escapeHtml(data.title || 'Clip')}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
             <h3>${escapeHtml(data.title || '')}</h3>
             <p class="clip-review">${escapeHtml(data.review || '')}</p>
             <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><span>★ New</span></div>
