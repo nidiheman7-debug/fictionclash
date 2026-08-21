@@ -1506,6 +1506,29 @@
     'The Terminator':'film', 'Ellen Ripley':'Alien film', 'Rocky Balboa':'film'
   };
 
+  // 4) FANDOM_WIKIS — the fandom.com wiki subdomain for a franchise. This is
+  //    the actual fix for "no picture found" on Wikipedia for most fictional
+  //    characters: Wikipedia's image API only serves freely-licensed photos,
+  //    and almost all anime/comic/game character art on Wikipedia is
+  //    fair-use — so the API silently omits it even though the page and
+  //    image both clearly exist (confirmed via the debug panel: Gojo and
+  //    Saitama's own Wikipedia pages both returned "no match" for exactly
+  //    this reason). Fandom wikis host their character art directly, not
+  //    subject to that restriction. Exact-title lookup only — no loose
+  //    search on Fandom — so this can't drift onto the wrong page.
+  const FANDOM_WIKIS = {
+    'Jujutsu Kaisen':'jujutsu-kaisen', 'One Punch Man':'onepunchman', 'Dragon Ball':'dragonball',
+    'Naruto':'naruto', 'One Piece':'onepiece', 'Bleach':'bleach', 'Attack on Titan':'attackontitan',
+    'My Hero Academia':'myheroacademia', 'Death Note':'deathnote', 'Fullmetal Alchemist':'fma',
+    'Fairy Tail':'fairytail', 'Hunter x Hunter':'hunterxhunter', 'Seven Deadly Sins':'nanatsu-no-taizai',
+    'That Time I Got Reincarnated as a Slime':'tensura',
+    'Marvel Comics':'marvel', 'DC Comics':'dc',
+    'Halo':'halo', 'God of War':'godofwar', 'The Legend of Zelda':'zelda', 'Final Fantasy VII':'finalfantasy',
+    'Devil May Cry':'devilmaycry', 'The Witcher':'witcher', 'Metal Gear':'metalgear',
+    'Doom video game':'doom', 'Pirates of the Caribbean':'pirates', 'The Matrix':'matrix',
+    'Star Wars':'starwars', 'Alien film':'avp'
+  };
+
   const characterImageCache = {}; // "name|version" -> url string | null (null = nothing found anywhere)
 
   // ---------- on-screen image debug panel ----------
@@ -1550,8 +1573,8 @@
     }
   }
 
-  async function fetchExactPage(title){
-    const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
+  async function fetchExactPage(title, domain){
+    const url = `https://${domain || 'en.wikipedia.org'}/w/api.php?action=query&titles=${encodeURIComponent(title)}&redirects=1&prop=pageimages|pageprops&piprop=thumbnail&pithumbsize=320&format=json&origin=*`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
@@ -1561,6 +1584,34 @@
     if (!page || page.missing !== undefined) return null; // title doesn't exist
     if (page.pageprops && page.pageprops.disambiguation !== undefined) return null; // e.g. "Flash (disambiguation)"
     return (page.thumbnail && page.thumbnail.source) ? page.thumbnail.source : null;
+  }
+
+  // Tries a character's own name as the page title on their franchise's
+  // Fandom wiki (then "Name (character)" too, since some wikis disambiguate
+  // that way). Returns null immediately if the franchise has no known wiki
+  // mapped — never guesses at a subdomain.
+  async function fetchFandomImage(name, franchise){
+    const subdomain = FANDOM_WIKIS[franchise];
+    if (!subdomain) return null;
+    const domain = `${subdomain}.fandom.com`;
+    let url = await fetchExactPage(name, domain);
+    if (!url) url = await fetchExactPage(`${name} (character)`, domain);
+    return url;
+  }
+
+  // MyAnimeList character art, via Jikan — hosted by MAL specifically for
+  // this purpose, so (unlike Wikipedia) not subject to a fair-use filter.
+  // Only accepted on an exact name/nickname match, so it never guesses at
+  // an unrelated character sharing a name.
+  async function fetchJikanImage(name){
+    const res = await fetch(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(name)}&limit=5`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const results = (data && data.data) || [];
+    const normalized = name.trim().toLowerCase();
+    const match = results.find(c => c.name && c.name.trim().toLowerCase() === normalized)
+      || results.find(c => Array.isArray(c.nicknames) && c.nicknames.some(n => n.trim().toLowerCase() === normalized));
+    return (match && match.images && match.images.jpg && match.images.jpg.image_url) ? match.images.jpg.image_url : null;
   }
 
   async function searchWikipediaImage(query, name){
@@ -1591,22 +1642,34 @@
     return null;
   }
 
-  // Looks up a picture for a character, using Wikipedia only, in order:
+  // Looks up a picture for a character, in order:
   //   1. Manual override (no network call)
-  //   2. Exact-title lookups for the CHARACTER (version-qualified title
-  //      first if a version was given, then curated title, then plain
-  //      name, then franchise-qualified variants) — a direct title match
-  //      is the most reliable source there is.
-  //   3. Title-checked full-text search for the character — still the
-  //      character specifically, just without an exact title guess.
-  //   4. The franchise/show's OWN Wikipedia page (its logo/key art) — a
-  //      deliberately looser fallback: if we can't find a picture of the
-  //      character themselves, showing their series' emblem is still far
-  //      more useful than a generic placeholder, and "franchise name" is
-  //      never going to resolve to some unrelated real person the way an
-  //      ambiguous character name search could.
-  // Disambiguation pages are always skipped. Falls back to the generated
-  // placeholder avatar only if every one of the above comes up empty.
+  //   2. Exact-title Wikipedia lookups for the CHARACTER (version-qualified
+  //      title first if given, then curated title, then plain name, then
+  //      franchise-qualified variants) — but this mostly only succeeds for
+  //      characters with a freely-licensed photo, which is rare for
+  //      fictional characters (see note below).
+  //   3. The franchise's Fandom wiki, exact title — THIS is what actually
+  //      finds most anime/comic/game character art. Wikipedia's image API
+  //      only serves freely-licensed photos, and nearly all fictional
+  //      character art on Wikipedia is fair-use, so step 2 silently comes
+  //      up empty even when the Wikipedia page and image both clearly
+  //      exist (confirmed live: Gojo and Saitama's own Wikipedia articles
+  //      both returned no image for exactly this reason). Fandom wikis
+  //      host character art directly, without that restriction.
+  //   4. Jikan (MyAnimeList) — same idea as Fandom, for anime/manga
+  //      specifically. Only accepted on an exact name/nickname match.
+  //   5. Title-checked full-text Wikipedia search — last resort for
+  //      characters with no Fandom/Jikan coverage. Title-checked against
+  //      the character name so it can't drift onto an unrelated page (e.g.
+  //      a real person coincidentally sharing the name — this is what
+  //      caused the wrong "Saitama" city-skyline photo previously).
+  //   6. The franchise/show's OWN Wikipedia page (its logo/key art) — if we
+  //      can't find the character themselves, their series' emblem is more
+  //      useful than a blank placeholder.
+  // Disambiguation pages are always skipped. Every step is isolated via
+  // safeStep, so one failing source can never block the others. Falls back
+  // to the generated placeholder only if every step above comes up empty.
   async function fetchCharacterImage(name, hint, version){
     if (CUSTOM_IMAGE_OVERRIDES[name]) return CUSTOM_IMAGE_OVERRIDES[name];
     const cacheKey = version ? `${name}|${version}` : name;
@@ -1627,6 +1690,8 @@
       url = await safeStep(`"${name}" — wikipedia exact "${title}"`, () => fetchExactPage(title));
       if (url) break;
     }
+    if (!url) url = await safeStep(`"${name}" — fandom wiki`, () => fetchFandomImage(name, franchise));
+    if (!url) url = await safeStep(`"${name}" — jikan`, () => fetchJikanImage(name));
     if (!url && version) url = await safeStep(`"${name}" — wikipedia search (version)`, () => searchWikipediaImage(`${name} ${version} ${franchise || ''}`.trim(), name));
     if (!url) url = await safeStep(`"${name}" — wikipedia search (franchise)`, () => searchWikipediaImage(franchise ? `${name} ${franchise}` : name, name));
     if (!url) url = await safeStep(`"${name}" — wikipedia search (plain)`, () => searchWikipediaImage(name, name));
