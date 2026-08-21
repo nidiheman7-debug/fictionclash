@@ -1355,7 +1355,7 @@
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
     doc, getDoc, setDoc, addDoc, collection, onSnapshot,
-    query, orderBy, serverTimestamp
+    query, orderBy, serverTimestamp, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
   import {
     ref as storageRef, uploadBytes, getDownloadURL
@@ -1481,6 +1481,31 @@
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   }
 
+  // Shrinks + re-encodes an image file into a small JPEG data URL, small
+  // enough to store directly inside a Firestore document/field (no
+  // Firebase Storage bucket required — works on the free Spark plan).
+  function compressImageToDataUrl(file, maxDim = 220, quality = 0.72){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > height && width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+          else if (height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => reject(new Error('Could not decode image'));
+        img.src = reader.result;
+      };
+      reader.onerror = () => reject(new Error('Could not read file'));
+      reader.readAsDataURL(file);
+    });
+  }
+
   // ---------- character avatars (upload-only, no external API) ----------
   // User-uploaded pictures for specific characters -- set via the camera
   // icon on the hero card. These are the ONLY source of a "real" photo;
@@ -1511,19 +1536,18 @@
       if (uploaded) img.src = uploaded;
     });
   }
-  // Sets the override locally (instant paint) and uploads the picture to
-  // Firebase Storage + Firestore so every browser sees it. `file` is the
-  // original File object (for the real upload); `dataUrl` is the
-  // FileReader preview shown immediately while the upload is in flight.
+  // Sets the override locally (instant paint) and saves a compressed copy
+  // straight into Firestore (no Firebase Storage bucket needed — this
+  // works on the free Spark plan) so every browser sees it. `file` is the
+  // original File object; `dataUrl` is the uncompressed FileReader
+  // preview shown immediately while compression runs in the background.
   function setCharacterAvatarOverride(name, version, dataUrl, file){
     const key = avatarOverrideKey(name, version);
     characterAvatarOverrides[key] = dataUrl;
     persistCharacterAvatarOverridesLocally();
     if (!file) return;
-    const path = `characterAvatars/${safeId(key)}-${Date.now()}`;
-    uploadBytes(storageRef(storage, path), file)
-      .then(snap => getDownloadURL(snap.ref))
-      .then(url => setDoc(doc(db, 'characterAvatars', safeId(key)), { url, name, version: version || '', updatedAt: serverTimestamp() }))
+    compressImageToDataUrl(file)
+      .then(compressed => setDoc(doc(db, 'characterAvatars', safeId(key)), { url: compressed, name, version: version || '', updatedAt: serverTimestamp() }))
       .catch(err => { console.error('Character avatar sync failed', err); showToast('Picture saved locally, but sync to other browsers failed'); });
   }
 
@@ -1888,7 +1912,16 @@
       // for everyone else too. The optimistic push above already updated
       // this browser's UI; the onSnapshot listener below will skip this
       // matchup when it echoes back (matched by character/version key).
-      addDoc(collection(db, 'matchups'), { ...newMatchup, createdAt: serverTimestamp() })
+      // Firestore's TTL policy (set up on the "matchups" collection for the
+      // expiresAt field, in the console) auto-deletes the doc once this
+      // timestamp passes — so community matchups clean themselves up
+      // 30 days after being posted.
+      const MATCHUP_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+      addDoc(collection(db, 'matchups'), {
+        ...newMatchup,
+        createdAt: serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + MATCHUP_LIFETIME_MS)
+      })
         .catch(err => { console.error('Matchup sync failed', err); showToast('Posted here, but sync to other browsers failed'); });
     }, 700);
   });
@@ -2003,7 +2036,10 @@
     const user = auth.currentUser;
     if (!user) return null;
     const name = profileName.value.trim() || user.displayName || (user.email ? user.email.split('@')[0] : 'You');
-    return { uid: user.uid, name, avatarUrl: avatarDataUrl && avatarDataUrl.startsWith('http') ? avatarDataUrl : (user.photoURL || '') };
+    // Accept either an http(s) URL or a compressed data URL (small enough
+    // to embed safely) — but never an uncompressed multi-MB preview.
+    const usable = avatarDataUrl && (avatarDataUrl.startsWith('http') || avatarDataUrl.length < 400000);
+    return { uid: user.uid, name, avatarUrl: usable ? avatarDataUrl : (user.photoURL || '') };
   }
 
   function requireSignIn(message){
@@ -2068,6 +2104,29 @@
     wireClipComments(form.dataset.commentsFor, form);
   });
 
+  // Posts a clip that only exists on this device (Storage isn't available
+  // — e.g. still on the free Spark plan — so the video file itself can't
+  // be synced anywhere). Comments on it still go through Firestore under
+  // this local id, so at least the conversation works normally.
+  function publishClipLocallyOnly(identity, title, review){
+    const localId = `local-${Date.now()}`;
+    const card = document.createElement('article');
+    card.className = 'clip-card';
+    card.dataset.clipId = localId;
+    card.innerHTML = `
+      <video controls preload="metadata" src="${selectedClipUrl}"></video>
+      <h3>${escapeHtml(title)}</h3>
+      <p class="clip-review">${escapeHtml(review)}</p>
+      <div class="clip-meta"><span>Posted by ${escapeHtml(identity.name)}</span><span>★ New · only on this device</span></div>
+      <div class="comments-title">Conversation</div>
+      <form class="comment-form" data-comments-for="${localId}">
+        <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
+        <button type="submit">POST</button>
+      </form>`;
+    clipFeed.prepend(card);
+    wireClipComments(localId, card.querySelector('.comment-form'));
+  }
+
   publishClip.addEventListener('click', () => {
     const file = clipFile.files[0];
     const title = clipTitle.value.trim();
@@ -2096,14 +2155,21 @@
           clipFileName.textContent = 'No clip selected';
           clipTitle.value = '';
           clipReview.value = '';
-          if (selectedClipUrl) URL.revokeObjectURL(selectedClipUrl);
+          if (selectedClipUrl) URL.revokeObjectURL(selectedClipUrl); // video now lives in Storage, blob no longer needed
           selectedClipUrl = '';
           clipUploaderOverlay.classList.remove('show');
           showToast('Clip published');
         })
         .catch(err => {
-          console.error('Clip publish failed', err);
-          showToast('Could not publish clip — try again');
+          console.error('Clip upload failed (falling back to local-only post)', err);
+          publishClipLocallyOnly(identity, title, review);
+          clipFile.value = '';
+          clipFileName.textContent = 'No clip selected';
+          clipTitle.value = '';
+          clipReview.value = '';
+          selectedClipUrl = '';
+          clipUploaderOverlay.classList.remove('show');
+          showToast('Posted here — video sync needs Firebase Storage enabled to show on other devices');
         });
     }, 900);
   });
@@ -2470,11 +2536,15 @@
     localStorage.setItem('fictionClashProfile', JSON.stringify(profile));
     // Also sync to Firestore when signed in, so the name/handle/bio/picture
     // show up the same way on any other browser this account signs into.
+    // Only sync the picture once it's small (a compressed data URL, or an
+    // http(s) URL) — an uncompressed FileReader preview can be several MB,
+    // which is both wasteful and can exceed Firestore's 1MB document limit.
     const user = auth.currentUser;
     if (user) {
+      const smallEnough = !profile.avatar || profile.avatar.startsWith('http') || profile.avatar.length < 400000;
       setDoc(doc(db, 'users', user.uid), {
         name: profile.name, handle: profile.handle, bio: profile.bio,
-        avatarUrl: profile.avatar && profile.avatar.startsWith('http') ? profile.avatar : '',
+        avatarUrl: smallEnough ? profile.avatar : '',
         updatedAt: serverTimestamp()
       }, { merge: true }).catch(err => console.error('Profile sync failed', err));
     }
@@ -2514,28 +2584,21 @@
     accountAvatar.innerHTML = '<span class="btn-spinner avatar-spinner"></span>';
     const reader = new FileReader();
     reader.onload = () => {
-      // Instant local preview while the real upload (below) runs in the background.
+      // Instant local preview while the compressed copy (below) is
+      // prepared in the background and synced to Firestore.
       avatarDataUrl = reader.result;
       renderAvatar();
       avatarFile.value = '';
-      persistProfile();
-      const user = auth.currentUser;
-      if (!user) {
-        // Not signed in — this picture can only live in this browser's
-        // localStorage, since there's no account to attach it to.
-        showToast('Profile picture updated (sign in to sync it everywhere)');
-        return;
-      }
-      uploadBytes(storageRef(storage, `userAvatars/${user.uid}`), file)
-        .then(snap => getDownloadURL(snap.ref))
-        .then(url => {
-          avatarDataUrl = url;
+      compressImageToDataUrl(file)
+        .then(compressed => {
+          avatarDataUrl = compressed;
           renderAvatar();
           persistProfile();
-          showToast('Profile picture updated');
+          showToast(auth.currentUser ? 'Profile picture updated' : 'Profile picture updated (sign in to sync it everywhere)');
         })
         .catch(err => {
-          console.error('Avatar upload failed', err);
+          console.error('Avatar compression failed', err);
+          persistProfile(); // keeps the uncompressed preview at least local-only
           showToast('Saved here, but sync to other browsers failed');
         });
     };
