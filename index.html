@@ -2503,9 +2503,6 @@
     root.setProperty('--ember', theme.ember);
     root.setProperty('--ember-dim', theme.emberDim);
     root.setProperty('--navy', theme.navy);
-    document.querySelectorAll('.news-feed-block').forEach(el => {
-      el.style.background = `radial-gradient(circle at 50% 0%,${theme.navyGlow} 0%,${theme.navy} 70%)`;
-    });
     document.querySelectorAll('.theme-swatch').forEach(sw => sw.classList.toggle('active', sw.dataset.theme === name));
     localStorage.setItem('fictionClashTheme', name);
   }
