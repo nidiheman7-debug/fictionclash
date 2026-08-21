@@ -1196,6 +1196,7 @@
         <button class="theme-swatch" data-theme="green" style="--sw:#2E9E5B" aria-label="Green theme" title="Green"></button>
         <button class="theme-swatch" data-theme="red" style="--sw:#D6432E" aria-label="Red theme" title="Red"></button>
         <button class="theme-swatch" data-theme="cyan" style="--sw:#22D3D8" aria-label="Cyan theme" title="Cyan"></button>
+        <button class="theme-swatch" data-theme="purple" style="--sw:#9B4FE0" aria-label="Purple theme" title="Purple"></button>
         <button class="theme-swatch" data-theme="crimson" style="--sw:#FF1414" aria-label="Aggressive red theme" title="Aggressive Red"></button>
         <button class="theme-swatch" data-theme="mono" style="--sw:#E5E5E5" aria-label="Black and white theme" title="Black &amp; White"></button>
       </div>
@@ -1975,7 +1976,7 @@
       // expiresAt field, in the console) auto-deletes the doc once this
       // timestamp passes — so community matchups clean themselves up
       // 30 days after being posted.
-      const MATCHUP_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+      const MATCHUP_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
       addDoc(collection(db, 'matchups'), {
         ...newMatchup,
         createdAt: serverTimestamp(),
@@ -2179,10 +2180,15 @@
     withSpinner(publishClip, 'POSTING…', () => {
       // No file upload involved — just the YouTube video ID — so this
       // works on Firebase's free Spark plan (no Blaze billing needed).
+      // expiresAt mirrors the matchups collection's 30-day TTL — set up
+      // the same TTL policy in Firebase console on movieClips.expiresAt
+      // and clips will auto-delete themselves after 30 days too.
+      const CLIP_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
       addDoc(collection(db, 'movieClips'), {
         title, review, youtubeId,
         postedByUid: identity.uid, postedByName: identity.name, postedByAvatar: identity.avatarUrl,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + CLIP_LIFETIME_MS)
       })
         .then(() => {
           clipYoutubeUrl.value = '';
@@ -2465,6 +2471,7 @@
     green: { ember:'#2E9E5B', emberDim:'#155C32', navy:'#0A1F12', navyGlow:'#15351f' },
     red:   { ember:'#D6432E', emberDim:'#7A241A', navy:'#1A0A08', navyGlow:'#331410' },
     cyan:  { ember:'#22D3D8', emberDim:'#0E5C60', navy:'#04191b', navyGlow:'#0d2e30' },
+    purple:{ ember:'#9B4FE0', emberDim:'#4B1F73', navy:'#160A24', navyGlow:'#2b1442' },
     crimson:{ ember:'#FF1414', emberDim:'#5C0000', navy:'#180000', navyGlow:'#330000' },
     // Mono needs separate light/dark accents — a near-white accent disappears
     // on the light theme's cream background, and a near-black one would
@@ -2475,7 +2482,7 @@
     }
   };
   const themeSwatchRow = document.getElementById('themeSwatchRow');
-  let currentThemeName = 'gold';
+  let currentThemeName = 'mono';
   function applyTheme(name){
     currentThemeName = name;
     const isLight = document.body.classList.contains('light');
@@ -2497,7 +2504,7 @@
     applyTheme(swatch.dataset.theme);
     showToast(`${swatch.title} theme applied`);
   });
-  applyTheme(localStorage.getItem('fictionClashTheme') || 'gold');
+  applyTheme(localStorage.getItem('fictionClashTheme') || 'mono');
 
   // ---------- account ----------
   const accountSection = document.getElementById('accountSection');
