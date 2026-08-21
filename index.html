@@ -55,12 +55,6 @@
   }
   .phone-scroll::-webkit-scrollbar{ display:none; }
   .phone-main{ flex:1 0 auto; display:flex; flex-direction:column; }
-  .statusbar{
-    display:flex; justify-content:space-between; align-items:center;
-     padding:14px 22px 6px; font-size:13px; color:var(--text); font-weight:700;
-       background:var(--ember);
-  }
-  .statusbar .icons{ font-size:11px; opacity:.6; }
 
    .topbar{
      position:sticky; top:0; z-index:10;
@@ -667,7 +661,6 @@
       --muted:#8a7c5c;
    }
     body.light .phone{box-shadow:0 30px 70px rgba(70,50,10,.18);}
-     body.light .statusbar{background:var(--ember);color:#fff;}
    body.light .topbar{
       background:linear-gradient(180deg,var(--bg) 0%,var(--bg) 55%,rgba(246,240,226,0) 100%);
    }
@@ -799,10 +792,7 @@
         border-radius:0;
         box-shadow:none;
       }
-      .statusbar{
-        padding-top:max(14px, env(safe-area-inset-top));
-      }
-      .topbar{padding-left:18px;padding-right:18px;}
+      .topbar{padding-left:18px;padding-right:18px;padding-top:max(14px, env(safe-area-inset-top));}
       .quick-actions{gap:10px;padding-left:14px;padding-right:14px;}
       .qa-icon{width:78px;height:78px;}
       .hero{margin-left:10px;margin-right:10px;}
@@ -820,8 +810,6 @@
 
 <div class="phone">
   <div class="phone-scroll">
-  <div class="statusbar">
-  </div>
 
   <div class="topbar">
     <div class="wordmark">
