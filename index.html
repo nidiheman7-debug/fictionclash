@@ -360,8 +360,9 @@
    .comment-avatar{
      width:25px; height:25px; border-radius:50%; flex-shrink:0; display:flex;
      align-items:center; justify-content:center; background:var(--ember);
-     color:#0A0806; font-size:10px; font-weight:800;
+     color:#0A0806; font-size:10px; font-weight:800; overflow:hidden;
    }
+   .comment-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }
    .comment-body{ font-size:11px; line-height:1.35; }
    .comment-body b{ display:block; font-size:10px; margin-bottom:2px; }
    .comment-body span{ color:var(--muted); }
@@ -1311,8 +1312,8 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics.js";
   import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-  // TODO: Add more SDKs for Firebase products as you need them (e.g. Firestore, Storage)
-  // https://firebase.google.com/docs/web/setup#available-libraries
+  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  import { getStorage } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
   // Your web app's Firebase configuration
   // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -1330,11 +1331,15 @@
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
   const auth = getAuth(app);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
 
   // Exposed for the rest of the page's module script to use
   window.firebaseApp = app;
   window.firebaseAnalytics = analytics;
   window.firebaseAuth = auth;
+  window.firebaseDb = db;
+  window.firebaseStorage = storage;
 </script>
 
 <script type="module">
@@ -1348,9 +1353,25 @@
     onAuthStateChanged,
     signOut
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import {
+    doc, getDoc, setDoc, addDoc, collection, onSnapshot,
+    query, orderBy, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  import {
+    ref as storageRef, uploadBytes, getDownloadURL
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
   const auth = window.firebaseAuth;
+  const db = window.firebaseDb;
+  const storage = window.firebaseStorage;
   const googleProvider = new GoogleAuthProvider();
+
+  // Turns any string into a safe Firestore document ID / Storage path
+  // segment (character names, matchup keys, etc. can contain spaces,
+  // parentheses, slashes...).
+  function safeId(value){
+    return String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
+  }
 
   // ---------- theme toggle ----------
   const themeToggle = document.getElementById('themeToggle');
@@ -1475,13 +1496,53 @@
   function getCharacterAvatarOverride(name, version){
     return characterAvatarOverrides[avatarOverrideKey(name, version)] || null;
   }
-  function persistCharacterAvatarOverrides(){
+  function persistCharacterAvatarOverridesLocally(){
     try { localStorage.setItem(CHARACTER_AVATARS_STORAGE_KEY, JSON.stringify(characterAvatarOverrides)); } catch (err) {}
   }
-  function setCharacterAvatarOverride(name, version, dataUrl){
-    characterAvatarOverrides[avatarOverrideKey(name, version)] = dataUrl;
-    persistCharacterAvatarOverrides();
+  // Re-paints every place a character photo can appear once new overrides
+  // arrive from Firestore (hero card, trend scroll, leaderboard, team list).
+  function refreshAllCharacterPhotos(){
+    renderHero();
+    if (typeof renderTrendScroll === 'function') renderTrendScroll();
+    document.querySelectorAll('img[data-char-photo]').forEach(img => {
+      const name = img.getAttribute('data-char-photo');
+      const version = img.getAttribute('data-char-version') || undefined;
+      const uploaded = getCharacterAvatarOverride(name, version);
+      if (uploaded) img.src = uploaded;
+    });
   }
+  // Sets the override locally (instant paint) and uploads the picture to
+  // Firebase Storage + Firestore so every browser sees it. `file` is the
+  // original File object (for the real upload); `dataUrl` is the
+  // FileReader preview shown immediately while the upload is in flight.
+  function setCharacterAvatarOverride(name, version, dataUrl, file){
+    const key = avatarOverrideKey(name, version);
+    characterAvatarOverrides[key] = dataUrl;
+    persistCharacterAvatarOverridesLocally();
+    if (!file) return;
+    const path = `characterAvatars/${safeId(key)}-${Date.now()}`;
+    uploadBytes(storageRef(storage, path), file)
+      .then(snap => getDownloadURL(snap.ref))
+      .then(url => setDoc(doc(db, 'characterAvatars', safeId(key)), { url, name, version: version || '', updatedAt: serverTimestamp() }))
+      .catch(err => { console.error('Character avatar sync failed', err); showToast('Picture saved locally, but sync to other browsers failed'); });
+  }
+
+  // Real-time: any character picture uploaded from any browser lands here.
+  onSnapshot(collection(db, 'characterAvatars'), snapshot => {
+    let changed = false;
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      const key = avatarOverrideKey(data.name, data.version);
+      if (characterAvatarOverrides[key] !== data.url) {
+        characterAvatarOverrides[key] = data.url;
+        changed = true;
+      }
+    });
+    if (changed) {
+      persistCharacterAvatarOverridesLocally();
+      refreshAllCharacterPhotos();
+    }
+  }, err => console.error('Character avatar listener failed', err));
 
   // Renders the uploaded picture if one exists for this character, or the
   // generated placeholder otherwise -- no network call either way.
@@ -1558,7 +1619,7 @@
     const { name, version } = pendingAvatarChar;
     const reader = new FileReader();
     reader.onload = () => {
-      setCharacterAvatarOverride(name, version, reader.result);
+      setCharacterAvatarOverride(name, version, reader.result, file);
       charAvatarFile.value = '';
       pendingAvatarChar = null;
       renderHero(); // picks up the new picture immediately for this matchup
@@ -1810,11 +1871,12 @@
       // It no longer feeds any lookup since avatars are upload-only.
       const subA = [versionA, sourceA].filter(Boolean).join(' · ') || 'Fan Submission';
       const subB = [versionB, sourceB].filter(Boolean).join(' · ') || 'Fan Submission';
-      matchups.push({
+      const newMatchup = {
         a: { name: nameA, version: versionA, sub: subA, initials: initialsFor(nameA) },
         b: { name: nameB, version: versionB, sub: subB, initials: initialsFor(nameB) },
         votesA: 0, votesB: 0, community: true
-      });
+      };
+      matchups.push(newMatchup);
       activeIdx = matchups.length - 1;
       renderTrendScroll();
       renderHero();
@@ -1822,8 +1884,41 @@
       submitOverlay.classList.remove('show');
       document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
       showToast(`${charLabel(matchups[activeIdx].a)} vs ${charLabel(matchups[activeIdx].b)} is live!`);
+      // Persist to Firestore in the background so this matchup shows up
+      // for everyone else too. The optimistic push above already updated
+      // this browser's UI; the onSnapshot listener below will skip this
+      // matchup when it echoes back (matched by character/version key).
+      addDoc(collection(db, 'matchups'), { ...newMatchup, createdAt: serverTimestamp() })
+        .catch(err => { console.error('Matchup sync failed', err); showToast('Posted here, but sync to other browsers failed'); });
     }, 700);
   });
+
+  // Same "same characters + same versions, either order" key used by the
+  // duplicate check above, reused so the Firestore listener never adds a
+  // matchup that's already in `matchups` (including the one we just
+  // optimistically pushed ourselves).
+  function matchupPairKey(m){
+    const keyA = `${m.a.name.toLowerCase()}|${(m.a.version || '').toLowerCase()}`;
+    const keyB = `${m.b.name.toLowerCase()}|${(m.b.version || '').toLowerCase()}`;
+    return [keyA, keyB].sort().join('~');
+  }
+
+  // Real-time: community matchups submitted from any browser land here.
+  onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
+    let added = false;
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      if (!data.a || !data.b) return;
+      const existing = matchups.some(m => matchupPairKey(m) === matchupPairKey(data));
+      if (existing) return;
+      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true });
+      added = true;
+    });
+    if (added) {
+      renderTrendScroll();
+      refreshCharacterSuggestions();
+    }
+  }, err => console.error('Matchup listener failed', err));
 
   // ---------- trending clashes (dynamic, includes user-submitted matchups) ----------
   const trendScroll = document.getElementById('trendScroll');
@@ -1900,21 +1995,77 @@
     }[char]));
   }
 
+  // Returns {uid, name, avatarUrl} for the signed-in user (using their
+  // saved profile name/picture where set), or null if signed out. A real
+  // account is required to comment/post so the name + picture attached to
+  // a comment are meaningful on every browser, not just this one.
+  function currentUserIdentity(){
+    const user = auth.currentUser;
+    if (!user) return null;
+    const name = profileName.value.trim() || user.displayName || (user.email ? user.email.split('@')[0] : 'You');
+    return { uid: user.uid, name, avatarUrl: avatarDataUrl && avatarDataUrl.startsWith('http') ? avatarDataUrl : (user.photoURL || '') };
+  }
+
+  function requireSignIn(message){
+    showToast(message || 'Sign in to continue');
+    signinOverlay.classList.add('show');
+  }
+
+  function commentAvatarHtml(name, avatarUrl){
+    const initials = (name || 'You').trim().split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase() || 'YU';
+    return avatarUrl ? `<img src="${avatarUrl}" alt="${escapeHtml(name)}">` : escapeHtml(initials);
+  }
+
+  function renderCommentEl(data){
+    const el = document.createElement('div');
+    el.className = 'comment';
+    el.innerHTML = `<div class="comment-avatar">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b>${escapeHtml(data.name || 'You')}</b><span>${escapeHtml(data.text || '')}</span></div>`;
+    return el;
+  }
+
+  // Live-syncs one clip's comment thread from Firestore. Safe to call more
+  // than once for the same clipId/form pair (guarded by a flag on the form).
+  const wiredCommentForms = new WeakSet();
+  function wireClipComments(clipId, form){
+    if (!clipId || wiredCommentForms.has(form)) return;
+    wiredCommentForms.add(form);
+    onSnapshot(
+      query(collection(db, 'movieClips', clipId, 'comments'), orderBy('createdAt', 'asc')),
+      snapshot => {
+        snapshot.docChanges().forEach(change => {
+          if (change.type !== 'added') return;
+          form.parentNode.insertBefore(renderCommentEl(change.doc.data()), form);
+        });
+      },
+      err => console.error('Comments listener failed', err)
+    );
+  }
+
   function addComment(form){
+    const clipId = form.dataset.commentsFor;
     const input = form.querySelector('input');
     const text = input.value.trim();
     if (!text) return;
-    const comment = document.createElement('div');
-    comment.className = 'comment';
-    comment.innerHTML = `<div class="comment-avatar">YU</div><div class="comment-body"><b>You</b><span>${escapeHtml(text)}</span></div>`;
-    form.parentNode.insertBefore(comment, form);
+    const identity = currentUserIdentity();
+    if (!identity) { requireSignIn('Sign in to comment'); return; }
     input.value = '';
-    showToast('Comment posted');
+    addDoc(collection(db, 'movieClips', clipId, 'comments'), {
+      text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, createdAt: serverTimestamp()
+    }).catch(err => {
+      console.error('Comment post failed', err);
+      input.value = text;
+      showToast('Could not post comment — try again');
+    });
   }
 
   clipFeed.addEventListener('submit', event => {
     event.preventDefault();
     addComment(event.target);
+  });
+
+  // Wire up the three built-in demo clips' comment threads immediately.
+  clipFeed.querySelectorAll('.comment-form[data-comments-for]').forEach(form => {
+    wireClipComments(form.dataset.commentsFor, form);
   });
 
   publishClip.addEventListener('click', () => {
@@ -1929,29 +2080,66 @@
       showToast('Add a title and review');
       return;
     }
+    const identity = currentUserIdentity();
+    if (!identity) { requireSignIn('Sign in to post a clip'); return; }
     withSpinner(publishClip, 'UPLOADING…', () => {
-      const card = document.createElement('article');
-      card.className = 'clip-card';
-      card.innerHTML = `
-        <video controls preload="metadata" src="${selectedClipUrl}"></video>
-        <h3>${escapeHtml(title)}</h3>
-        <p class="clip-review">${escapeHtml(review)}</p>
-        <div class="clip-meta"><span>Posted by You</span><span>★ New · 0 comments</span></div>
-        <div class="comments-title">Conversation</div>
-        <form class="comment-form" data-comments-for="user-clip">
-          <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
-          <button type="submit">POST</button>
-        </form>`;
-      clipFeed.prepend(card);
-      clipFile.value = '';
-      clipFileName.textContent = 'No clip selected';
-      clipTitle.value = '';
-      clipReview.value = '';
-      selectedClipUrl = '';
-      clipUploaderOverlay.classList.remove('show');
-      showToast('Clip published');
+      const path = `movieClips/${identity.uid}/${Date.now()}-${file.name}`;
+      uploadBytes(storageRef(storage, path), file)
+        .then(snap => getDownloadURL(snap.ref))
+        .then(videoUrl => addDoc(collection(db, 'movieClips'), {
+          title, review, videoUrl,
+          postedByUid: identity.uid, postedByName: identity.name, postedByAvatar: identity.avatarUrl,
+          createdAt: serverTimestamp()
+        }))
+        .then(() => {
+          clipFile.value = '';
+          clipFileName.textContent = 'No clip selected';
+          clipTitle.value = '';
+          clipReview.value = '';
+          if (selectedClipUrl) URL.revokeObjectURL(selectedClipUrl);
+          selectedClipUrl = '';
+          clipUploaderOverlay.classList.remove('show');
+          showToast('Clip published');
+        })
+        .catch(err => {
+          console.error('Clip publish failed', err);
+          showToast('Could not publish clip — try again');
+        });
     }, 900);
   });
+
+  // Real-time: community-posted clips (from any browser) render here,
+  // newest first, above the three built-in demo clips.
+  const renderedClipIds = new Set();
+  onSnapshot(
+    query(collection(db, 'movieClips'), orderBy('createdAt', 'desc')),
+    snapshot => {
+      snapshot.docChanges().forEach(change => {
+        const id = change.doc.id;
+        if (change.type === 'removed') { renderedClipIds.delete(id); return; }
+        if (change.type === 'added' && !renderedClipIds.has(id)) {
+          const data = change.doc.data();
+          const card = document.createElement('article');
+          card.className = 'clip-card';
+          card.dataset.clipId = id;
+          card.innerHTML = `
+            <video controls preload="metadata" src="${data.videoUrl || ''}"></video>
+            <h3>${escapeHtml(data.title || '')}</h3>
+            <p class="clip-review">${escapeHtml(data.review || '')}</p>
+            <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><span>★ New</span></div>
+            <div class="comments-title">Conversation</div>
+            <form class="comment-form" data-comments-for="${id}">
+              <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
+              <button type="submit">POST</button>
+            </form>`;
+          clipFeed.prepend(card);
+          wireClipComments(id, card.querySelector('.comment-form'));
+          renderedClipIds.add(id);
+        }
+      });
+    },
+    err => console.error('Movie clips listener failed', err)
+  );
 
   // ---------- news hub ----------
   const newsSection = document.getElementById('newsSection');
@@ -2280,6 +2468,31 @@
   function persistProfile(){
     const profile = {name:profileName.value.trim(), handle:profileHandle.value.trim(), bio:profileBio.value.trim(), avatar:avatarDataUrl};
     localStorage.setItem('fictionClashProfile', JSON.stringify(profile));
+    // Also sync to Firestore when signed in, so the name/handle/bio/picture
+    // show up the same way on any other browser this account signs into.
+    const user = auth.currentUser;
+    if (user) {
+      setDoc(doc(db, 'users', user.uid), {
+        name: profile.name, handle: profile.handle, bio: profile.bio,
+        avatarUrl: profile.avatar && profile.avatar.startsWith('http') ? profile.avatar : '',
+        updatedAt: serverTimestamp()
+      }, { merge: true }).catch(err => console.error('Profile sync failed', err));
+    }
+  }
+
+  // Loads this account's profile from Firestore (if any) so it shows up
+  // the same way it does on the browser it was set up on. Local fields
+  // already populated (e.g. from localStorage) are kept as a fallback.
+  function loadCloudProfile(uid){
+    getDoc(doc(db, 'users', uid)).then(snap => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (data.name) profileName.value = data.name;
+      if (data.handle) profileHandle.value = data.handle;
+      if (data.bio) profileBio.value = data.bio;
+      if (data.avatarUrl) avatarDataUrl = data.avatarUrl;
+      updateAccountHeader();
+    }).catch(err => console.error('Profile load failed', err));
   }
 
   avatarEditBtn.addEventListener('click', () => avatarFile.click());
@@ -2301,14 +2514,30 @@
     accountAvatar.innerHTML = '<span class="btn-spinner avatar-spinner"></span>';
     const reader = new FileReader();
     reader.onload = () => {
-      // Simulated upload delay — swap for a real upload to Firebase Storage / your backend
-      setTimeout(() => {
-        avatarDataUrl = reader.result;
-        renderAvatar();
-        avatarFile.value = '';
-        persistProfile();
-        showToast('Profile picture updated');
-      }, 600);
+      // Instant local preview while the real upload (below) runs in the background.
+      avatarDataUrl = reader.result;
+      renderAvatar();
+      avatarFile.value = '';
+      persistProfile();
+      const user = auth.currentUser;
+      if (!user) {
+        // Not signed in — this picture can only live in this browser's
+        // localStorage, since there's no account to attach it to.
+        showToast('Profile picture updated (sign in to sync it everywhere)');
+        return;
+      }
+      uploadBytes(storageRef(storage, `userAvatars/${user.uid}`), file)
+        .then(snap => getDownloadURL(snap.ref))
+        .then(url => {
+          avatarDataUrl = url;
+          renderAvatar();
+          persistProfile();
+          showToast('Profile picture updated');
+        })
+        .catch(err => {
+          console.error('Avatar upload failed', err);
+          showToast('Saved here, but sync to other browsers failed');
+        });
     };
     reader.onerror = () => {
       accountAvatar.innerHTML = originalHTML;
@@ -2417,6 +2646,7 @@
       profileName.value = profileName.value || user.displayName || (user.email ? user.email.split('@')[0] : '');
       profileHandle.value = profileHandle.value || (user.email ? `@${user.email.split('@')[0]}` : '');
       updateAccountHeader();
+      loadCloudProfile(user.uid);
     } else {
       signedOutView.hidden = false;
       signedInView.hidden = true;
