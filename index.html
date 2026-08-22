@@ -2480,6 +2480,13 @@
   const newsSection = document.getElementById('newsSection');
   const newsFeed = document.getElementById('newsFeed');
   const newsFeedHeading = document.getElementById('newsFeedHeading');
+  const newsDateEl = document.getElementById('newsDate');
+if (newsDateEl) {
+  const today = new Date();
+  const weekday = today.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+  const month = today.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+  newsDateEl.innerHTML = `${weekday}<br>${month} ${today.getDate()}`;
+    }
 
   // Used as: (1) an offline/error fallback if /api/news fails, and
   // (2) what's shown instantly while the real fetch is in flight, so the
