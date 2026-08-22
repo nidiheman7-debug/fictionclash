@@ -176,6 +176,16 @@
     z-index:3;
   }
    .live-dot{width:6px;height:6px;border-radius:50%;background:var(--ember);}
+  .hero-delete-btn{
+    position:absolute; top:8px; right:8px; z-index:3;
+    width:26px; height:26px; border-radius:50%; border:1px solid rgba(255,255,255,.18);
+    background:var(--surface2); color:var(--muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .hero-delete-btn:active{ transform:scale(.9); }
+  .hero-delete-btn.hidden{ display:none; }
+  body.light .hero-delete-btn{border-color:var(--line);}
 
   .hero-body{ padding:16px 18px 18px; }
   .hero-title{
@@ -365,6 +375,11 @@
      border-top:1px solid var(--line); padding-top:11px; margin-bottom:9px;
      font-size:11px; font-weight:800; letter-spacing:.8px; text-transform:uppercase;
    }
+   .clip-delete-btn{
+     background:none; border:0; padding:0; color:var(--muted);
+     font:10px 'Martian Mono',monospace; text-decoration:underline; cursor:pointer;
+   }
+   .clip-delete-btn:active{ opacity:.6; }
    .comment{
      display:flex; gap:9px; padding:9px 0; border-bottom:1px solid rgba(255,255,255,.07);
    }
@@ -862,6 +877,9 @@
   <div class="hero" id="heroCard">
     <div class="hero-vs">
        <div class="live-tag"><span class="live-dot"></span>LIVE MATCHUP</div>
+      <button class="hero-delete-btn hidden" id="heroDeleteBtn" type="button" aria-label="Delete this matchup" title="Delete this matchup">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+      </button>
       <div class="side">
          <div class="char-avatar-wrap">
            <div class="avatar hi" id="heroAvatarA">GJ</div>
@@ -1346,7 +1364,7 @@
     signOut
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
-    doc, getDoc, setDoc, addDoc, updateDoc, increment, collection, onSnapshot,
+    doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, increment, collection, onSnapshot,
     query, orderBy, serverTimestamp, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
@@ -1642,7 +1660,24 @@
     voteRow.classList.toggle('voted', !!voted);
     voteBtnA.classList.toggle('picked', voted === 'a');
     voteBtnB.classList.toggle('picked', voted === 'b');
+    // Anyone can delete a community-submitted matchup — the built-in demo
+    // matchups have no docId and aren't deletable.
+    heroDeleteBtn.classList.toggle('hidden', !(m.community && m.docId));
   }
+
+  const heroDeleteBtn = document.getElementById('heroDeleteBtn');
+  heroDeleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const m = matchups[activeIdx];
+    if (!m || !m.docId) return;
+    if (!confirm(`Delete ${m.a.name} vs ${m.b.name}? This can't be undone.`)) return;
+    deleteDoc(doc(db, 'matchups', m.docId)).catch(err => {
+      console.error('Delete failed', err);
+      showToast('Could not delete — try again');
+    });
+    // The UI updates itself when the onSnapshot 'removed' event arrives,
+    // so it stays in sync even if someone else deletes it at the same time.
+  });
 
   // ---------- per-character avatar upload ----------
   const heroAvatarEditA = document.getElementById('heroAvatarEditA');
@@ -2052,10 +2087,25 @@
     return [keyA, keyB].sort().join('~');
   }
 
-  // Real-time: community matchups submitted from any browser land here.
+  // Real-time: community matchups submitted from any browser land here,
+  // and disappear for everyone the moment anyone deletes them.
   onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
-    let added = false;
-    snapshot.forEach(docSnap => {
+    let listChanged = false;
+    let heroNeedsRefresh = false;
+    snapshot.docChanges().forEach(change => {
+      const docSnap = change.doc;
+      if (change.type === 'removed') {
+        const idx = matchups.findIndex(m => m.docId === docSnap.id);
+        if (idx !== -1) {
+          matchups.splice(idx, 1);
+          if (activeIdx >= matchups.length) activeIdx = matchups.length - 1;
+          else if (idx < activeIdx) activeIdx--;
+          listChanged = true;
+          if (idx === activeIdx || idx <= activeIdx) heroNeedsRefresh = true;
+        }
+        return;
+      }
+      if (change.type !== 'added') return; // vote-count edits arrive as 'modified' — ignored here, same as before
       const data = docSnap.data();
       if (!data.a || !data.b) return;
       // TTL policies need the Blaze plan, so we can't have Firestore
@@ -2068,17 +2118,15 @@
       if (existingMatchup) {
         // Already showing locally (e.g. the one we just optimistically
         // pushed on submit) — just attach the Firestore doc id so votes
-        // on it can be written back, without duplicating the card.
+        // and deletes on it can be written back, without duplicating the card.
         if (!existingMatchup.docId) existingMatchup.docId = docSnap.id;
         return;
       }
       matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id });
-      added = true;
+      listChanged = true;
     });
-    if (added) {
-      renderTrendScroll();
-      refreshCharacterSuggestions();
-    }
+    if (listChanged) { renderTrendScroll(); refreshCharacterSuggestions(); }
+    if (heroNeedsRefresh) renderHero();
   }, err => console.error('Matchup listener failed', err));
 
   // ---------- trending clashes (dynamic, includes user-submitted matchups) ----------
@@ -2218,10 +2266,11 @@
   // Live-syncs one clip's comment thread from Firestore. Safe to call more
   // than once for the same clipId/form pair (guarded by a flag on the form).
   const wiredCommentForms = new WeakSet();
+  const commentUnsubscribes = new Map(); // clipId -> unsubscribe fn, closed on delete so it stops costing reads
   function wireClipComments(clipId, form){
     if (!clipId || wiredCommentForms.has(form)) return;
     wiredCommentForms.add(form);
-    onSnapshot(
+    const unsubscribe = onSnapshot(
       query(collection(db, 'movieClips', clipId, 'comments'), orderBy('createdAt', 'asc')),
       snapshot => {
         snapshot.docChanges().forEach(change => {
@@ -2231,6 +2280,7 @@
       },
       err => console.error('Comments listener failed', err)
     );
+    commentUnsubscribes.set(clipId, unsubscribe);
   }
 
   function addComment(form){
@@ -2310,7 +2360,16 @@
     snapshot => {
       snapshot.docChanges().forEach(change => {
         const id = change.doc.id;
-        if (change.type === 'removed') { renderedClipIds.delete(id); return; }
+        if (change.type === 'removed') {
+          renderedClipIds.delete(id);
+          const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
+          if (card) card.remove();
+          // Stop listening to this clip's comments now that it's gone —
+          // otherwise the listener keeps running (and costing reads) forever.
+          const unsubscribe = commentUnsubscribes.get(id);
+          if (unsubscribe) { unsubscribe(); commentUnsubscribes.delete(id); }
+          return;
+        }
         if (change.type === 'added' && !renderedClipIds.has(id)) {
           const data = change.doc.data();
           // Same TTL workaround as matchups — no Blaze plan means no
@@ -2325,7 +2384,7 @@
             <div class="clip-video-wrap"><iframe src="https://www.youtube.com/embed/${ytId}" title="${escapeHtml(data.title || 'Clip')}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
             <h3>${escapeHtml(data.title || '')}</h3>
             <p class="clip-review">${escapeHtml(data.review || '')}</p>
-            <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><span>★ New</span></div>
+            <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><button type="button" class="clip-delete-btn" data-delete-clip="${id}">Delete</button></div>
             <div class="comments-title">Conversation</div>
             <form class="comment-form" data-comments-for="${id}">
               <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
@@ -2339,6 +2398,20 @@
     },
     err => console.error('Movie clips listener failed', err)
   );
+
+  // Anyone can delete a community-posted clip — click event delegated
+  // since cards are added/removed dynamically.
+  clipFeed.addEventListener('click', event => {
+    const btn = event.target.closest('[data-delete-clip]');
+    if (!btn) return;
+    const clipId = btn.dataset.deleteClip;
+    if (!confirm('Delete this clip? This can\'t be undone.')) return;
+    deleteDoc(doc(db, 'movieClips', clipId)).catch(err => {
+      console.error('Clip delete failed', err);
+      showToast('Could not delete — try again');
+    });
+    // The card removes itself when the onSnapshot 'removed' event arrives.
+  });
 
   // ---------- news hub ----------
   const newsSection = document.getElementById('newsSection');
