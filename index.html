@@ -2480,24 +2480,79 @@
   const newsSection = document.getElementById('newsSection');
   const newsFeed = document.getElementById('newsFeed');
   const newsFeedHeading = document.getElementById('newsFeedHeading');
-  const newsStories = {
+
+  // Used as: (1) an offline/error fallback if /api/news fails, and
+  // (2) what's shown instantly while the real fetch is in flight, so the
+  // tab never looks empty. Real stories, once loaded, replace these.
+  const fallbackNewsStories = {
     'Music': [
-      ['MUSIC · NEW RELEASE', "The albums bringing a little more colour to this week's playlist", 'Fresh voices, unexpected collaborations and three records getting early attention.', '2H'],
-      ['MUSIC · CULTURE', 'Why intimate live sessions are having a moment again', 'Small rooms, big performances and the return of music that feels close.', '5H']
+      { tag: 'MUSIC · NEW RELEASE', title: "The albums bringing a little more colour to this week's playlist", time: '2H', url: null },
+      { tag: 'MUSIC · CULTURE', title: 'Why intimate live sessions are having a moment again', time: '5H', url: null }
     ],
     'Latest Movies': [
-      ['LATEST MOVIES · TRAILERS', 'The new trailers turning heads this week', 'Big worlds, bold ideas and the films everyone will be talking about next.', '1H'],
-      ['LATEST MOVIES · WATCHLIST', 'Five new releases to add to your weekend watchlist', 'From sharp thrillers to a beautifully strange animated adventure.', '4H']
+      { tag: 'LATEST MOVIES · TRAILERS', title: 'The new trailers turning heads this week', time: '1H', url: null },
+      { tag: 'LATEST MOVIES · WATCHLIST', title: 'Five new releases to add to your weekend watchlist', time: '4H', url: null }
     ],
     'Football': [
-      ['FOOTBALL · TRANSFERS', 'The moves reshaping the season before kickoff', 'The latest transfer stories, breakout players and tactical questions.', '38M'],
-      ['FOOTBALL · MATCHDAY', 'Three fixtures that could define the weekend', 'Rivalries, form and the one matchup fans cannot afford to miss.', '3H']
+      { tag: 'FOOTBALL · TRANSFERS', title: 'The moves reshaping the season before kickoff', time: '38M', url: null },
+      { tag: 'FOOTBALL · MATCHDAY', title: 'Three fixtures that could define the weekend', time: '3H', url: null }
     ],
     'Discovery': [
-      ['DISCOVERY · PEOPLE', 'The creators turning curiosity into a daily practice', 'A closer look at the ideas and habits behind their most interesting work.', '2H'],
-      ['DISCOVERY · PLACES', 'A different way to explore the city this weekend', 'Hidden corners, thoughtful spaces and a few reasons to take the long way home.', '6H']
+      { tag: 'DISCOVERY · PEOPLE', title: 'The creators turning curiosity into a daily practice', time: '2H', url: null },
+      { tag: 'DISCOVERY · PLACES', title: 'A different way to explore the city this weekend', time: '6H', url: null }
     ]
   };
+
+  const newsCache = {}; // category -> stories array, so switching tabs back and forth doesn't re-fetch
+
+  function timeAgo(isoLike){
+    if (!isoLike) return '';
+    // NewsData.io returns "YYYY-MM-DD HH:MM:SS" (UTC, no "Z") — make it parseable.
+    const date = new Date(isoLike.includes('T') ? isoLike : `${isoLike.replace(' ', 'T')}Z`);
+    if (Number.isNaN(date.getTime())) return '';
+    const minutes = Math.max(1, Math.round((Date.now() - date.getTime()) / 60000));
+    if (minutes < 60) return `${minutes}M`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}H`;
+    return `${Math.round(hours / 24)}D`;
+  }
+
+  function renderNewsStories(stories){
+    newsFeed.innerHTML = stories.map(story => {
+      const inner = `
+        <div style="flex:1;min-width:0;">
+          <div class="story-tag">${escapeHtml(story.tag)}</div>
+          <h4>${escapeHtml(story.title)}</h4>
+        </div>
+        <div class="story-time">${escapeHtml(story.time)}</div>`;
+      return story.url
+        ? `<a class="news-story" href="${escapeHtml(story.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`
+        : `<article class="news-story">${inner}</article>`;
+    }).join('');
+  }
+
+  async function loadNewsCategory(name){
+    if (newsCache[name]) {
+      renderNewsStories(newsCache[name]);
+      return;
+    }
+    // Show fallback immediately so the tab isn't blank while the real fetch runs.
+    renderNewsStories(fallbackNewsStories[name] || []);
+    try {
+      const res = await fetch(`/api/news?category=${encodeURIComponent(name)}`);
+      if (!res.ok) throw new Error('News request failed: ' + res.status);
+      const data = await res.json();
+      const stories = Array.isArray(data.stories) ? data.stories : [];
+      if (stories.length === 0) throw new Error('No stories returned');
+      const formatted = stories.map(s => ({ tag: s.tag, title: s.title, url: s.url, time: timeAgo(s.publishedAt) || '' }));
+      newsCache[name] = formatted;
+      // Only swap in the real stories if the user hasn't since switched tabs.
+      if (newsFeedHeading.textContent === name) renderNewsStories(formatted);
+    } catch (err) {
+      console.warn(`News unavailable for "${name}", showing offline stories:`, err);
+      // Fallback is already rendered above — nothing further to do.
+    }
+  }
 
   document.querySelectorAll('.news-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -2505,16 +2560,10 @@
       document.querySelectorAll('.news-tab').forEach(item => item.classList.remove('selected'));
       tab.classList.add('selected');
       newsFeedHeading.textContent = name;
-      newsFeed.innerHTML = newsStories[name].map(story => `
-        <article class="news-story">
-          <div style="flex:1;min-width:0;">
-            <div class="story-tag">${story[0]}</div>
-            <h4>${story[1]}</h4>
-          </div>
-          <div class="story-time">${story[3]}</div>
-        </article>`).join('');
+      loadNewsCategory(name);
     });
   });
+  loadNewsCategory('Music'); // matches the tab marked "selected" by default in the HTML
 
   // ---------- team builder ----------
   const teamSection = document.getElementById('teamSection');
