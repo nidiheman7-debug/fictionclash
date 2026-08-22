@@ -3270,9 +3270,26 @@
   // so the button just stays hidden on iOS — nothing for it to do.
   let deferredInstallPrompt = null;
   const installBtn = document.getElementById('installBtn');
+  const INSTALLED_FLAG_KEY = 'fictionClashInstalled';
+
+  // True once we know for certain the app is installed — either this
+  // browser tab is running as the installed app (standalone display
+  // mode / iOS's navigator.standalone), or we previously saw the
+  // 'appinstalled' event fire and remembered it in localStorage.
+  // 'beforeinstallprompt' can still fire again on a later visit to the
+  // plain browser tab even after install, so relying on that event alone
+  // isn't enough — this flag makes the hide permanent.
+  function isAlreadyInstalled(){
+    if (window.matchMedia('(display-mode: standalone)').matches) return true;
+    if (window.navigator.standalone) return true; // iOS Safari
+    return localStorage.getItem(INSTALLED_FLAG_KEY) === '1';
+  }
+
+  if (isAlreadyInstalled()) installBtn.hidden = true;
 
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();
+    if (isAlreadyInstalled()) return; // don't resurrect the button
     deferredInstallPrompt = event;
     installBtn.hidden = false;
   });
@@ -3282,7 +3299,10 @@
     installBtn.hidden = true;
     deferredInstallPrompt.prompt();
     try {
-      await deferredInstallPrompt.userChoice;
+      const choice = await deferredInstallPrompt.userChoice;
+      if (choice && choice.outcome === 'accepted') {
+        localStorage.setItem(INSTALLED_FLAG_KEY, '1');
+      }
     } catch (err) {
       // user dismissed — fine, just clear the stored prompt below
     }
@@ -3290,6 +3310,7 @@
   });
 
   window.addEventListener('appinstalled', () => {
+    localStorage.setItem(INSTALLED_FLAG_KEY, '1');
     installBtn.hidden = true;
     deferredInstallPrompt = null;
   });
