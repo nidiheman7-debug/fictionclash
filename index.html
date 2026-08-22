@@ -877,8 +877,8 @@
   <div class="hero" id="heroCard">
     <div class="hero-vs">
        <div class="live-tag"><span class="live-dot"></span>LIVE MATCHUP</div>
-      <button class="hero-delete-btn hidden" id="heroDeleteBtn" type="button" aria-label="Delete this matchup" title="Delete this matchup">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+      <button class="hero-delete-btn" id="heroDeleteBtn" type="button" aria-label="Hide this matchup from my feed" title="Hide this matchup from my feed">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.6 18.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
       </button>
       <div class="side">
          <div class="char-avatar-wrap">
@@ -942,13 +942,13 @@
     <p class="movies-intro">Share your take and join the conversation around the moments that stay with you.</p>
 
     <div id="clipFeed">
-      <article class="clip-card">
+      <article class="clip-card" data-clip-id="featured">
         <video controls preload="metadata" poster="">
           <source src="" type="video/mp4">
         </video>
         <h3>What makes a great opening shot?</h3>
         <p class="clip-review">The first few seconds tell you everything: the pace, the mood, and the kind of story you're about to enter.</p>
-        <div class="clip-meta"><span>Posted by Maya</span><span>★ 4.8 · 12 comments</span></div>
+        <div class="clip-meta"><span>Posted by Maya</span><button type="button" class="clip-delete-btn" data-hide-clip="featured">Hide</button></div>
         <div class="comments-title">Conversation</div>
         <div class="comment">
           <div class="comment-avatar">JD</div>
@@ -963,13 +963,13 @@
           <button type="submit">POST</button>
         </form>
       </article>
-      <article class="clip-card">
+      <article class="clip-card" data-clip-id="hallway">
         <video controls preload="metadata" poster="">
           <source src="" type="video/mp4">
         </video>
         <h3>The hallway fight, one continuous take</h3>
         <p class="clip-review">No cuts, no shortcuts. You feel every hit land because the camera never lets you look away.</p>
-        <div class="clip-meta"><span>Posted by Tobi</span><span>★ 4.9 · 7 comments</span></div>
+        <div class="clip-meta"><span>Posted by Tobi</span><button type="button" class="clip-delete-btn" data-hide-clip="hallway">Hide</button></div>
         <div class="comments-title">Conversation</div>
         <div class="comment">
           <div class="comment-avatar">CN</div>
@@ -980,13 +980,13 @@
           <button type="submit">POST</button>
         </form>
       </article>
-      <article class="clip-card">
+      <article class="clip-card" data-clip-id="twist">
         <video controls preload="metadata" poster="">
           <source src="" type="video/mp4">
         </video>
         <h3>That twist reveal, frame by frame</h3>
         <p class="clip-review">Rewatch it once you know the ending — the clues were there the whole time, hidden in plain sight.</p>
-        <div class="clip-meta"><span>Posted by Sarah</span><span>★ 4.7 · 15 comments</span></div>
+        <div class="clip-meta"><span>Posted by Sarah</span><button type="button" class="clip-delete-btn" data-hide-clip="twist">Hide</button></div>
         <div class="comments-title">Conversation</div>
         <div class="comment">
           <div class="comment-avatar">BJ</div>
@@ -1369,6 +1369,15 @@
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   const auth = window.firebaseAuth;
+  // The one account allowed to actually delete matchups/clips from
+  // Firestore for everyone. Find your UID in Firebase Console →
+  // Authentication → Users → your row → "User UID" column, then paste it
+  // here. Until it's filled in, nobody gets real deletes — everyone
+  // (including you) just gets the local "hide from my feed" behavior.
+  const ADMIN_UID = 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2';
+  function isAdmin(){
+    return !!(auth.currentUser && auth.currentUser.uid === ADMIN_UID);
+  }
   const db = window.firebaseDb;
   const googleProvider = new GoogleAuthProvider();
 
@@ -1460,8 +1469,14 @@
   let activeIdx = 0;
   const VOTED_STATE_KEY = 'fictionClashVotedState';
   const VOTE_DELTA_KEY = 'fictionClashVoteDeltas'; // extra votes this browser cast on built-in (non-Firestore) matchups
+  const HIDDEN_MATCHUPS_KEY = 'fictionClashHiddenMatchups'; // matchups this browser chose to hide from its own feed
   const votedState = JSON.parse(localStorage.getItem(VOTED_STATE_KEY) || '{}'); // matchupKey -> 'a' | 'b'
   const voteDeltas = JSON.parse(localStorage.getItem(VOTE_DELTA_KEY) || '{}'); // matchupKey -> {a:n,b:n}
+  const hiddenMatchupKeys = new Set(JSON.parse(localStorage.getItem(HIDDEN_MATCHUPS_KEY) || '[]'));
+  function hideMatchupLocally(m){
+    hiddenMatchupKeys.add(matchupPairKey(m));
+    localStorage.setItem(HIDDEN_MATCHUPS_KEY, JSON.stringify([...hiddenMatchupKeys]));
+  }
   // Re-apply any votes this browser previously cast on the built-in matchups
   // (they have no Firestore doc to persist to, so localStorage is their
   // only record — otherwise a refresh would silently wipe them too).
@@ -1469,6 +1484,11 @@
     const delta = voteDeltas[matchupPairKey(m)];
     if (delta) { m.votesA += delta.a || 0; m.votesB += delta.b || 0; }
   });
+  // Drop any built-in matchups this browser chose to hide previously —
+  // community matchups get the same treatment where they're fetched below.
+  for (let i = matchups.length - 1; i >= 0; i--) {
+    if (hiddenMatchupKeys.has(matchupPairKey(matchups[i]))) matchups.splice(i, 1);
+  }
 
   // A character's "version" (e.g. Base, Ultra Instinct, Six Paths Sage Mode)
   // is kept separate from `name` on purpose: `name` stays the plain
@@ -1660,24 +1680,36 @@
     voteRow.classList.toggle('voted', !!voted);
     voteBtnA.classList.toggle('picked', voted === 'a');
     voteBtnB.classList.toggle('picked', voted === 'b');
-    // Anyone can delete a community-submitted matchup — the built-in demo
-    // matchups have no docId and aren't deletable.
-    heroDeleteBtn.classList.toggle('hidden', !(m.community && m.docId));
   }
 
   const heroDeleteBtn = document.getElementById('heroDeleteBtn');
   heroDeleteBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    const m = matchups[activeIdx];
-    if (!m || !m.docId) return;
-    if (!confirm(`Delete ${m.a.name} vs ${m.b.name}? This can't be undone.`)) return;
-    deleteDoc(doc(db, 'matchups', m.docId)).catch(err => {
-      console.error('Delete failed', err);
-      showToast('Could not delete — try again');
-    });
-    // The UI updates itself when the onSnapshot 'removed' event arrives,
-    // so it stays in sync even if someone else deletes it at the same time.
+    const idx = activeIdx;
+    const m = matchups[idx];
+    if (!m || matchups.length <= 1) return; // keep at least one matchup visible
+    if (isAdmin() && m.docId) {
+      // Admin account — this actually deletes the doc from Firestore, so
+      // it disappears for every visitor, not just this browser.
+      if (!confirm(`Delete ${m.a.name} vs ${m.b.name} for everyone? This can't be undone.`)) return;
+      deleteDoc(doc(db, 'matchups', m.docId)).catch(err => {
+        console.error('Delete failed', err);
+        showToast('Could not delete — try again');
+      });
+      // The list/hero update themselves when the onSnapshot 'removed' event arrives.
+      return;
+    }
+    if (!confirm(`Hide ${m.a.name} vs ${m.b.name} from your feed? It'll stay visible to everyone else — you just won't see it on this device unless you clear your browser data.`)) return;
+    // This only affects what renders on this browser — the Firestore doc
+    // (if any) is never touched, so nothing changes for anyone else.
+    hideMatchupLocally(m);
+    matchups.splice(idx, 1);
+    activeIdx = Math.min(idx, matchups.length - 1);
+    renderTrendScroll();
+    renderHero();
+    showToast('Hidden from your feed');
   });
+
 
   // ---------- per-character avatar upload ----------
   const heroAvatarEditA = document.getElementById('heroAvatarEditA');
@@ -2114,6 +2146,9 @@
       // the database (small storage footprint, well within Spark's
       // free 1 GiB), it just stops appearing in the app.
       if (data.expiresAt && data.expiresAt.toMillis() < Date.now()) return;
+      // This browser chose to hide this exact matchup before — respect
+      // that even though the doc is still live in Firestore for everyone else.
+      if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
       const existingMatchup = matchups.find(m => matchupPairKey(m) === matchupPairKey(data));
       if (existingMatchup) {
         // Already showing locally (e.g. the one we just optimistically
@@ -2355,6 +2390,14 @@
   // Real-time: community-posted clips (from any browser) render here,
   // newest first, above the three built-in demo clips.
   const renderedClipIds = new Set();
+  const HIDDEN_CLIPS_KEY = 'fictionClashHiddenClips'; // clips (including built-in demo ones) this browser chose to hide
+  const hiddenClipIds = new Set(JSON.parse(localStorage.getItem(HIDDEN_CLIPS_KEY) || '[]'));
+  // The 3 built-in demo clips have no Firestore doc, so apply any
+  // previously-hidden choice for them directly against their markup.
+  hiddenClipIds.forEach(id => {
+    const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
+    if (card) card.remove();
+  });
   onSnapshot(
     query(collection(db, 'movieClips'), orderBy('createdAt', 'desc')),
     snapshot => {
@@ -2364,8 +2407,6 @@
           renderedClipIds.delete(id);
           const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
           if (card) card.remove();
-          // Stop listening to this clip's comments now that it's gone —
-          // otherwise the listener keeps running (and costing reads) forever.
           const unsubscribe = commentUnsubscribes.get(id);
           if (unsubscribe) { unsubscribe(); commentUnsubscribes.delete(id); }
           return;
@@ -2376,6 +2417,9 @@
           // Firestore-side auto-delete, so just don't render clips
           // that are already past their expiresAt.
           if (data.expiresAt && data.expiresAt.toMillis() < Date.now()) return;
+          // This browser hid this clip before — Firestore still has it
+          // for everyone else, we just don't render it here.
+          if (hiddenClipIds.has(id)) return;
           const card = document.createElement('article');
           card.className = 'clip-card';
           card.dataset.clipId = id;
@@ -2384,7 +2428,7 @@
             <div class="clip-video-wrap"><iframe src="https://www.youtube.com/embed/${ytId}" title="${escapeHtml(data.title || 'Clip')}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
             <h3>${escapeHtml(data.title || '')}</h3>
             <p class="clip-review">${escapeHtml(data.review || '')}</p>
-            <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><button type="button" class="clip-delete-btn" data-delete-clip="${id}">Delete</button></div>
+            <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><button type="button" class="clip-delete-btn" data-hide-clip="${id}">Hide</button></div>
             <div class="comments-title">Conversation</div>
             <form class="comment-form" data-comments-for="${id}">
               <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
@@ -2399,19 +2443,38 @@
     err => console.error('Movie clips listener failed', err)
   );
 
-  // Anyone can delete a community-posted clip — click event delegated
-  // since cards are added/removed dynamically.
+  // "Hide" only affects this browser — it removes the card locally and
+  // remembers the choice in localStorage, but never touches Firestore, so
+  // the clip stays fully visible to everyone else.
+  const BUILT_IN_CLIP_IDS = new Set(['featured', 'hallway', 'twist']); // no Firestore doc — can only ever be hidden locally
   clipFeed.addEventListener('click', event => {
-    const btn = event.target.closest('[data-delete-clip]');
+    const btn = event.target.closest('[data-hide-clip]');
     if (!btn) return;
-    const clipId = btn.dataset.deleteClip;
-    if (!confirm('Delete this clip? This can\'t be undone.')) return;
-    deleteDoc(doc(db, 'movieClips', clipId)).catch(err => {
-      console.error('Clip delete failed', err);
-      showToast('Could not delete — try again');
-    });
-    // The card removes itself when the onSnapshot 'removed' event arrives.
+    const clipId = btn.dataset.hideClip;
+    if (isAdmin() && !BUILT_IN_CLIP_IDS.has(clipId)) {
+      // Admin account — actually deletes the doc from Firestore, so the
+      // clip disappears for every visitor, not just this browser.
+      if (!confirm('Delete this clip for everyone? This can\'t be undone.')) return;
+      deleteDoc(doc(db, 'movieClips', clipId)).catch(err => {
+        console.error('Clip delete failed', err);
+        showToast('Could not delete — try again');
+      });
+      // Card removal + comment-listener cleanup happen via the onSnapshot 'removed' handler.
+      return;
+    }
+    if (!confirm("Hide this clip from your feed? It'll stay visible to everyone else.")) return;
+    hiddenClipIds.add(clipId);
+    localStorage.setItem(HIDDEN_CLIPS_KEY, JSON.stringify([...hiddenClipIds]));
+    const card = clipFeed.querySelector(`.clip-card[data-clip-id="${clipId}"]`);
+    if (card) card.remove();
+    renderedClipIds.delete(clipId);
+    // Stop listening to this clip's comments on this browser too, since we
+    // don't need live updates for something we're not showing anymore.
+    const unsubscribe = commentUnsubscribes.get(clipId);
+    if (unsubscribe) { unsubscribe(); commentUnsubscribes.delete(clipId); }
+    showToast('Hidden from your feed');
   });
+
 
   // ---------- news hub ----------
   const newsSection = document.getElementById('newsSection');
