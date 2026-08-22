@@ -4,6 +4,32 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Fiction Clash — Character Matchups</title>
+<meta name="description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#E4A929">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fiction Clash">
+<link rel="icon" type="image/png" href="/icons/favicon-32.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+
+<!-- Open Graph / social sharing -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Fiction Clash — Character Matchups">
+<meta property="og:description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
+<meta property="og:image" content="https://fictionclash.vercel.app/icons/og-image.png">
+<meta property="og:url" content="https://fictionclash.vercel.app/">
+<meta property="og:site_name" content="Fiction Clash">
+
+<!-- Twitter card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Fiction Clash — Character Matchups">
+<meta name="twitter:description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
+<meta name="twitter:image" content="https://fictionclash.vercel.app/icons/og-image.png">
+
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=Instrument+Sans:wght@400;500;600;700&family=Martian+Mono:wght@400;600&display=swap');
 
@@ -70,10 +96,11 @@
     letter-spacing:.5px;
   }
    .wordmark{display:flex;align-items:center;gap:8px;line-height:.95;}
-   .logo-badge{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border:2px solid var(--ember);border-radius:50%;flex-shrink:0;}
-   .logo-badge svg{width:19px;height:19px;display:block;}
-   .logo-badge .logo-blade{stroke:var(--ember);}
-   .logo-badge .logo-hilt{fill:var(--ember);}
+   .logo-badge{
+     display:flex;align-items:center;justify-content:center;width:34px;height:34px;
+     border:2px solid var(--ember);border-radius:50%;flex-shrink:0;
+     font:800 13px 'Bricolage Grotesque',sans-serif;color:var(--ember);letter-spacing:-.5px;
+   }
    .wordmark span{color:var(--text);display:block;font-size:17px;}
    .brand-small{display:block;font-family:'Instrument Sans',sans-serif;font-size:8px;font-weight:700;letter-spacing:.5px;color:var(--ember);margin-top:3px;}
   /* quick actions */
@@ -680,8 +707,6 @@
       background:linear-gradient(180deg,var(--bg) 0%,var(--bg) 55%,rgba(246,240,226,0) 100%);
    }
      body.light .logo-badge{border-color:var(--ember);}
-     body.light .logo-badge .logo-blade{stroke:var(--ember);}
-     body.light .logo-badge .logo-hilt{fill:var(--ember);}
      body.light .brand-small{color:var(--ember);}
    body.light .theme-toggle{background:var(--surface2);border-color:var(--line);}
    body.light .theme-toggle .sun{display:none;}
@@ -828,14 +853,13 @@
 
   <div class="topbar">
     <div class="wordmark">
-      <div class="logo-badge">
-        <svg viewBox="0 0 24 24" class="logo-hilt" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 1.2c-.7 0-1.3.4-1.6 1C6.7 2.7 4 5.4 4 9c0 .9.2 1.7.5 2.5l-2.3 5.1c-.3.7.2 1.4 1 1.4h1.9c.4 1.7 2 3 3.9 3 .8 0 1.5-.6 1.5-1.4v-3.1c0-.8.7-1.5 1.5-1.5s1.5.7 1.5 1.5v3.1c0 .8.7 1.4 1.5 1.4 1.9 0 3.5-1.3 3.9-3h1.9c.8 0 1.3-.7 1-1.4L19.5 11.5c.3-.8.5-1.6.5-2.5 0-3.6-2.7-6.3-6.4-6.8-.3-.6-.9-1-1.6-1z"/>
-        </svg>
-      </div>
+      <div class="logo-badge">FC</div>
       <span>Fiction<br><b>Clash</b><small class="brand-small">CHARACTER MATCHUPS</small></span>
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
+      <button class="theme-toggle" id="installBtn" aria-label="Install app" title="Install app" hidden>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+      </button>
       <div class="account-menu-wrap" id="accountMenuWrap">
         <button class="signin-btn" id="signinBtn" aria-label="Sign in" title="Sign in">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -2478,15 +2502,15 @@
 
   // ---------- news hub ----------
   const newsSection = document.getElementById('newsSection');
+  const newsDateEl = document.getElementById('newsDate');
+  if (newsDateEl) {
+    const today = new Date();
+    const weekday = today.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+    const month = today.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+    newsDateEl.innerHTML = `${weekday}<br>${month} ${today.getDate()}`;
+  }
   const newsFeed = document.getElementById('newsFeed');
   const newsFeedHeading = document.getElementById('newsFeedHeading');
-  const newsDateEl = document.getElementById('newsDate');
-if (newsDateEl) {
-  const today = new Date();
-  const weekday = today.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
-  const month = today.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
-  newsDateEl.innerHTML = `${weekday}<br>${month} ${today.getDate()}`;
-    }
 
   // Used as: (1) an offline/error fallback if /api/news fails, and
   // (2) what's shown instantly while the real fetch is in flight, so the
@@ -3057,6 +3081,14 @@ if (newsDateEl) {
       signedOutView.hidden = false;
       signedInView.hidden = true;
       signedInEmail.textContent = '';
+      // Clear the previous account's profile out of memory — otherwise it
+      // lingers in these fields (even though the signed-in card is hidden)
+      // until a new account's data happens to overwrite it.
+      profileName.value = '';
+      profileHandle.value = '';
+      profileBio.value = '';
+      avatarDataUrl = '';
+      updateAccountHeader();
       syncTopbarAvatar();
       closeAccountDropdown();
     }
@@ -3102,6 +3134,17 @@ if (newsDateEl) {
     persistProfile();
     updateAccountHeader();
     showToast(auth.currentUser ? 'Profile saved and synced' : 'Profile saved (sign in to sync it everywhere)');
+  });
+
+  // Auto-save on blur (tapping away from a field) as a safety net — so
+  // forgetting to tap "SAVE PROFILE" after editing name/handle/bio can't
+  // silently lose changes. No toast here, to avoid spamming one on every
+  // single field tap; the explicit Save button still shows a toast.
+  [profileName, profileHandle, profileBio].forEach(field => {
+    field.addEventListener('blur', () => {
+      persistProfile();
+      updateAccountHeader();
+    });
   });
 
   // ---------- bottom nav ----------
@@ -3201,6 +3244,52 @@ if (newsDateEl) {
   });
 
   renderHero();
+</script>
+
+<script>
+  // Register the service worker for offline app-shell caching + installability.
+  // Wrapped in a feature check and try/catch so it never breaks the app on
+  // browsers/contexts that don't support it.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.warn('Service worker registration failed:', err);
+      });
+    });
+  }
+
+  // ---------- install button ----------
+  // Chrome/Edge/most Android browsers fire beforeinstallprompt but suppress
+  // their own mini-infobar unless the site calls preventDefault() and shows
+  // its own UI — this is what puts a real button in the header (like
+  // Omega Prep's download icon) instead of relying on a buried browser menu.
+  // iOS Safari never fires this event at all (no programmatic install there),
+  // so the button just stays hidden on iOS — nothing for it to do.
+  let deferredInstallPrompt = null;
+  const installBtn = document.getElementById('installBtn');
+
+  window.addEventListener('beforeinstallprompt', event => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    installBtn.hidden = false;
+  });
+
+  installBtn.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    installBtn.hidden = true;
+    deferredInstallPrompt.prompt();
+    try {
+      await deferredInstallPrompt.userChoice;
+    } catch (err) {
+      // user dismissed — fine, just clear the stored prompt below
+    }
+    deferredInstallPrompt = null;
+  });
+
+  window.addEventListener('appinstalled', () => {
+    installBtn.hidden = true;
+    deferredInstallPrompt = null;
+  });
 </script>
 
 </body>
