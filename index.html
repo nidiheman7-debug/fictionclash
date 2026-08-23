@@ -426,6 +426,20 @@
    body.light .file-drop{background:rgba(255,255,255,.35);}
    body.light .comment{border-bottom-color:rgba(33,26,16,.12);}
 
+   /* like + share row — used on the matchup hero card and each video clip */
+   .social-row{ display:flex; align-items:center; gap:10px; margin-top:14px; }
+   .clip-card .social-row{ margin-top:0; margin-bottom:11px; }
+   .social-btn{
+     display:flex; align-items:center; gap:6px; padding:7px 13px;
+     border:1px solid var(--line); border-radius:20px; background:transparent;
+     color:var(--muted); font:700 11px 'Martian Mono',monospace; cursor:pointer;
+     transition:border-color .15s ease, color .15s ease;
+   }
+   .social-btn:active{ transform:scale(.96); }
+   .social-btn svg{ flex-shrink:0; display:block; }
+   .social-btn.like-btn.liked{ border-color:var(--ember); color:var(--ember); }
+   .social-btn.like-btn.liked svg{ fill:var(--ember); }
+
    /* news hub */
    .news-section{
      padding:22px 14px 34px;
@@ -946,6 +960,16 @@
          </div>
          <div class="ai-stats-result" id="aiStatsResult">Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.</div>
        </div>
+       <div class="social-row">
+         <button class="social-btn like-btn" id="heroLikeBtn" type="button" aria-label="Like this matchup">
+           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+           <span id="heroLikeCount">0</span>
+         </button>
+         <button class="social-btn share-btn" id="heroShareBtn" type="button" aria-label="Share this matchup">
+           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+           <span>Share</span>
+         </button>
+       </div>
     </div>
   </div>
 
@@ -976,6 +1000,16 @@
         <h3>What makes a great opening shot?</h3>
         <p class="clip-review">The first few seconds tell you everything: the pace, the mood, and the kind of story you're about to enter.</p>
         <div class="clip-meta"><span>Posted by Maya</span><button type="button" class="clip-delete-btn" data-hide-clip="featured">Hide</button></div>
+        <div class="social-row">
+          <button class="social-btn like-btn" type="button" aria-label="Like this clip">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+            <span class="like-count">0</span>
+          </button>
+          <button class="social-btn share-btn" type="button" aria-label="Share this clip">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+            <span>Share</span>
+          </button>
+        </div>
         <div class="comments-title">Conversation</div>
         <div class="comment">
           <div class="comment-avatar">JD</div>
@@ -997,6 +1031,16 @@
         <h3>The hallway fight, one continuous take</h3>
         <p class="clip-review">No cuts, no shortcuts. You feel every hit land because the camera never lets you look away.</p>
         <div class="clip-meta"><span>Posted by Tobi</span><button type="button" class="clip-delete-btn" data-hide-clip="hallway">Hide</button></div>
+        <div class="social-row">
+          <button class="social-btn like-btn" type="button" aria-label="Like this clip">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+            <span class="like-count">0</span>
+          </button>
+          <button class="social-btn share-btn" type="button" aria-label="Share this clip">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+            <span>Share</span>
+          </button>
+        </div>
         <div class="comments-title">Conversation</div>
         <div class="comment">
           <div class="comment-avatar">CN</div>
@@ -1014,6 +1058,16 @@
         <h3>That twist reveal, frame by frame</h3>
         <p class="clip-review">Rewatch it once you know the ending — the clues were there the whole time, hidden in plain sight.</p>
         <div class="clip-meta"><span>Posted by Sarah</span><button type="button" class="clip-delete-btn" data-hide-clip="twist">Hide</button></div>
+        <div class="social-row">
+          <button class="social-btn like-btn" type="button" aria-label="Like this clip">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+            <span class="like-count">0</span>
+          </button>
+          <button class="social-btn share-btn" type="button" aria-label="Share this clip">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+            <span>Share</span>
+          </button>
+        </div>
         <div class="comments-title">Conversation</div>
         <div class="comment">
           <div class="comment-avatar">BJ</div>
@@ -1707,7 +1761,49 @@
     voteRow.classList.toggle('voted', !!voted);
     voteBtnA.classList.toggle('picked', voted === 'a');
     voteBtnB.classList.toggle('picked', voted === 'b');
+    renderHeroSocial();
   }
+
+  // ---------- hero card like + share ----------
+  // Wired once, outside renderHero, since renderHero runs on every
+  // matchup switch — re-attaching a listener each time would stack up
+  // duplicate handlers. heroLikeKey is updated by renderHeroSocial()
+  // and read fresh by the click handler below via closure.
+  const heroLikeBtn = document.getElementById('heroLikeBtn');
+  const heroLikeCountEl = document.getElementById('heroLikeCount');
+  const heroShareBtn = document.getElementById('heroShareBtn');
+  let heroLikeKey = '';
+
+  function renderHeroLikeButton(){
+    heroLikeBtn.classList.toggle('liked', !!likedByMe[heroLikeKey]);
+    heroLikeCountEl.textContent = formatLikeCount(remoteLikeCounts[heroLikeKey] || 0);
+  }
+
+  function renderHeroSocial(){
+    const m = matchups[activeIdx];
+    if (!m) return;
+    heroLikeKey = 'matchup:' + matchupPairKey(m);
+    // Seed a starting count from vote totals so a popular matchup doesn't
+    // just show "0" before its like doc exists — see toggleLike() for how
+    // that seed gets carried into the real shared count on the first tap.
+    if (!(heroLikeKey in remoteLikeCounts)) {
+      remoteLikeCounts[heroLikeKey] = Math.round((m.votesA + m.votesB) * 0.08);
+    }
+    likeRenderers[heroLikeKey] = renderHeroLikeButton;
+    renderHeroLikeButton();
+  }
+
+  heroLikeBtn.addEventListener('click', () => toggleLike(heroLikeKey));
+
+  heroShareBtn.addEventListener('click', () => {
+    const m = matchups[activeIdx];
+    if (!m) return;
+    shareLink({
+      title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
+      text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
+      url: location.href
+    });
+  });
 
   const heroDeleteBtn = document.getElementById('heroDeleteBtn');
   heroDeleteBtn.addEventListener('click', (e) => {
@@ -1785,6 +1881,7 @@
   });
 
   aiStatsButton.addEventListener('click', () => {
+    scheduleHeroRotate(); // checking stats counts as touching this matchup — resets the 45s clock
     withSpinner(aiStatsButton, 'THINKING…', async () => {
       const m = matchups[activeIdx];
       const labelA = charLabel(m.a);
@@ -2229,9 +2326,9 @@
   // The featured matchup used to just sit on whatever was first in the
   // list forever. This cycles it through every matchup automatically,
   // and backs off the moment someone actually touches it — a vote, a
-  // manual pick from the trend row, or the tab going into the background
-  // — so nothing changes out from under a tap.
-  const HERO_ROTATE_MS = 7000;
+  // manual pick from the trend row, checking AI stats, or the tab going
+  // into the background — so nothing changes out from under them.
+  const HERO_ROTATE_MS = 45000;
   const heroCardEl = document.getElementById('heroCard');
   let heroRotateTimer = null;
 
@@ -2270,6 +2367,95 @@
   const clipReview = document.getElementById('clipReview');
   const publishClip = document.getElementById('publishClip');
   const clipFeed = document.getElementById('clipFeed');
+
+  // ---------- like + share (shared by the matchup hero card and video clips) ----------
+  // Whether THIS browser has liked something lives in localStorage — there's
+  // no login for anonymous likes, so "have I liked this" is inherently
+  // per-device. The COUNT itself is shared: it lives in a 'likes/{key}' doc
+  // in Firestore and is kept in sync in real time via the onSnapshot
+  // listener further down, the same way votes and matchups already work —
+  // so a like from one phone shows up on every other phone.
+  const LIKE_STATE_KEY = 'fictionClashLikes'; // key -> boolean (liked by this browser)
+  let likedByMe = {};
+  try { likedByMe = JSON.parse(localStorage.getItem(LIKE_STATE_KEY) || '{}'); } catch (err) { likedByMe = {}; }
+  function saveLikedByMe(){ localStorage.setItem(LIKE_STATE_KEY, JSON.stringify(likedByMe)); }
+
+  let remoteLikeCounts = {}; // key -> shared count, filled in by Firestore
+  const confirmedLikeKeys = new Set(); // keys that actually have a Firestore doc already
+  const likeRenderers = {}; // key -> function that repaints whatever button(s) show that key
+
+  function formatLikeCount(n){
+    if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'k';
+    return String(Math.max(0, n));
+  }
+
+  function toggleLike(key){
+    const liked = !likedByMe[key];
+    likedByMe[key] = liked;
+    saveLikedByMe();
+    const optimisticCount = Math.max(0, (remoteLikeCounts[key] || 0) + (liked ? 1 : -1));
+    remoteLikeCounts[key] = optimisticCount;
+    if (likeRenderers[key]) likeRenderers[key]();
+    // If nobody's ever liked this target before, there's no Firestore doc
+    // yet — write the absolute count (which includes our seeded starting
+    // number) so it doesn't reset down to 1. Once a doc exists, switch to
+    // increment() so two people liking at once don't clobber each other.
+    const write = confirmedLikeKeys.has(key)
+      ? setDoc(doc(db, 'likes', key), { count: increment(liked ? 1 : -1) }, { merge: true })
+      : setDoc(doc(db, 'likes', key), { count: optimisticCount });
+    write.catch(err => {
+      console.error('Like sync failed', err);
+      showToast('Could not save like — try again');
+    });
+  }
+
+  async function shareLink({ title, text, url }){
+    if (navigator.share) {
+      try { await navigator.share({ title, text, url }); } catch (err) { /* user cancelled — ignore */ }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Link copied!');
+    } catch (err) {
+      showToast('Could not copy link');
+    }
+  }
+  // Wires a clip card's like + share buttons. Safe to call more than once
+  // per card id — it just re-registers the renderer + listeners.
+  function wireClipSocial(id, card, baseLikeCount){
+    const likeBtn = card.querySelector('.like-btn');
+    const shareBtn = card.querySelector('.share-btn');
+    if (!likeBtn || !shareBtn) return;
+    const countEl = likeBtn.querySelector('.like-count');
+    const key = 'clip:' + id;
+    if (!(key in remoteLikeCounts)) remoteLikeCounts[key] = baseLikeCount;
+    function renderLike(){
+      likeBtn.classList.toggle('liked', !!likedByMe[key]);
+      countEl.textContent = formatLikeCount(remoteLikeCounts[key] || 0);
+    }
+    likeRenderers[key] = renderLike;
+    renderLike();
+    likeBtn.addEventListener('click', () => toggleLike(key));
+    shareBtn.addEventListener('click', () => {
+      const title = card.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
+      shareLink({ title, text: title, url: location.href });
+    });
+  }
+
+  // Real-time: a like tapped on any phone updates this doc, which every
+  // other visitor is subscribed to here, so the count moves for everyone
+  // without a page refresh — same pattern as the matchups/movieClips feeds.
+  onSnapshot(collection(db, 'likes'), snapshot => {
+    snapshot.docChanges().forEach(change => {
+      const key = change.doc.id;
+      if (change.type === 'removed') { confirmedLikeKeys.delete(key); return; }
+      confirmedLikeKeys.add(key);
+      remoteLikeCounts[key] = change.doc.data().count || 0;
+      if (likeRenderers[key]) likeRenderers[key]();
+    });
+  }, err => console.error('Likes listener failed', err));
+
 
   // Pulls the 11-character video ID out of any common YouTube URL shape
   // (watch?v=, youtu.be/, shorts/, embed/), or accepts a bare ID typed in.
@@ -2372,6 +2558,14 @@
     wireClipComments(form.dataset.commentsFor, form);
   });
 
+  // Same for their like/share buttons, seeded with a starting count each
+  // so they don't just read "0" before anyone's tapped one.
+  const CLIP_BASE_LIKES = { featured: 142, hallway: 89, twist: 203 };
+  clipFeed.querySelectorAll('.clip-card[data-clip-id]').forEach(card => {
+    const id = card.dataset.clipId;
+    wireClipSocial(id, card, CLIP_BASE_LIKES[id] || 0);
+  });
+
   publishClip.addEventListener('click', () => {
     const youtubeId = extractYoutubeId(clipYoutubeUrl.value);
     const title = clipTitle.value.trim();
@@ -2456,6 +2650,16 @@
             <h3>${escapeHtml(data.title || '')}</h3>
             <p class="clip-review">${escapeHtml(data.review || '')}</p>
             <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><button type="button" class="clip-delete-btn" data-hide-clip="${id}">Hide</button></div>
+            <div class="social-row">
+              <button class="social-btn like-btn" type="button" aria-label="Like this clip">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+                <span class="like-count">0</span>
+              </button>
+              <button class="social-btn share-btn" type="button" aria-label="Share this clip">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+                <span>Share</span>
+              </button>
+            </div>
             <div class="comments-title">Conversation</div>
             <form class="comment-form" data-comments-for="${id}">
               <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
@@ -2463,6 +2667,7 @@
             </form>`;
           clipFeed.prepend(card);
           wireClipComments(id, card.querySelector('.comment-form'));
+          wireClipSocial(id, card, 0);
           renderedClipIds.add(id);
         }
       });
