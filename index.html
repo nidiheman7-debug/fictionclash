@@ -3268,11 +3268,35 @@
   // Omega Prep's download icon) instead of relying on a buried browser menu.
   // iOS Safari never fires this event at all (no programmatic install there),
   // so the button just stays hidden on iOS — nothing for it to do.
-  let deferredInstallPrompt = null;
+  //
+  // Once installed, the button disappears permanently — not just for this
+  // session. Two checks handle that: (1) if the app is currently running
+  // in standalone/installed mode, and (2) a persisted flag set the moment
+  // 'appinstalled' fires, so even a page reload right after installing (or
+  // a browser that's slow/flaky about re-firing display-mode checks) can't
+  // bring the button back.
   const installBtn = document.getElementById('installBtn');
+  let deferredInstallPrompt = null;
+
+  function isRunningInstalled(){
+    return window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone === true // iOS home-screen launch
+      || localStorage.getItem('fcInstalled') === '1';
+  }
+
+  function markInstalled(){
+    localStorage.setItem('fcInstalled', '1');
+    installBtn.hidden = true;
+    deferredInstallPrompt = null;
+  }
+
+  if (isRunningInstalled()) {
+    markInstalled();
+  }
 
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();
+    if (isRunningInstalled()) return; // extra guard against a stray re-fire
     deferredInstallPrompt = event;
     installBtn.hidden = false;
   });
@@ -3289,10 +3313,7 @@
     deferredInstallPrompt = null;
   });
 
-  window.addEventListener('appinstalled', () => {
-    installBtn.hidden = true;
-    deferredInstallPrompt = null;
-  });
+  window.addEventListener('appinstalled', markInstalled);
 </script>
 
 </body>
