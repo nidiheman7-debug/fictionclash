@@ -1881,7 +1881,10 @@
   });
 
   aiStatsButton.addEventListener('click', () => {
-    scheduleHeroRotate(); // checking stats counts as touching this matchup — resets the 45s clock
+    // Freeze the rotation on this matchup — they just asked to see its
+    // stats, so it shouldn't swap out from under them mid-read.
+    heroRotatePaused = true;
+    clearTimeout(heroRotateTimer);
     withSpinner(aiStatsButton, 'THINKING…', async () => {
       const m = matchups[activeIdx];
       const labelA = charLabel(m.a);
@@ -2313,8 +2316,10 @@
     const card = event.target.closest('.trend-card');
     if (!card) return;
     activeIdx = parseInt(card.dataset.matchup, 10);
+    heroRotatePaused = false; // picking a matchup themselves means they're actively browsing again
     renderTrendScroll();
     renderHero();
+    scheduleHeroRotate();
     document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
   });
 
@@ -2326,14 +2331,22 @@
   // The featured matchup used to just sit on whatever was first in the
   // list forever. This cycles it through every matchup automatically,
   // and backs off the moment someone actually touches it — a vote, a
-  // manual pick from the trend row, checking AI stats, or the tab going
-  // into the background — so nothing changes out from under them.
-  const HERO_ROTATE_MS = 45000;
+  // manual pick from the trend row, or the tab going into the background
+  // — so nothing changes out from under a tap.
+  //
+  // Checking AI stats goes further: it fully PAUSES rotation (not just a
+  // 7s delay), since someone reading a stats breakdown they just asked
+  // for is the last thing that should get yanked out from under them.
+  // It only resumes once they manually pick a different matchup — not
+  // just after a timeout — since they're clearly still on this one.
+  const HERO_ROTATE_MS = 7000;
   const heroCardEl = document.getElementById('heroCard');
   let heroRotateTimer = null;
+  let heroRotatePaused = false;
 
   function scheduleHeroRotate(){
     clearTimeout(heroRotateTimer);
+    if (heroRotatePaused) return; // stays put until manually un-paused
     if (matchups.length < 2) return; // nothing to flex between
     heroRotateTimer = setTimeout(() => {
       if (document.hidden) { scheduleHeroRotate(); return; } // tab not visible — just reschedule, don't burn a cycle
@@ -2348,7 +2361,6 @@
   // Any manual interaction resets the clock so auto-rotate never fights
   // something the person just did.
   heroCardEl.addEventListener('pointerdown', scheduleHeroRotate);
-  trendScroll.addEventListener('click', scheduleHeroRotate);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleHeroRotate(); });
 
   // ---------- movie clips ----------
