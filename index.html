@@ -2391,9 +2391,10 @@
 
   function toggleLike(key){
     const liked = !likedByMe[key];
+    const previousCount = remoteLikeCounts[key] || 0;
     likedByMe[key] = liked;
     saveLikedByMe();
-    const optimisticCount = Math.max(0, (remoteLikeCounts[key] || 0) + (liked ? 1 : -1));
+    const optimisticCount = Math.max(0, previousCount + (liked ? 1 : -1));
     remoteLikeCounts[key] = optimisticCount;
     if (likeRenderers[key]) likeRenderers[key]();
     // If nobody's ever liked this target before, there's no Firestore doc
@@ -2405,6 +2406,15 @@
       : setDoc(doc(db, 'likes', key), { count: optimisticCount });
     write.catch(err => {
       console.error('Like sync failed', err);
+      // The optimistic bump above never actually landed on the server —
+      // undo it so this browser doesn't end up stuck showing a "liked"
+      // state and an inflated count that only it can see. Without this,
+      // a failed write (permission error, offline, blocked request) looks
+      // exactly like a successful local-only like that never syncs.
+      likedByMe[key] = !liked;
+      saveLikedByMe();
+      remoteLikeCounts[key] = previousCount;
+      if (likeRenderers[key]) likeRenderers[key]();
       showToast('Could not save like — try again');
     });
   }
@@ -3474,15 +3484,18 @@
   // iOS Safari never fires this event at all (no programmatic install there),
   // so the button just stays hidden on iOS — nothing for it to do.
   //
-  // Once installed, the button disappears — including across a reload right
-  // after install, which is why we still persist a flag the moment
-  // 'appinstalled' fires. But that flag is only ever a *guess* used to avoid
-  // a flash of the button on the next load; it is never allowed to override
-  // what the browser itself is telling us. The live signals are
-  // display-mode:standalone/navigator.standalone, and critically, the mere
-  // fact that beforeinstallprompt fires at all — Chrome only fires that when
-  // it considers the app NOT installed. So the moment it fires, we treat the
-  // flag as stale and clear it — live signal wins every time.
+  // Once installed, the button hides for the rest of that session via
+  // markInstalled(). What it must NOT do is treat that as permanent gospel:
+  // an earlier version also gated future 'beforeinstallprompt' events on a
+  // persisted localStorage flag, which meant that after someone installed,
+  // then genuinely UNINSTALLED, the button stayed hidden forever — the
+  // stale flag out-ranked the browser's own live signal that it was
+  // installable again. Fixed by only trusting two things: the live
+  // display-mode check (can't go stale, since it reflects how the page is
+  // running right now), and the mere fact that 'beforeinstallprompt' fired
+  // at all — the browser only fires that when it currently considers the
+  // app installable, which is a stronger and fresher signal than anything
+  // we could cache ourselves.
   const installBtn = document.getElementById('installBtn');
   let deferredInstallPrompt = null;
 
@@ -3497,23 +3510,20 @@
     deferredInstallPrompt = null;
   }
 
-  function clearInstalledFlag(){
-    localStorage.removeItem('fcInstalled');
-  }
-
-  // Optimistic hide on first paint so we don't flash the button on a reload
-  // that happens right after install, before any live signal has fired yet.
-  // This is provisional only — beforeinstallprompt below can override it.
-  if (isRunningInstalled() || localStorage.getItem('fcInstalled') === '1') {
+  // Hide immediately if we're literally running as the installed app right
+  // now (e.g. opened from the home screen icon) — this is a live check, so
+  // unlike a stored flag it can never go stale.
+  if (isRunningInstalled()) {
     installBtn.hidden = true;
   }
 
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();
-    // The browser firing this event is live proof the app is NOT installed,
-    // so any persisted flag claiming otherwise is stale — drop it.
-    clearInstalledFlag();
-    if (isRunningInstalled()) return; // extra guard against a stray re-fire
+    // The browser firing this at all means it currently thinks the app is
+    // installable — trust that over any old local flag, and clear the flag
+    // since it's now proven wrong (this is exactly what happens right
+    // after someone uninstalls).
+    localStorage.removeItem('fcInstalled');
     deferredInstallPrompt = event;
     installBtn.hidden = false;
   });
