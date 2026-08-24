@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Fiction Clash — Character Matchups</title>
 <meta name="description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
+<link rel="canonical" href="https://fictionclash.vercel.app/">
+
+<!-- Google Search Console ownership verification.
+     Get your own <meta> tag from search.google.com/search-console →
+     Add property → URL prefix → "HTML tag" method, then paste it here
+     in place of this comment. -->
 
 <!-- PWA -->
 <link rel="manifest" href="/manifest.json">
@@ -29,6 +35,17 @@
 <meta name="twitter:title" content="Fiction Clash — Character Matchups">
 <meta name="twitter:description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
 <meta name="twitter:image" content="https://fictionclash.vercel.app/icons/og-image.png">
+
+<!-- Structured data — tells Google what kind of site this is -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Fiction Clash",
+  "url": "https://fictionclash.vercel.app/",
+  "description": "Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins."
+}
+</script>
 
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=Instrument+Sans:wght@400;500;600;700&family=Martian+Mono:wght@400;600&display=swap');
@@ -2335,7 +2352,7 @@
   // and backs off the moment someone actually touches it — a vote, a
   // manual pick from the trend row, checking AI stats, or the tab going
   // into the background — so nothing changes out from under them.
-  const HERO_ROTATE_MS = 15000;
+  const HERO_ROTATE_MS = 45000;
   const heroCardEl = document.getElementById('heroCard');
   let heroRotateTimer = null;
 
