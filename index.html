@@ -972,7 +972,7 @@
            <span id="heroLikeCount">0</span>
          </button>
          <button class="social-btn share-btn" id="heroShareBtn" type="button" aria-label="Share this matchup">
-           <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
+           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
            <span>Share</span>
          </button>
        </div>
@@ -1012,7 +1012,7 @@
             <span class="like-count">0</span>
           </button>
           <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
             <span>Share</span>
           </button>
         </div>
@@ -1043,7 +1043,7 @@
             <span class="like-count">0</span>
           </button>
           <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
             <span>Share</span>
           </button>
         </div>
@@ -1070,7 +1070,7 @@
             <span class="like-count">0</span>
           </button>
           <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
             <span>Share</span>
           </button>
         </div>
@@ -1802,7 +1802,15 @@
 
   heroLikeBtn.addEventListener('click', () => toggleLike(heroLikeKey));
 
-  heroShareBtn.addEventListener('click', () => shareToFacebook(location.href));
+  heroShareBtn.addEventListener('click', () => {
+    const m = matchups[activeIdx];
+    if (!m) return;
+    shareLink({
+      title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
+      text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
+      url: location.href
+    });
+  });
 
   const heroDeleteBtn = document.getElementById('heroDeleteBtn');
   heroDeleteBtn.addEventListener('click', (e) => {
@@ -2436,13 +2444,21 @@
     });
   }
 
-  // Opens Facebook's own share dialog (sharer.php) for a URL — title/
-  // description/image come from the page's Open Graph tags, which
-  // Facebook reads itself, so nothing needs to be passed for those.
-  function shareToFacebook(url){
-    const shareUrl = 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(url);
-    const popup = window.open(shareUrl, 'fc-facebook-share', 'width=580,height=520,noopener,noreferrer');
-    if (!popup) window.location.href = shareUrl; // popup blocked — fall back to full navigation
+  // Opens the device's native share sheet (all installed apps: WhatsApp,
+  // Messenger, X, Instagram, Mail, etc. — whatever the OS offers), falling
+  // back to copying the link when the Web Share API isn't available
+  // (mainly desktop browsers).
+  async function shareLink({ title, text, url }){
+    if (navigator.share) {
+      try { await navigator.share({ title, text, url }); } catch (err) { /* user cancelled — ignore */ }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Link copied!');
+    } catch (err) {
+      showToast('Could not copy link');
+    }
   }
 
   // Wires a clip card's like + share buttons. Safe to call more than once
@@ -2461,7 +2477,10 @@
     likeRenderers[key] = renderLike;
     renderLike();
     likeBtn.addEventListener('click', () => toggleLike(key));
-    shareBtn.addEventListener('click', () => shareToFacebook(location.href));
+    shareBtn.addEventListener('click', () => {
+      const title = card.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
+      shareLink({ title, text: title, url: location.href });
+    });
   }
 
   // Real-time: a like tapped on any device updates this doc, which every
@@ -2678,7 +2697,7 @@
                 <span class="like-count">0</span>
               </button>
               <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
                 <span>Share</span>
               </button>
             </div>
