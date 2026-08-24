@@ -6,7 +6,7 @@
 <title>Fiction Clash — Character Matchups</title>
 <meta name="description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
 <link rel="canonical" href="https://fictionclash.vercel.app/">
-<meta name="google-site-verification" content="6dQoh_lgskLtJsBloFcXn7WnN3I4OGd9mf3d1pxMeeQ" />
+
 <!-- Google Search Console ownership verification.
      Get your own <meta> tag from search.google.com/search-console →
      Add property → URL prefix → "HTML tag" method, then paste it here
@@ -1905,7 +1905,8 @@
   });
 
   aiStatsButton.addEventListener('click', () => {
-    scheduleHeroRotate(); // checking stats counts as touching this matchup — resets the 45s clock
+    heroAnalyzing = true; // pause auto-rotate for as long as they're looking at this breakdown
+    scheduleHeroRotate(); // clears the pending rotation (no-ops the reschedule, since heroAnalyzing is now true)
     withSpinner(aiStatsButton, 'THINKING…', async () => {
       const m = matchups[activeIdx];
       const labelA = charLabel(m.a);
@@ -2337,6 +2338,7 @@
     const card = event.target.closest('.trend-card');
     if (!card) return;
     activeIdx = parseInt(card.dataset.matchup, 10);
+    heroAnalyzing = false; // picking a different matchup means they're done with the old one's analysis
     renderTrendScroll();
     renderHero();
     document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
@@ -2352,12 +2354,18 @@
   // and backs off the moment someone actually touches it — a vote, a
   // manual pick from the trend row, checking AI stats, or the tab going
   // into the background — so nothing changes out from under them.
-  const HERO_ROTATE_MS = 7000;
+  const HERO_ROTATE_MS = 45000;
   const heroCardEl = document.getElementById('heroCard');
   let heroRotateTimer = null;
+  // True while someone's actively looking at an AI stats breakdown for the
+  // current matchup — auto-rotate stays fully off (not just delayed) until
+  // they pick a different matchup themselves, so it can't switch out from
+  // under them mid-read no matter how long they take.
+  let heroAnalyzing = false;
 
   function scheduleHeroRotate(){
     clearTimeout(heroRotateTimer);
+    if (heroAnalyzing) return; // paused for AI analysis — resumes on manual matchup switch
     if (matchups.length < 2) return; // nothing to flex between
     heroRotateTimer = setTimeout(() => {
       if (document.hidden) { scheduleHeroRotate(); return; } // tab not visible — just reschedule, don't burn a cycle
