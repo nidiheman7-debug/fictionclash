@@ -676,6 +676,12 @@
    .theme-toggle svg{ display:block; stroke:var(--ember); }
    .theme-toggle:hover{transform:rotate(12deg);border-color:var(--ember);}
    .theme-toggle .moon{display:none;}
+   /* .theme-toggle sets display:flex, which — being an author style —
+      beats the browser's default [hidden]{display:none} UA rule. That's
+      why installBtn.hidden = true wasn't actually hiding the button after
+      install: the attribute was set correctly, CSS just ignored it. This
+      rule restores [hidden]'s priority for anything using this class. */
+   .theme-toggle[hidden]{ display:none; }
    .signin-btn{
      width:30px;height:30px;border:1px solid var(--line);border-radius:50%;
      background:var(--surface);color:var(--text);display:flex;align-items:center;
@@ -966,7 +972,7 @@
            <span id="heroLikeCount">0</span>
          </button>
          <button class="social-btn share-btn" id="heroShareBtn" type="button" aria-label="Share this matchup">
-           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+           <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
            <span>Share</span>
          </button>
        </div>
@@ -1006,7 +1012,7 @@
             <span class="like-count">0</span>
           </button>
           <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
             <span>Share</span>
           </button>
         </div>
@@ -1037,7 +1043,7 @@
             <span class="like-count">0</span>
           </button>
           <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
             <span>Share</span>
           </button>
         </div>
@@ -1064,7 +1070,7 @@
             <span class="like-count">0</span>
           </button>
           <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
             <span>Share</span>
           </button>
         </div>
@@ -1445,7 +1451,7 @@
     signOut
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
-    doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, increment, collection, onSnapshot,
+    doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, collection, onSnapshot,
     query, orderBy, serverTimestamp, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
@@ -1775,8 +1781,8 @@
   let heroLikeKey = '';
 
   function renderHeroLikeButton(){
-    heroLikeBtn.classList.toggle('liked', !!likedByMe[heroLikeKey]);
-    heroLikeCountEl.textContent = formatLikeCount(remoteLikeCounts[heroLikeKey] || 0);
+    heroLikeBtn.classList.toggle('liked', likedByCurrentUser(heroLikeKey));
+    heroLikeCountEl.textContent = formatLikeCount(likeDisplayCount(heroLikeKey));
   }
 
   function renderHeroSocial(){
@@ -1784,10 +1790,11 @@
     if (!m) return;
     heroLikeKey = 'matchup:' + matchupPairKey(m);
     // Seed a starting count from vote totals so a popular matchup doesn't
-    // just show "0" before its like doc exists — see toggleLike() for how
-    // that seed gets carried into the real shared count on the first tap.
-    if (!(heroLikeKey in remoteLikeCounts)) {
-      remoteLikeCounts[heroLikeKey] = Math.round((m.votesA + m.votesB) * 0.08);
+    // just show "0" before its like doc exists — this is cosmetic only,
+    // it's never written to Firestore and never counts as a "like" from
+    // any account.
+    if (!(heroLikeKey in baseSeedCounts)) {
+      baseSeedCounts[heroLikeKey] = Math.round((m.votesA + m.votesB) * 0.08);
     }
     likeRenderers[heroLikeKey] = renderHeroLikeButton;
     renderHeroLikeButton();
@@ -1795,15 +1802,7 @@
 
   heroLikeBtn.addEventListener('click', () => toggleLike(heroLikeKey));
 
-  heroShareBtn.addEventListener('click', () => {
-    const m = matchups[activeIdx];
-    if (!m) return;
-    shareLink({
-      title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
-      text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
-      url: location.href
-    });
-  });
+  heroShareBtn.addEventListener('click', () => shareToFacebook(location.href));
 
   const heroDeleteBtn = document.getElementById('heroDeleteBtn');
   heroDeleteBtn.addEventListener('click', (e) => {
@@ -2369,18 +2368,21 @@
   const clipFeed = document.getElementById('clipFeed');
 
   // ---------- like + share (shared by the matchup hero card and video clips) ----------
-  // Whether THIS browser has liked something lives in localStorage — there's
-  // no login for anonymous likes, so "have I liked this" is inherently
-  // per-device. The COUNT itself is shared: it lives in a 'likes/{key}' doc
-  // in Firestore and is kept in sync in real time via the onSnapshot
-  // listener further down, the same way votes and matchups already work —
-  // so a like from one phone shows up on every other phone.
-  const LIKE_STATE_KEY = 'fictionClashLikes'; // key -> boolean (liked by this browser)
-  let likedByMe = {};
-  try { likedByMe = JSON.parse(localStorage.getItem(LIKE_STATE_KEY) || '{}'); } catch (err) { likedByMe = {}; }
-  function saveLikedByMe(){ localStorage.setItem(LIKE_STATE_KEY, JSON.stringify(likedByMe)); }
-
-  let remoteLikeCounts = {}; // key -> shared count, filled in by Firestore
+  // Likes are now ACCOUNT-based, not device-based: "have I liked this" is
+  // determined by whether the signed-in user's uid appears in that target's
+  // like doc, not by anything stored in localStorage. That means the same
+  // account sees the same liked/unliked state on every phone/browser it
+  // signs into, and switching accounts on one device shows that account's
+  // own like state instead of whatever the previous account left behind.
+  //
+  // Data model: 'likes/{key}' doc has a `uids` map, e.g. { uid1: true,
+  // uid2: true }. The displayed count is baseSeedCounts[key] (a cosmetic
+  // starting number so a popular matchup doesn't show "0" before anyone's
+  // liked it for real) PLUS the number of uids actually in the doc — so
+  // the real, verifiable per-account count only ever grows from genuine
+  // distinct accounts liking it.
+  const baseSeedCounts = {}; // key -> cosmetic starting count (local only, never written to Firestore)
+  let remoteLikeUids = {}; // key -> { uid: true, ... }, filled in by Firestore
   const confirmedLikeKeys = new Set(); // keys that actually have a Firestore doc already
   const likeRenderers = {}; // key -> function that repaints whatever button(s) show that key
 
@@ -2389,48 +2391,60 @@
     return String(Math.max(0, n));
   }
 
+  function likeDisplayCount(key){
+    return (baseSeedCounts[key] || 0) + Object.keys(remoteLikeUids[key] || {}).length;
+  }
+
+  function likedByCurrentUser(key){
+    const user = auth.currentUser;
+    return !!(user && remoteLikeUids[key] && remoteLikeUids[key][user.uid]);
+  }
+
+  // Re-paints every currently-wired like button — used after sign-in/out,
+  // since whether a given key shows as "liked" depends on which account
+  // (if any) is currently signed in.
+  function renderAllLikeButtons(){
+    Object.values(likeRenderers).forEach(render => render());
+  }
+
   function toggleLike(key){
-    const liked = !likedByMe[key];
-    const previousCount = remoteLikeCounts[key] || 0;
-    likedByMe[key] = liked;
-    saveLikedByMe();
-    const optimisticCount = Math.max(0, previousCount + (liked ? 1 : -1));
-    remoteLikeCounts[key] = optimisticCount;
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to like'); return; }
+    const uid = user.uid;
+    const previousUids = remoteLikeUids[key] || {};
+    const liked = !previousUids[uid];
+    const nextUids = { ...previousUids };
+    if (liked) nextUids[uid] = true; else delete nextUids[uid];
+    remoteLikeUids[key] = nextUids;
     if (likeRenderers[key]) likeRenderers[key]();
     // If nobody's ever liked this target before, there's no Firestore doc
-    // yet — write the absolute count (which includes our seeded starting
-    // number) so it doesn't reset down to 1. Once a doc exists, switch to
-    // increment() so two people liking at once don't clobber each other.
+    // yet — create it with just this uid. Once a doc exists, update only
+    // this uid's field so two people liking at once don't clobber each other.
     const write = confirmedLikeKeys.has(key)
-      ? setDoc(doc(db, 'likes', key), { count: increment(liked ? 1 : -1) }, { merge: true })
-      : setDoc(doc(db, 'likes', key), { count: optimisticCount });
+      ? updateDoc(doc(db, 'likes', key), { [`uids.${uid}`]: liked ? true : deleteField() })
+      : setDoc(doc(db, 'likes', key), { uids: { [uid]: true } });
     write.catch(err => {
       console.error('Like sync failed', err);
       // The optimistic bump above never actually landed on the server —
-      // undo it so this browser doesn't end up stuck showing a "liked"
+      // undo it so this account doesn't end up stuck showing a "liked"
       // state and an inflated count that only it can see. Without this,
       // a failed write (permission error, offline, blocked request) looks
-      // exactly like a successful local-only like that never syncs.
-      likedByMe[key] = !liked;
-      saveLikedByMe();
-      remoteLikeCounts[key] = previousCount;
+      // exactly like a successful like that never synced.
+      remoteLikeUids[key] = previousUids;
       if (likeRenderers[key]) likeRenderers[key]();
       showToast('Could not save like — try again');
     });
   }
 
-  async function shareLink({ title, text, url }){
-    if (navigator.share) {
-      try { await navigator.share({ title, text, url }); } catch (err) { /* user cancelled — ignore */ }
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      showToast('Link copied!');
-    } catch (err) {
-      showToast('Could not copy link');
-    }
+  // Opens Facebook's own share dialog (sharer.php) for a URL — title/
+  // description/image come from the page's Open Graph tags, which
+  // Facebook reads itself, so nothing needs to be passed for those.
+  function shareToFacebook(url){
+    const shareUrl = 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(url);
+    const popup = window.open(shareUrl, 'fc-facebook-share', 'width=580,height=520,noopener,noreferrer');
+    if (!popup) window.location.href = shareUrl; // popup blocked — fall back to full navigation
   }
+
   // Wires a clip card's like + share buttons. Safe to call more than once
   // per card id — it just re-registers the renderer + listeners.
   function wireClipSocial(id, card, baseLikeCount){
@@ -2439,29 +2453,27 @@
     if (!likeBtn || !shareBtn) return;
     const countEl = likeBtn.querySelector('.like-count');
     const key = 'clip:' + id;
-    if (!(key in remoteLikeCounts)) remoteLikeCounts[key] = baseLikeCount;
+    if (!(key in baseSeedCounts)) baseSeedCounts[key] = baseLikeCount;
     function renderLike(){
-      likeBtn.classList.toggle('liked', !!likedByMe[key]);
-      countEl.textContent = formatLikeCount(remoteLikeCounts[key] || 0);
+      likeBtn.classList.toggle('liked', likedByCurrentUser(key));
+      countEl.textContent = formatLikeCount(likeDisplayCount(key));
     }
     likeRenderers[key] = renderLike;
     renderLike();
     likeBtn.addEventListener('click', () => toggleLike(key));
-    shareBtn.addEventListener('click', () => {
-      const title = card.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
-      shareLink({ title, text: title, url: location.href });
-    });
+    shareBtn.addEventListener('click', () => shareToFacebook(location.href));
   }
 
-  // Real-time: a like tapped on any phone updates this doc, which every
-  // other visitor is subscribed to here, so the count moves for everyone
-  // without a page refresh — same pattern as the matchups/movieClips feeds.
+  // Real-time: a like tapped on any device updates this doc, which every
+  // other visitor is subscribed to here, so the count and "liked" state
+  // move for everyone without a page refresh — same pattern as the
+  // matchups/movieClips feeds.
   onSnapshot(collection(db, 'likes'), snapshot => {
     snapshot.docChanges().forEach(change => {
       const key = change.doc.id;
-      if (change.type === 'removed') { confirmedLikeKeys.delete(key); return; }
+      if (change.type === 'removed') { confirmedLikeKeys.delete(key); remoteLikeUids[key] = {}; if (likeRenderers[key]) likeRenderers[key](); return; }
       confirmedLikeKeys.add(key);
-      remoteLikeCounts[key] = change.doc.data().count || 0;
+      remoteLikeUids[key] = change.doc.data().uids || {};
       if (likeRenderers[key]) likeRenderers[key]();
     });
   }, err => console.error('Likes listener failed', err));
@@ -2666,7 +2678,7 @@
                 <span class="like-count">0</span>
               </button>
               <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 12.06C22 6.51 17.52 2 12 2S2 6.51 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.88h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/></svg>
                 <span>Share</span>
               </button>
             </div>
@@ -3294,6 +3306,7 @@
       lastSignedInUid = user.uid;
       updateAccountHeader();
       loadCloudProfile(user.uid); // overwrites the above with synced data, if any exists
+      renderAllLikeButtons(); // this account's like state may differ from the previous one's
     } else {
       lastSignedInUid = null;
       signedOutView.hidden = false;
@@ -3309,6 +3322,7 @@
       updateAccountHeader();
       syncTopbarAvatar();
       closeAccountDropdown();
+      renderAllLikeButtons(); // signed out — nothing should show as "liked" now
     }
   });
 
