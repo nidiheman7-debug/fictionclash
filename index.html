@@ -729,7 +729,7 @@
    .account-dropdown-item.danger{ color:#e15c5c; }
 
    body.light{
-      --bg:#f5f1e9
+      --bg:#f5f1e9;
       --surface:#fffcf5;
       --surface2:#efe4c9;
       --line:#ddceac;
@@ -2354,7 +2354,7 @@
   // and backs off the moment someone actually touches it — a vote, a
   // manual pick from the trend row, checking AI stats, or the tab going
   // into the background — so nothing changes out from under them.
-  const HERO_ROTATE_MS = 7000;
+  const HERO_ROTATE_MS = 45000;
   const heroCardEl = document.getElementById('heroCard');
   let heroRotateTimer = null;
   // True while someone's actively looking at an AI stats breakdown for the
