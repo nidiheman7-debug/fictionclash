@@ -106,7 +106,15 @@
       background:linear-gradient(180deg,#000 0%,#000 55%,rgba(0,0,0,0) 100%);
       margin-bottom:-24px;
       isolation:isolate;
+      transition:padding .15s ease;
   }
+   .topbar.compact{
+     justify-content:flex-end;
+     padding:14px 20px 16px;
+     background:#000;
+     margin-bottom:0;
+  }
+   .topbar.compact .wordmark{ display:none; }
   .wordmark{
      font-family:'Bricolage Grotesque',sans-serif; font-weight:800;
      font-size:18px;
@@ -855,7 +863,7 @@
     }
     .hero.pulse{ animation:heroPulse .9s ease; }
 
-    @media (max-width:430px), (hover:none) and (pointer:coarse), (hover:hover) and (pointer:fine){
+    @media (max-width:430px), (hover:none) and (pointer:coarse){
       body{
         padding:0;
         display:block;
@@ -887,7 +895,7 @@
 <div class="phone">
   <div class="phone-scroll">
 
-  <div class="topbar">
+  <div class="topbar" id="topbar">
     <div class="wordmark">
       <div class="logo-badge">
         <svg viewBox="0 0 24 24" class="logo-hilt" xmlns="http://www.w3.org/2000/svg">
@@ -2354,7 +2362,7 @@
   // and backs off the moment someone actually touches it — a vote, a
   // manual pick from the trend row, checking AI stats, or the tab going
   // into the background — so nothing changes out from under them.
-  const HERO_ROTATE_MS = 7000;
+  const HERO_ROTATE_MS = 45000;
   const heroCardEl = document.getElementById('heroCard');
   let heroRotateTimer = null;
   // True while someone's actively looking at an AI stats breakdown for the
@@ -3440,6 +3448,11 @@
       newsSection.classList.toggle('hidden', !isNews);
       teamSection.classList.toggle('hidden', !isTeam);
       accountSection.classList.toggle('hidden', !isAccount);
+      // Logo/wordmark only belongs on the home (Matchups) tab — every other
+      // section already carries its own kicker + title, so a second brand
+      // mark up top is just redundant chrome. Elsewhere the topbar shrinks
+      // to a slim bar holding just the functional icons (install/account/theme).
+      document.getElementById('topbar').classList.toggle('compact', section !== 'Matchups');
       document.querySelector('.phone-scroll').scrollTo({ top: 0, behavior: 'instant' });
       if (section !== 'Matchups' && !isMovies && !isNews && !isTeam && !isAccount) showToast(`${section} — coming soon`);
     });
