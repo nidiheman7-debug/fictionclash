@@ -753,14 +753,23 @@
    .notif-item{
      display:flex; gap:10px; align-items:flex-start; padding:9px 8px; border-radius:9px;
      cursor:pointer; text-align:left; background:transparent; border:0; width:100%;
+     color:var(--text); /* buttons don't inherit text color by default — without
+       this, notification text rendered black regardless of theme */
    }
    .notif-item:hover{ background:var(--surface2); }
-   .notif-item-dot{
-     width:8px; height:8px; border-radius:50%; background:var(--ember); flex-shrink:0; margin-top:5px;
+   .notif-item-icon{
+     position:relative; width:26px; height:26px; border-radius:50%; flex-shrink:0; margin-top:1px;
+     display:flex; align-items:center; justify-content:center;
+     background:var(--surface2); color:var(--ember);
    }
-   .notif-item.read .notif-item-dot{ background:transparent; }
-   .notif-item-body{ font-size:11.5px; line-height:1.4; }
-   .notif-item-body b{ display:block; font-size:11.5px; }
+   .notif-item-icon svg{ width:14px; height:14px; display:block; }
+   .notif-item-dot{
+     position:absolute; top:-1px; right:-1px; width:9px; height:9px; border-radius:50%;
+     background:var(--ember); border:2px solid var(--surface);
+   }
+   .notif-item.read .notif-item-dot{ display:none; }
+   .notif-item-body{ font-size:11.5px; line-height:1.4; color:var(--text); }
+   .notif-item-body b{ display:block; font-size:11.5px; color:var(--text); }
    .notif-item-body span{ color:var(--muted); font-size:10.5px; }
    .notif-item-time{ font:10px 'Martian Mono',monospace; color:var(--muted); margin-top:2px; }
    .notif-empty{ color:var(--muted); font-size:11.5px; padding:16px 8px; text-align:center; }
@@ -973,6 +982,24 @@
       .bottomnav{padding-bottom:max(18px, env(safe-area-inset-bottom));}
     }
 </style>
+<!-- OneSignal Web Push SDK — ONESIGNAL_APP_ID below must be replaced with
+     the real App ID from your OneSignal dashboard (Settings > Keys & IDs)
+     before push notifications will work. Loaded with `defer` so it never
+     blocks the page from rendering. -->
+<script defer src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"></script>
+<script>
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  window.OneSignalDeferred.push(async function(OneSignal) {
+    await OneSignal.init({
+      appId: "ONESIGNAL_APP_ID", // <-- paste your real OneSignal App ID here
+      // Uses the same /sw.js already registered for offline caching —
+      // OneSignal's own push-handling code is merged into that file via
+      // importScripts(), so this one worker does both jobs.
+      serviceWorkerParam: { scope: '/' },
+      serviceWorkerPath: '/sw.js'
+    });
+  });
+</script>
 </head>
 <body>
 
@@ -1410,6 +1437,11 @@
         <button class="theme-swatch" data-theme="crimson" style="--sw:#FF1414" aria-label="Aggressive red theme" title="Aggressive Red"></button>
         <button class="theme-swatch" data-theme="mono" style="--sw:#E5E5E5" aria-label="Black and white theme" title="Black &amp; White"></button>
       </div>
+    </div>
+    <div class="account-card">
+      <h3>Push notifications</h3>
+      <p id="pushStatusText">Get notified on your device when a new matchup or clip goes up — even when the app's closed.</p>
+      <button class="save-profile" id="enablePushBtn" type="button">ENABLE NOTIFICATIONS</button>
     </div>
     <div class="account-card">
       <h3>Personalize your account</h3>
@@ -3960,6 +3992,13 @@
     return `${Math.floor(hours / 24)}d ago`;
   }
 
+  // Same stroke-based icon used in the bottom nav for each section, so a
+  // notification visually matches where tapping it will take you.
+  const NOTIF_TYPE_ICON = {
+    matchup: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L20 4"/><path d="M2 18L6 22"/><path d="M20 20L4 4"/><path d="M18 22L22 18"/></svg>',
+    clip: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
+  };
+
   function renderNotifications(){
     const lastSeen = Number(localStorage.getItem(NOTIFS_SEEN_KEY) || 0);
     const unreadCount = notifications.filter(n => n.at > lastSeen).length;
@@ -3971,16 +4010,68 @@
     }
     notifList.innerHTML = notifications.map(n => `
       <button type="button" class="notif-item ${n.at <= lastSeen ? 'read' : ''}" data-notif-type="${n.type}" data-notif-target="${escapeHtml(n.target || '')}">
-        <span class="notif-item-dot"></span>
+        <span class="notif-item-icon">${NOTIF_TYPE_ICON[n.type] || ''}<span class="notif-item-dot"></span></span>
         <span class="notif-item-body"><b>${escapeHtml(n.title)}</b><span>${escapeHtml(n.body)}</span><br><span class="notif-item-time">${notifTimeAgo(n.at)}</span></span>
       </button>`).join('');
+  }
+
+  // ---------- real device push, via OneSignal ----------
+  // ONESIGNAL_APP_ID/REST_API_KEY come from your OneSignal dashboard
+  // (Settings > Keys & IDs). Both must be filled in before this actually
+  // sends anything — until then sendOneSignalPush() just no-ops.
+  // Note: calling OneSignal's REST API directly from the browser means
+  // the REST API key is visible to anyone who views this page's source.
+  // That's a reasonable tradeoff for a small/free setup (no backend
+  // needed), but it does mean that key could be copied and used by
+  // someone else to send notifications to your users too.
+  const ONESIGNAL_APP_ID = "ONESIGNAL_APP_ID";
+  const ONESIGNAL_REST_API_KEY = "ONESIGNAL_REST_API_KEY";
+  function sendOneSignalPush(title, body){
+    if (ONESIGNAL_APP_ID === "ONESIGNAL_APP_ID" || ONESIGNAL_REST_API_KEY === "ONESIGNAL_REST_API_KEY") return; // not configured yet
+    fetch('https://onesignal.com/api/v1/notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Authorization': `Basic ${ONESIGNAL_REST_API_KEY}`
+      },
+      body: JSON.stringify({
+        app_id: ONESIGNAL_APP_ID,
+        included_segments: ['Subscribed Users'],
+        headings: { en: title },
+        contents: { en: body }
+      })
+    }).catch(err => console.error('OneSignal push failed', err));
   }
 
   function pushNotification(type, title, body, target){
     notifications.unshift({ type, title, body, target: target || '', at: Date.now() });
     saveNotifications();
     renderNotifications();
+    sendOneSignalPush(title, body);
   }
+
+  const enablePushBtn = document.getElementById('enablePushBtn');
+  const pushStatusText = document.getElementById('pushStatusText');
+  enablePushBtn.addEventListener('click', async () => {
+    if (typeof OneSignal === 'undefined') {
+      showToast('Notifications are still loading — try again in a moment');
+      return;
+    }
+    try {
+      await OneSignal.User.PushSubscription.optIn();
+      const isOptedIn = OneSignal.User.PushSubscription.optedIn;
+      if (isOptedIn) {
+        pushStatusText.textContent = "You're set — you'll get notified on this device.";
+        enablePushBtn.textContent = 'NOTIFICATIONS ON';
+        enablePushBtn.disabled = true;
+      } else {
+        showToast('Notifications permission was not granted');
+      }
+    } catch (err) {
+      console.error('Push opt-in failed', err);
+      showToast('Could not enable notifications — check browser permissions');
+    }
+  });
 
   function closeNotifDropdown(){ notifDropdown.hidden = true; }
   function toggleNotifDropdown(){
@@ -4012,6 +4103,14 @@
       }, 150);
     } else if (item.dataset.notifType === 'matchup') {
       document.querySelector('.nav-item[data-nav="Matchups"]')?.click();
+      // Jump straight to the matchup this notification is about, not just
+      // whichever card happened to already be active.
+      const targetIdx = matchups.findIndex(m => m.docId === item.dataset.notifTarget);
+      if (targetIdx !== -1) {
+        activeIdx = targetIdx;
+        renderHero();
+        renderTrendScroll();
+      }
     }
   });
   renderNotifications();
