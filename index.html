@@ -400,13 +400,22 @@
      width:100%; max-height:190px; display:block; background:#000; border-radius:10px;
      margin-bottom:12px;
    }
-   .clip-video-wrap{
+
+   /* Cards no longer embed a live video/iframe player at all — that's what
+      let two clips end up playing at once with no way to stop one when the
+      other started. Instead each card shows a static poster with a play
+      button; tapping it opens the single shared full-screen reels player
+      below, which is the only place video ever actually plays. */
+   .clip-thumb{
      position:relative; width:100%; padding-top:56.25%; margin-bottom:12px;
-     border-radius:10px; overflow:hidden; background:#000;
+     border-radius:10px; overflow:hidden; background:#111 center/cover no-repeat; cursor:pointer;
    }
-   .clip-video-wrap iframe{
-     position:absolute; top:0; left:0; width:100%; height:100%; border:0; display:block;
+   .clip-play-btn{
+     position:absolute; inset:0; margin:auto; width:52px; height:52px; border-radius:50%;
+     background:rgba(0,0,0,.55); border:2px solid #fff; color:#fff;
+     display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
    }
+   .clip-play-btn svg{ margin-left:3px; }
    .clip-card h3{ font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:15px; margin-bottom:5px; }
    .clip-review{ color:var(--muted); font-size:12px; line-height:1.45; margin-bottom:13px; }
    .clip-meta{
@@ -758,6 +767,46 @@
       background:linear-gradient(180deg,rgba(241,241,239,0) 0%,rgba(241,241,239,.92) 28%,#f1f1ef 56%);
    }
 
+    /* full-screen reels-style clip player — the ONLY place a clip's video
+       or YouTube embed ever actually renders/plays. Opening a new clip
+       always tears down whatever was here before, so it's structurally
+       impossible for two clips to be playing at once. */
+    .reels-overlay{
+      position:fixed; inset:0; background:#000; z-index:9999;
+      display:none; align-items:center; justify-content:center;
+    }
+    .reels-overlay.show{ display:flex; }
+    .reels-overlay::after{
+      content:''; position:absolute; left:0; right:0; bottom:0; height:190px;
+      background:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.8) 100%);
+      pointer-events:none; z-index:1;
+    }
+    .reels-media{ position:absolute; inset:0; }
+    .reels-media video, .reels-media iframe{
+      width:100%; height:100%; object-fit:contain; border:0; background:#000; display:block;
+    }
+    .reels-close{
+      position:absolute; top:calc(16px + env(safe-area-inset-top)); left:16px; z-index:3;
+      width:36px; height:36px; border-radius:50%; background:rgba(0,0,0,.55); border:0; color:#fff;
+      display:flex; align-items:center; justify-content:center; cursor:pointer;
+    }
+    .reels-actions{
+      position:absolute; right:12px; bottom:calc(110px + env(safe-area-inset-bottom)); z-index:3;
+      display:flex; flex-direction:column; align-items:center; gap:22px;
+    }
+    .reels-action-btn{
+      background:none; border:0; color:#fff; padding:0; cursor:pointer;
+      display:flex; flex-direction:column; align-items:center; gap:4px;
+      font:10px 'Martian Mono',monospace;
+    }
+    .reels-action-btn svg{ width:26px; height:26px; }
+    .reels-action-btn.liked{ color:var(--ember); }
+    .reels-caption{
+      position:absolute; left:16px; right:72px; bottom:calc(24px + env(safe-area-inset-bottom)); z-index:3; color:#fff;
+    }
+    .reels-caption-title{ font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:14px; margin-bottom:4px; }
+    .reels-caption-sub{ font-size:11.5px; opacity:.85; }
+
     /* toast */
     .toast{
       position:fixed; left:50%; bottom:110px; transform:translateX(-50%) translateY(20px);
@@ -1023,9 +1072,11 @@
 
     <div id="clipFeed">
       <article class="clip-card" data-clip-id="featured">
-        <video controls preload="metadata" poster="">
-          <source src="" type="video/mp4">
-        </video>
+        <div class="clip-thumb" data-video-type="file" data-video-src="">
+          <button type="button" class="clip-play-btn" aria-label="Play video">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+        </div>
         <h3>What makes a great opening shot?</h3>
         <p class="clip-review">The first few seconds tell you everything: the pace, the mood, and the kind of story you're about to enter.</p>
         <div class="clip-meta"><span>Posted by Maya</span><button type="button" class="clip-delete-btn" data-hide-clip="featured">Hide</button></div>
@@ -1054,9 +1105,11 @@
         </form>
       </article>
       <article class="clip-card" data-clip-id="hallway">
-        <video controls preload="metadata" poster="">
-          <source src="" type="video/mp4">
-        </video>
+        <div class="clip-thumb" data-video-type="file" data-video-src="">
+          <button type="button" class="clip-play-btn" aria-label="Play video">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+        </div>
         <h3>The hallway fight, one continuous take</h3>
         <p class="clip-review">No cuts, no shortcuts. You feel every hit land because the camera never lets you look away.</p>
         <div class="clip-meta"><span>Posted by Tobi</span><button type="button" class="clip-delete-btn" data-hide-clip="hallway">Hide</button></div>
@@ -1081,9 +1134,11 @@
         </form>
       </article>
       <article class="clip-card" data-clip-id="twist">
-        <video controls preload="metadata" poster="">
-          <source src="" type="video/mp4">
-        </video>
+        <div class="clip-thumb" data-video-type="file" data-video-src="">
+          <button type="button" class="clip-play-btn" aria-label="Play video">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+        </div>
         <h3>That twist reveal, frame by frame</h3>
         <p class="clip-review">Rewatch it once you know the ending — the clues were there the whole time, hidden in plain sight.</p>
         <div class="clip-meta"><span>Posted by Sarah</span><button type="button" class="clip-delete-btn" data-hide-clip="twist">Hide</button></div>
@@ -1338,6 +1393,31 @@
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <div class="reels-overlay" id="reelsOverlay">
+    <button class="reels-close" id="reelsCloseBtn" type="button" aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="reels-media" id="reelsMedia"></div>
+    <div class="reels-actions">
+      <button class="reels-action-btn" id="reelsLikeBtn" type="button" aria-label="Like this clip">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+        <span id="reelsLikeCount">0</span>
+      </button>
+      <button class="reels-action-btn" id="reelsCommentBtn" type="button" aria-label="View comments">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        <span>Comments</span>
+      </button>
+      <button class="reels-action-btn" id="reelsShareBtn" type="button" aria-label="Share this clip">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+        <span>Share</span>
+      </button>
+    </div>
+    <div class="reels-caption">
+      <div class="reels-caption-title" id="reelsTitle"></div>
+      <div class="reels-caption-sub" id="reelsMeta"></div>
+    </div>
+  </div>
 
   <div class="modal-overlay" id="introOverlay">
     <div class="modal-sheet">
@@ -2592,7 +2672,9 @@
       likeBtn.classList.toggle('liked', likedByCurrentUser(key));
       countEl.textContent = formatLikeCount(likeDisplayCount(key));
     }
-    likeRenderers[key] = renderLike;
+    // Also keeps the reels overlay's own like button in sync, on the rare
+    // chance this same clip is open there when the like state changes.
+    likeRenderers[key] = () => { renderLike(); if (reelsLikeKey === key) renderReelsLikeButton(); };
     renderLike();
     likeBtn.addEventListener('click', () => toggleLike(key));
     shareBtn.addEventListener('click', () => {
@@ -2600,6 +2682,75 @@
       shareLink({ title, text: title, url: location.href });
     });
   }
+
+  // ---------- full-screen reels-style clip player ----------
+  // The only place a clip's video/YouTube embed is ever actually mounted.
+  // Cards themselves only ever show a static poster + play button — so
+  // opening a new clip always tears down whatever was playing before,
+  // making it structurally impossible for two clips to play at once.
+  const reelsOverlay = document.getElementById('reelsOverlay');
+  const reelsMedia = document.getElementById('reelsMedia');
+  const reelsCloseBtn = document.getElementById('reelsCloseBtn');
+  const reelsLikeBtn = document.getElementById('reelsLikeBtn');
+  const reelsLikeCount = document.getElementById('reelsLikeCount');
+  const reelsCommentBtn = document.getElementById('reelsCommentBtn');
+  const reelsShareBtn = document.getElementById('reelsShareBtn');
+  const reelsTitle = document.getElementById('reelsTitle');
+  const reelsMeta = document.getElementById('reelsMeta');
+  let reelsLikeKey = '';
+  let reelsClipCard = null;
+
+  function renderReelsLikeButton(){
+    if (!reelsLikeKey) return;
+    reelsLikeBtn.classList.toggle('liked', likedByCurrentUser(reelsLikeKey));
+    reelsLikeCount.textContent = formatLikeCount(likeDisplayCount(reelsLikeKey));
+  }
+
+  function closeReelsPlayer(){
+    reelsOverlay.classList.remove('show');
+    reelsMedia.innerHTML = ''; // actually tears down the player so it stops playing
+    reelsLikeKey = '';
+    reelsClipCard = null;
+  }
+
+  function openReelsPlayer(thumb){
+    const card = thumb.closest('.clip-card');
+    if (!card) return;
+    const clipId = card.dataset.clipId;
+    const type = thumb.dataset.videoType;
+    const src = thumb.dataset.videoSrc;
+    if (!src) return; // demo placeholder cards with no real video yet
+    reelsMedia.innerHTML = type === 'youtube'
+      ? `<iframe src="https://www.youtube.com/embed/${src}?autoplay=1&playsinline=1" title="Clip" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`
+      : `<video src="${src}" autoplay playsinline controls></video>`;
+    reelsTitle.textContent = card.querySelector('h3')?.textContent || '';
+    reelsMeta.textContent = card.querySelector('.clip-meta span')?.textContent || '';
+    reelsLikeKey = 'clip:' + clipId;
+    reelsClipCard = card;
+    renderReelsLikeButton();
+    reelsOverlay.classList.add('show');
+  }
+
+  clipFeed.addEventListener('click', event => {
+    const playBtn = event.target.closest('.clip-play-btn');
+    if (!playBtn) return;
+    openReelsPlayer(playBtn.closest('.clip-thumb'));
+  });
+
+  reelsCloseBtn.addEventListener('click', closeReelsPlayer);
+  reelsLikeBtn.addEventListener('click', () => toggleLike(reelsLikeKey));
+  reelsShareBtn.addEventListener('click', () => {
+    if (!reelsClipCard) return;
+    const title = reelsClipCard.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
+    shareLink({ title, text: title, url: location.href });
+  });
+  reelsCommentBtn.addEventListener('click', () => {
+    if (!reelsClipCard) return;
+    const card = reelsClipCard;
+    closeReelsPlayer();
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    card.querySelector('.comment-form input')?.focus();
+  });
 
   // Real-time: a like tapped on any device updates this doc, which every
   // other visitor is subscribed to here, so the count and "liked" state
@@ -2805,7 +2956,11 @@
           card.dataset.clipId = id;
           const ytId = escapeHtml(data.youtubeId || '');
           card.innerHTML = `
-            <div class="clip-video-wrap"><iframe src="https://www.youtube.com/embed/${ytId}" title="${escapeHtml(data.title || 'Clip')}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
+            <div class="clip-thumb" data-video-type="youtube" data-video-src="${ytId}" style="background-image:url('https://img.youtube.com/vi/${ytId}/hqdefault.jpg')">
+              <button type="button" class="clip-play-btn" aria-label="Play video">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </button>
+            </div>
             <h3>${escapeHtml(data.title || '')}</h3>
             <p class="clip-review">${escapeHtml(data.review || '')}</p>
             <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><button type="button" class="clip-delete-btn" data-hide-clip="${id}">Hide</button></div>
