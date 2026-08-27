@@ -414,7 +414,7 @@
      font:10px 'Martian Mono',monospace; margin-bottom:11px;
    }
    .comments-title{
-     border-top:1px solid var(--line); padding-top:11px; margin-bottom:9px;
+     border-top:1px solid var(--line); padding-top:11px; margin-top:14px; margin-bottom:9px;
      font-size:11px; font-weight:800; letter-spacing:.8px; text-transform:uppercase;
    }
    .clip-delete-btn{
@@ -993,6 +993,12 @@
            <span>Share</span>
          </button>
        </div>
+       <div class="comments-title">Conversation</div>
+       <div class="hero-comments-list" id="heroCommentsList"></div>
+       <form class="comment-form" id="heroCommentForm">
+         <input class="clip-field" type="text" id="heroCommentInput" placeholder="Add your comment..." aria-label="Add your comment">
+         <button type="submit">POST</button>
+       </form>
     </div>
   </div>
 
@@ -1469,7 +1475,7 @@
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
     doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, collection, onSnapshot,
-    query, orderBy, serverTimestamp, Timestamp
+    query, where, orderBy, serverTimestamp, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   const auth = window.firebaseAuth;
@@ -1826,6 +1832,7 @@
     }
     likeRenderers[heroLikeKey] = renderHeroLikeButton;
     renderHeroLikeButton();
+    wireHeroComments(heroLikeKey);
   }
 
   heroLikeBtn.addEventListener('click', () => toggleLike(heroLikeKey));
@@ -1837,6 +1844,56 @@
       title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
       text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
       url: location.href
+    });
+  });
+
+  // ---------- hero card comments ----------
+  // Deliberately a FLAT top-level collection ('matchupComments' with a
+  // matchupId field) instead of a subcollection nested under each matchup
+  // doc. Matchups get cleared out periodically straight from the Firestore
+  // console — a flat collection means that cleanup is one filtered
+  // query (matchupId == ...) in the console, instead of having to open
+  // each matchup doc individually to find and clear its own subcollection.
+  // Comments left behind after a matchup is cleared are otherwise orphaned
+  // data that still costs reads/storage even though nothing shows them.
+  const heroCommentsList = document.getElementById('heroCommentsList');
+  const heroCommentForm = document.getElementById('heroCommentForm');
+  const heroCommentInput = document.getElementById('heroCommentInput');
+  let heroCommentsUnsubscribe = null;
+  let heroCommentsMatchupId = '';
+
+  function wireHeroComments(matchupId){
+    if (matchupId === heroCommentsMatchupId) return; // already watching this matchup — avoid re-subscribing
+    if (heroCommentsUnsubscribe) { heroCommentsUnsubscribe(); heroCommentsUnsubscribe = null; }
+    heroCommentsMatchupId = matchupId;
+    heroCommentsList.innerHTML = '';
+    if (!matchupId) return;
+    heroCommentsUnsubscribe = onSnapshot(
+      query(collection(db, 'matchupComments'), where('matchupId', '==', matchupId), orderBy('createdAt', 'asc')),
+      snapshot => {
+        snapshot.docChanges().forEach(change => {
+          if (change.type !== 'added') return;
+          heroCommentsList.appendChild(renderCommentEl(change.doc.data()));
+        });
+      },
+      err => console.error('Matchup comments listener failed', err)
+    );
+  }
+
+  heroCommentForm.addEventListener('submit', event => {
+    event.preventDefault();
+    const text = heroCommentInput.value.trim();
+    if (!text) return;
+    const identity = currentUserIdentity();
+    if (!identity) { requireSignIn('Sign in to comment'); return; }
+    const matchupId = heroCommentsMatchupId;
+    heroCommentInput.value = '';
+    addDoc(collection(db, 'matchupComments'), {
+      matchupId, text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, createdAt: serverTimestamp()
+    }).catch(err => {
+      console.error('Matchup comment post failed', err);
+      heroCommentInput.value = text;
+      showToast('Could not post comment — try again');
     });
   });
 
