@@ -785,6 +785,14 @@
     .reels-media video, .reels-media iframe{
       width:100%; height:100%; object-fit:contain; border:0; background:#000; display:block;
     }
+    /* Touches that start on top of a YouTube/TikTok iframe never reach the
+       page's own touch listeners — iframes are a separate document, so the
+       swipe gesture is invisible to us unless it starts outside the
+       iframe entirely. This transparent layer sits above the video (but
+       below the close/like/share buttons, via z-index) purely to catch
+       that swipe. It intentionally blocks tapping the embedded player's
+       own controls — the trade-off that makes swipe-to-next work at all. */
+    .reels-swipe-catcher{ position:absolute; inset:0; z-index:2; background:transparent; }
     .reels-close{
       position:absolute; top:calc(16px + env(safe-area-inset-top)); left:16px; z-index:3;
       width:36px; height:36px; border-radius:50%; background:rgba(0,0,0,.55); border:0; color:#fff;
@@ -1072,7 +1080,7 @@
 
     <div id="clipFeed">
       <article class="clip-card" data-clip-id="featured">
-        <div class="clip-thumb" data-video-type="file" data-video-src="">
+        <div class="clip-thumb" data-video-type="youtube" data-video-src="R2VIfF0ppt0" style="background-image:url('https://img.youtube.com/vi/R2VIfF0ppt0/hqdefault.jpg')">
           <button type="button" class="clip-play-btn" aria-label="Play video">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           </button>
@@ -1399,6 +1407,7 @@
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
     <div class="reels-media" id="reelsMedia"></div>
+    <div class="reels-swipe-catcher" id="reelsSwipeCatcher"></div>
     <div class="reels-actions">
       <button class="reels-action-btn" id="reelsLikeBtn" type="button" aria-label="Like this clip">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
@@ -1482,7 +1491,7 @@
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Share a movie scene</div>
       <div class="modal-sub">Paste a YouTube link to the scene — no file upload needed.</div>
-      <input class="clip-field" id="clipYoutubeUrl" type="text" placeholder="YouTube link e.g. https://youtu.be/dQw4w9WgXcQ">
+      <input class="clip-field" id="clipYoutubeUrl" type="text" placeholder="YouTube or TikTok link">
       <div class="file-name" id="clipFileName">Paste a link above to preview it here</div>
       <input class="clip-field" id="clipTitle" type="text" placeholder="Scene title e.g. The final hallway shot">
       <textarea class="clip-field" id="clipReview" placeholder="Write a short review or tell us what makes this scene work..."></textarea>
@@ -2722,6 +2731,8 @@
     if (!src) return; // demo placeholder cards with no real video yet
     reelsMedia.innerHTML = type === 'youtube'
       ? `<iframe src="https://www.youtube.com/embed/${src}?autoplay=1&playsinline=1" title="Clip" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`
+      : type === 'tiktok'
+      ? `<iframe src="https://www.tiktok.com/embed/v2/${src}" title="Clip" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`
       : `<video src="${src}" autoplay playsinline controls></video>`;
     reelsTitle.textContent = card.querySelector('h3')?.textContent || '';
     reelsMeta.textContent = card.querySelector('.clip-meta span')?.textContent || '';
@@ -2736,6 +2747,41 @@
     if (!playBtn) return;
     openReelsPlayer(playBtn.closest('.clip-thumb'));
   });
+
+  // ---------- reels swipe-to-scroll (next/previous clip) ----------
+  // Only clips with an actual video attached count as "playable" — the
+  // still-empty demo cards are skipped so swiping never lands on a dead
+  // player. Recomputed on every swipe (not cached) so newly-posted clips
+  // are included without needing the overlay to be reopened.
+  function getPlayableThumbs(){
+    return Array.from(clipFeed.querySelectorAll('.clip-thumb')).filter(t => t.dataset.videoSrc);
+  }
+  function goToAdjacentClip(direction){
+    const thumbs = getPlayableThumbs();
+    const currentThumb = reelsClipCard ? reelsClipCard.querySelector('.clip-thumb') : null;
+    const idx = thumbs.indexOf(currentThumb);
+    if (idx === -1) return;
+    const nextThumb = thumbs[idx + direction];
+    if (nextThumb) openReelsPlayer(nextThumb);
+  }
+  let reelsTouchStartY = 0;
+  const reelsSwipeCatcher = document.getElementById('reelsSwipeCatcher');
+  reelsSwipeCatcher.addEventListener('touchstart', event => {
+    reelsTouchStartY = event.touches[0].clientY;
+  }, { passive: true });
+  reelsSwipeCatcher.addEventListener('touchend', event => {
+    const deltaY = reelsTouchStartY - event.changedTouches[0].clientY;
+    if (Math.abs(deltaY) < 50) return; // a tap, not a deliberate swipe
+    goToAdjacentClip(deltaY > 0 ? 1 : -1); // swipe up = next clip, swipe down = previous
+  }, { passive: true });
+  // Desktop equivalent: mouse-wheel/trackpad scroll while the player is open.
+  let reelsWheelLocked = false;
+  reelsSwipeCatcher.addEventListener('wheel', event => {
+    if (reelsWheelLocked) return;
+    reelsWheelLocked = true;
+    goToAdjacentClip(event.deltaY > 0 ? 1 : -1);
+    setTimeout(() => { reelsWheelLocked = false; }, 450); // debounce so one scroll gesture = one clip
+  }, { passive: true });
 
   reelsCloseBtn.addEventListener('click', closeReelsPlayer);
   reelsLikeBtn.addEventListener('click', () => toggleLike(reelsLikeKey));
@@ -2777,12 +2823,58 @@
     return match ? match[1] : null;
   }
 
+  // Pulls the numeric video ID out of a TikTok URL — the only part
+  // TikTok's own embed player (tiktok.com/embed/v2/{id}) actually needs.
+  function extractTiktokId(input){
+    const value = (input || '').trim();
+    if (!value) return null;
+    const match = value.match(/tiktok\.com\/(?:@[\w.-]+\/video|embed(?:\/v2)?)\/(\d+)/);
+    return match ? match[1] : null;
+  }
+
+  // TikTok's mobile Share button gives out short redirect links
+  // (vm.tiktok.com/xxxx or vt.tiktok.com/xxxx) that don't contain the
+  // actual numeric video ID at all — it only exists on the other end of
+  // that redirect. extractTiktokId can't get it from the short link alone,
+  // so this asks TikTok's own oEmbed lookup to resolve it instead.
+  function isTiktokShortLink(input){
+    return /(?:vm|vt)\.tiktok\.com\//i.test((input || '').trim());
+  }
+  async function resolveTiktokShortLink(url){
+    try {
+      const res = await fetch('https://www.tiktok.com/oembed?url=' + encodeURIComponent(url));
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.embed_product_id) return data.embed_product_id;
+      const match = (data.html || '').match(/data-video-id="(\d+)"/);
+      return match ? match[1] : null;
+    } catch (err) {
+      console.error('TikTok short-link resolve failed', err);
+      return null;
+    }
+  }
+
+  // Figures out which platform a pasted link belongs to and returns its ID,
+  // or null if it doesn't match either supported platform. Synchronous —
+  // short TikTok links are handled separately (see resolveTiktokShortLink)
+  // since they need an actual network request to resolve.
+  function parseClipLink(input){
+    const youtubeId = extractYoutubeId(input);
+    if (youtubeId) return { platform: 'youtube', id: youtubeId };
+    const tiktokId = extractTiktokId(input);
+    if (tiktokId) return { platform: 'tiktok', id: tiktokId };
+    return null;
+  }
+
   clipYoutubeUrl.addEventListener('input', () => {
-    const id = extractYoutubeId(clipYoutubeUrl.value);
-    if (id) clipFileName.textContent = `Looks good — ready to publish`;
-    else if (clipYoutubeUrl.value.trim()) clipFileName.textContent = "That doesn't look like a YouTube link";
+    const raw = clipYoutubeUrl.value;
+    const parsed = parseClipLink(raw);
+    if (parsed) clipFileName.textContent = `Looks good (${parsed.platform === 'tiktok' ? 'TikTok' : 'YouTube'}) — ready to publish`;
+    else if (isTiktokShortLink(raw)) clipFileName.textContent = 'TikTok short link — will resolve when you publish';
+    else if (raw.trim()) clipFileName.textContent = "That doesn't look like a YouTube or TikTok link";
     else clipFileName.textContent = 'Paste a link above to preview it here';
   });
+
 
   function escapeHtml(value){
     return value.replace(/[&<>"']/g, char => ({
@@ -2876,12 +2968,18 @@
     wireClipSocial(id, card, CLIP_BASE_LIKES[id] || 0);
   });
 
-  publishClip.addEventListener('click', () => {
-    const youtubeId = extractYoutubeId(clipYoutubeUrl.value);
+  publishClip.addEventListener('click', async () => {
+    const rawLink = clipYoutubeUrl.value;
+    let parsed = parseClipLink(rawLink);
     const title = clipTitle.value.trim();
     const review = clipReview.value.trim();
-    if (!youtubeId) {
-      showToast('Paste a valid YouTube link first');
+    if (!parsed && isTiktokShortLink(rawLink)) {
+      showToast('Resolving TikTok link…');
+      const id = await resolveTiktokShortLink(rawLink.trim());
+      if (id) parsed = { platform: 'tiktok', id };
+    }
+    if (!parsed) {
+      showToast('Paste a valid YouTube or TikTok link first');
       return;
     }
     if (!title || !review) {
@@ -2891,14 +2989,14 @@
     const identity = currentUserIdentity();
     if (!identity) { requireSignIn('Sign in to post a clip'); return; }
     withSpinner(publishClip, 'POSTING…', () => {
-      // No file upload involved — just the YouTube video ID — so this
+      // No file upload involved — just the video ID/platform — so this
       // works on Firebase's free Spark plan (no Blaze billing needed).
       // expiresAt mirrors the matchups collection's 30-day TTL — set up
       // the same TTL policy in Firebase console on movieClips.expiresAt
       // and clips will auto-delete themselves after 30 days too.
       const CLIP_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
       addDoc(collection(db, 'movieClips'), {
-        title, review, youtubeId,
+        title, review, videoPlatform: parsed.platform, videoId: parsed.id,
         postedByUid: identity.uid, postedByName: identity.name, postedByAvatar: identity.avatarUrl,
         createdAt: serverTimestamp(),
         expiresAt: Timestamp.fromMillis(Date.now() + CLIP_LIFETIME_MS)
@@ -2954,9 +3052,19 @@
           const card = document.createElement('article');
           card.className = 'clip-card';
           card.dataset.clipId = id;
-          const ytId = escapeHtml(data.youtubeId || '');
+          // videoPlatform/videoId is the current field pair; youtubeId is
+          // kept as a fallback so clips posted before TikTok support was
+          // added still render correctly.
+          const platform = data.videoPlatform || (data.youtubeId ? 'youtube' : '');
+          const videoId = escapeHtml(data.videoId || data.youtubeId || '');
+          // TikTok has no simple public thumbnail URL the way YouTube does,
+          // so TikTok clips just show a plain dark poster with the play
+          // button rather than a real preview frame.
+          const posterStyle = platform === 'youtube'
+            ? ` style="background-image:url('https://img.youtube.com/vi/${videoId}/hqdefault.jpg')"`
+            : '';
           card.innerHTML = `
-            <div class="clip-thumb" data-video-type="youtube" data-video-src="${ytId}" style="background-image:url('https://img.youtube.com/vi/${ytId}/hqdefault.jpg')">
+            <div class="clip-thumb" data-video-type="${platform}" data-video-src="${videoId}"${posterStyle}>
               <button type="button" class="clip-play-btn" aria-label="Play video">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
               </button>
