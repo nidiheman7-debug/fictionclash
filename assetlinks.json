@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.vercel.fictionclash.twa",
+        "sha256_cert_fingerprints": ["98:D2:D6:92:2C:6E:FC:7F:F3:E8:E3:1C:52:AC:9E:79:49:A6:C0:B2:F6:DA:B0:95:88:24:38:66:0C:17:07:38"]
+      }
+    }]
