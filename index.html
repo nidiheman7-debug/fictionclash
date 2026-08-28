@@ -618,6 +618,42 @@
      display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;
    }
    .avatar-edit-btn:active{transform:scale(.92);}
+   .avatar-report-btn{
+     position:absolute;bottom:-2px;left:-2px;width:20px;height:20px;border-radius:50%;
+     background:var(--surface2);color:var(--muted);border:2px solid var(--bg);
+     display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;
+   }
+   .avatar-report-btn:active{transform:scale(.92);}
+   .avatar-report-btn.flagged{color:#c0392b;}
+   .char-avatar-wrap .avatar-report-btn{ bottom:8px; left:-4px; }
+   .consent-check-row{
+     display:flex;align-items:flex-start;gap:9px;margin:14px 0;padding:12px;
+     background:var(--surface);border:1px solid var(--line);border-radius:12px;
+   }
+   .consent-check-row input[type="checkbox"]{ width:17px;height:17px;flex-shrink:0;margin-top:1px;accent-color:var(--ember); }
+   .consent-check-row label{ font-size:11px;color:var(--muted);line-height:1.5; }
+   .consent-check-row a{ color:var(--ember);text-decoration:underline; }
+   .policy-text{ font-size:12px;color:var(--muted);line-height:1.7;white-space:pre-line; }
+   .report-reason-row{ display:flex;flex-direction:column;gap:8px;margin:14px 0; }
+   .report-reason-btn{
+     text-align:left;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+     background:var(--surface);color:var(--text);font:600 12.5px 'Instrument Sans',sans-serif;cursor:pointer;
+   }
+   .report-reason-btn.selected{ border-color:var(--ember);background:var(--surface2); }
+   .admin-report-row{
+     display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);
+     border-radius:12px;margin-bottom:8px;background:var(--surface);
+   }
+   .admin-report-row img{ width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0; }
+   .admin-report-info{ flex:1;min-width:0; }
+   .admin-report-info b{ font-size:12px;display:block; }
+   .admin-report-info span{ font-size:10.5px;color:var(--muted); }
+   .admin-report-actions{ display:flex;gap:6px; }
+   .admin-report-actions button{
+     font-size:10px;font-weight:700;padding:6px 9px;border-radius:8px;border:1px solid var(--line);
+     background:var(--surface2);color:var(--text);cursor:pointer;
+   }
+   .admin-report-actions button.danger{ color:#e05a4e;border-color:#e05a4e; }
    .remove-avatar-btn{
      width:100%;background:transparent;border:0;color:var(--muted);
      font:700 10.5px 'Instrument Sans',sans-serif;padding:9px 0 2px;cursor:pointer;text-decoration:underline;
@@ -1081,6 +1117,9 @@
            <button class="avatar-edit-btn" id="heroAvatarEditA" type="button" aria-label="Upload a picture for this character" title="Upload a picture for this character">
              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
            </button>
+           <button class="avatar-report-btn" id="heroAvatarReportA" type="button" aria-label="Report this picture" title="Report this picture" hidden>
+             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+           </button>
          </div>
          <div class="char-name" id="heroNameA">Gojo Satoru</div>
          <div class="char-sub" id="heroSubA">Jujutsu Kaisen</div>
@@ -1090,6 +1129,9 @@
            <div class="avatar lo" id="heroAvatarB">SR</div>
            <button class="avatar-edit-btn" id="heroAvatarEditB" type="button" aria-label="Upload a picture for this character" title="Upload a picture for this character">
              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+           </button>
+           <button class="avatar-report-btn" id="heroAvatarReportB" type="button" aria-label="Report this picture" title="Report this picture" hidden>
+             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
            </button>
          </div>
          <div class="char-name" id="heroNameB">Saitama</div>
@@ -1452,6 +1494,16 @@
       <button class="save-profile" id="saveProfile" type="button">SAVE PROFILE</button>
       <button class="remove-avatar-btn" id="removeAvatarBtn" type="button" hidden>Remove profile picture</button>
     </div>
+    <div class="account-card">
+      <h3>Content &amp; uploads</h3>
+      <p>Character pictures are user-uploaded. See how we handle rights requests and reports.</p>
+      <button class="remove-avatar-btn" id="openContentPolicyBtn" type="button">Read Content Policy</button>
+    </div>
+    <div class="account-card hidden" id="adminReportsCard">
+      <h3>Flagged pictures</h3>
+      <p>Reported uploads awaiting review.</p>
+      <div id="adminReportsList"></div>
+    </div>
   </section>
   </div>
 
@@ -1610,6 +1662,50 @@
       <button class="modal-close" id="submitClose">Close</button>
     </div>
   </div>
+
+  <div class="modal-overlay" id="avatarConsentOverlay">
+    <div class="modal-sheet">
+      <div class="modal-title">Before you upload</div>
+      <div class="modal-sub">Fiction Clash doesn't provide official character art — pictures come from users like you.</div>
+      <div class="consent-check-row">
+        <input type="checkbox" id="avatarConsentCheck">
+        <label for="avatarConsentCheck">I confirm this image is my own original artwork, used with the creator's permission, or shared for personal/non-commercial fan use — and I take full responsibility for it. I understand Fiction Clash will remove it on a valid rights request. <a href="#" id="openPolicyFromConsent">Read the full Content Policy</a>.</label>
+      </div>
+      <button class="modal-submit" id="avatarConsentSubmit" type="button">Agree &amp; Choose Picture</button>
+      <button class="modal-close" id="avatarConsentCancel">Cancel</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="reportAvatarOverlay">
+    <div class="modal-sheet">
+      <div class="modal-title">Report this picture</div>
+      <div class="modal-sub" id="reportAvatarSub">Why are you reporting this image?</div>
+      <div class="report-reason-row" id="reportReasonRow">
+        <button class="report-reason-btn" data-reason="copyright" type="button">Copyright / rights issue</button>
+        <button class="report-reason-btn" data-reason="inappropriate" type="button">Inappropriate content</button>
+        <button class="report-reason-btn" data-reason="wrong" type="button">Wrong character</button>
+        <button class="report-reason-btn" data-reason="other" type="button">Other</button>
+      </div>
+      <button class="modal-submit" id="reportAvatarSubmit" type="button">Submit Report</button>
+      <button class="modal-close" id="reportAvatarClose">Cancel</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="contentPolicyOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Content Policy</div>
+      <div class="policy-text">Fiction Clash is a fan-made matchup app. We don't license or provide official character artwork.
+
+All character pictures are uploaded by users, for personal and non-commercial fan use. By uploading, a user confirms the image is their own work, used with permission, or shared for fair fan use — and takes responsibility for it.
+
+Anyone can report an image using the flag icon next to it. Reported images are automatically hidden after a few reports pending review.
+
+If you hold rights to an image on Fiction Clash and want it removed, contact us and we'll take it down within 48 hours.
+
+Contact: fictionclash.app@gmail.com</div>
+      <button class="modal-close" id="contentPolicyClose">Close</button>
+    </div>
+  </div>
 </div>
 
 <script type="module">
@@ -1656,7 +1752,7 @@
     signOut
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
-    doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, collection, onSnapshot,
+    doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, collection, onSnapshot,
     query, where, orderBy, serverTimestamp, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
@@ -1803,6 +1899,8 @@
 
   const heroAvatarA = document.getElementById('heroAvatarA');
   const heroAvatarB = document.getElementById('heroAvatarB');
+  const heroAvatarReportA = document.getElementById('heroAvatarReportA');
+  const heroAvatarReportB = document.getElementById('heroAvatarReportB');
   const heroNameA = document.getElementById('heroNameA');
   const heroNameB = document.getElementById('heroNameB');
   const heroSubA = document.getElementById('heroSubA');
@@ -1892,8 +1990,15 @@
   function avatarOverrideKey(name, version){
     return version ? `${name}|${version}` : name;
   }
+  // Which avatar keys are currently hidden pending review (reportCount hit
+  // the auto-hide threshold). Populated from Firestore alongside the
+  // pictures themselves, so a flagged picture disappears everywhere at once.
+  const AVATAR_REPORT_HIDE_THRESHOLD = 3;
+  let hiddenAvatarKeys = {};
   function getCharacterAvatarOverride(name, version){
-    return characterAvatarOverrides[avatarOverrideKey(name, version)] || null;
+    const key = avatarOverrideKey(name, version);
+    if (hiddenAvatarKeys[key]) return null;
+    return characterAvatarOverrides[key] || null;
   }
   function persistCharacterAvatarOverridesLocally(){
     try { localStorage.setItem(CHARACTER_AVATARS_STORAGE_KEY, JSON.stringify(characterAvatarOverrides)); } catch (err) {}
@@ -1921,11 +2026,19 @@
     persistCharacterAvatarOverridesLocally();
     if (!file) return;
     compressImageToDataUrl(file)
-      .then(compressed => setDoc(doc(db, 'characterAvatars', safeId(key)), { url: compressed, name, version: version || '', updatedAt: serverTimestamp() }))
+      .then(compressed => setDoc(doc(db, 'characterAvatars', safeId(key)), {
+        url: compressed, name, version: version || '', updatedAt: serverTimestamp(),
+        // Who uploaded it + moderation state — the report/takedown system
+        // below reads and writes these same fields.
+        uploadedBy: (auth.currentUser && auth.currentUser.uid) || 'anonymous',
+        reportCount: 0, hidden: false
+      }))
       .catch(err => { console.error('Character avatar sync failed', err); showToast('Picture saved locally, but sync to other browsers failed'); });
   }
 
   // Real-time: any character picture uploaded from any browser lands here.
+  // Also carries moderation state (reportCount/hidden) so a flagged picture
+  // is hidden the same way on every device, not just the one that flagged it.
   onSnapshot(collection(db, 'characterAvatars'), snapshot => {
     let changed = false;
     snapshot.forEach(docSnap => {
@@ -1935,11 +2048,17 @@
         characterAvatarOverrides[key] = data.url;
         changed = true;
       }
+      const shouldHide = !!data.hidden || (data.reportCount || 0) >= AVATAR_REPORT_HIDE_THRESHOLD;
+      if (!!hiddenAvatarKeys[key] !== shouldHide) {
+        if (shouldHide) hiddenAvatarKeys[key] = true; else delete hiddenAvatarKeys[key];
+        changed = true;
+      }
     });
     if (changed) {
       persistCharacterAvatarOverridesLocally();
       refreshAllCharacterPhotos();
     }
+    renderAdminReports(snapshot);
   }, err => console.error('Character avatar listener failed', err));
 
   // Renders the uploaded picture if one exists for this character, or the
@@ -1967,6 +2086,10 @@
     const m = matchups[activeIdx];
     setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
     setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
+    // Only user-uploaded pictures can be reported — no point flagging a
+    // generated placeholder that isn't anyone's artwork.
+    heroAvatarReportA.hidden = !getCharacterAvatarOverride(m.a.name, m.a.version);
+    heroAvatarReportB.hidden = !getCharacterAvatarOverride(m.b.name, m.b.version);
     heroNameA.textContent = m.a.name.toUpperCase();
     heroNameB.textContent = m.b.name.toUpperCase();
     heroSubA.textContent = m.a.sub;
@@ -2130,10 +2253,140 @@
     if (!m) return;
     const char = side === 'a' ? m.a : m.b;
     pendingAvatarChar = { name: char.name, version: char.version };
-    charAvatarFile.click();
+    // Gate every upload behind the consent modal instead of opening the
+    // file picker directly — this is what makes the checkbox agreement
+    // active/per-upload rather than a passive footer link nobody reads.
+    avatarConsentCheck.checked = false;
+    avatarConsentOverlay.classList.add('show');
   }
   heroAvatarEditA.addEventListener('click', (e) => { e.stopPropagation(); openCharAvatarUpload('a'); });
   heroAvatarEditB.addEventListener('click', (e) => { e.stopPropagation(); openCharAvatarUpload('b'); });
+
+  // ---------- upload consent modal ----------
+  const avatarConsentOverlay = document.getElementById('avatarConsentOverlay');
+  const avatarConsentCheck = document.getElementById('avatarConsentCheck');
+  const avatarConsentSubmit = document.getElementById('avatarConsentSubmit');
+  const avatarConsentCancel = document.getElementById('avatarConsentCancel');
+  avatarConsentSubmit.addEventListener('click', () => {
+    if (!avatarConsentCheck.checked) {
+      showToast('Please confirm the box before uploading');
+      return;
+    }
+    avatarConsentOverlay.classList.remove('show');
+    charAvatarFile.click();
+  });
+  avatarConsentCancel.addEventListener('click', () => {
+    avatarConsentOverlay.classList.remove('show');
+    pendingAvatarChar = null;
+  });
+  avatarConsentOverlay.addEventListener('click', (e) => {
+    if (e.target === avatarConsentOverlay) { avatarConsentOverlay.classList.remove('show'); pendingAvatarChar = null; }
+  });
+
+  // ---------- content policy modal ----------
+  const contentPolicyOverlay = document.getElementById('contentPolicyOverlay');
+  function openContentPolicy(){ contentPolicyOverlay.classList.add('show'); }
+  document.getElementById('openContentPolicyBtn').addEventListener('click', openContentPolicy);
+  document.getElementById('openPolicyFromConsent').addEventListener('click', (e) => { e.preventDefault(); openContentPolicy(); });
+  document.getElementById('contentPolicyClose').addEventListener('click', () => contentPolicyOverlay.classList.remove('show'));
+  contentPolicyOverlay.addEventListener('click', (e) => { if (e.target === contentPolicyOverlay) contentPolicyOverlay.classList.remove('show'); });
+
+  // ---------- report a picture ----------
+  const reportAvatarOverlay = document.getElementById('reportAvatarOverlay');
+  const reportReasonRow = document.getElementById('reportReasonRow');
+  const reportAvatarSubmit = document.getElementById('reportAvatarSubmit');
+  const reportAvatarClose = document.getElementById('reportAvatarClose');
+  let pendingReportChar = null; // { name, version, key }
+  let selectedReportReason = null;
+
+  function openReportAvatar(side){
+    const m = matchups[activeIdx];
+    if (!m) return;
+    const char = side === 'a' ? m.a : m.b;
+    pendingReportChar = { name: char.name, version: char.version, key: avatarOverrideKey(char.name, char.version) };
+    selectedReportReason = null;
+    reportReasonRow.querySelectorAll('.report-reason-btn').forEach(btn => btn.classList.remove('selected'));
+    document.getElementById('reportAvatarSub').textContent = `Reporting the picture for ${char.name}`;
+    reportAvatarOverlay.classList.add('show');
+  }
+  heroAvatarReportA.addEventListener('click', (e) => { e.stopPropagation(); openReportAvatar('a'); });
+  heroAvatarReportB.addEventListener('click', (e) => { e.stopPropagation(); openReportAvatar('b'); });
+
+  reportReasonRow.addEventListener('click', (e) => {
+    const btn = e.target.closest('.report-reason-btn');
+    if (!btn) return;
+    reportReasonRow.querySelectorAll('.report-reason-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedReportReason = btn.dataset.reason;
+  });
+
+  reportAvatarSubmit.addEventListener('click', () => {
+    if (!pendingReportChar) return;
+    if (!selectedReportReason) { showToast('Pick a reason first'); return; }
+    const { name, version, key } = pendingReportChar;
+    const avatarDocId = safeId(key);
+    withSpinner(reportAvatarSubmit, 'SUBMIT REPORT', () => {
+      // Log the report for the admin queue, and bump the counter on the
+      // avatar doc itself — the onSnapshot listener above auto-hides it
+      // everywhere once that counter crosses the threshold.
+      return Promise.all([
+        addDoc(collection(db, 'avatarReports'), {
+          avatarKey: key, name, version: version || '', reason: selectedReportReason,
+          reporterUid: (auth.currentUser && auth.currentUser.uid) || 'anonymous',
+          createdAt: serverTimestamp()
+        }),
+        updateDoc(doc(db, 'characterAvatars', avatarDocId), { reportCount: increment(1) }).catch(() => {})
+      ]).then(() => {
+        reportAvatarOverlay.classList.remove('show');
+        pendingReportChar = null;
+        showToast('Thanks — we\'ll review this picture');
+      }).catch(err => {
+        console.error('Report failed', err);
+        showToast('Could not submit the report — try again');
+      });
+    }, 0);
+  });
+  reportAvatarClose.addEventListener('click', () => { reportAvatarOverlay.classList.remove('show'); pendingReportChar = null; });
+  reportAvatarOverlay.addEventListener('click', (e) => { if (e.target === reportAvatarOverlay) { reportAvatarOverlay.classList.remove('show'); pendingReportChar = null; } });
+
+  // ---------- admin: review flagged pictures ----------
+  const adminReportsCard = document.getElementById('adminReportsCard');
+  const adminReportsList = document.getElementById('adminReportsList');
+  function renderAdminReports(snapshot){
+    if (!isAdmin()) { adminReportsCard.classList.add('hidden'); return; }
+    const flagged = [];
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      if ((data.reportCount || 0) > 0) flagged.push({ id: docSnap.id, ...data });
+    });
+    adminReportsCard.classList.toggle('hidden', flagged.length === 0);
+    adminReportsList.innerHTML = flagged.map(item => `
+      <div class="admin-report-row" data-doc-id="${item.id}">
+        <img src="${item.url}" alt="${escapeHtml(item.name)}">
+        <div class="admin-report-info">
+          <b>${escapeHtml(item.name)}${item.version ? ` (${escapeHtml(item.version)})` : ''}</b>
+          <span>${item.reportCount} report${item.reportCount === 1 ? '' : 's'}${item.hidden ? ' · hidden' : ''}</span>
+        </div>
+        <div class="admin-report-actions">
+          <button data-action="dismiss">Dismiss</button>
+          <button data-action="remove" class="danger">Remove</button>
+        </div>
+      </div>`).join('');
+  }
+  adminReportsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const row = btn.closest('.admin-report-row');
+    const docId = row.dataset.docId;
+    if (btn.dataset.action === 'remove') {
+      // Rights-holder-style takedown: delete the picture doc entirely so
+      // it falls back to the placeholder avatar for everyone.
+      deleteDoc(doc(db, 'characterAvatars', docId)).catch(err => console.error('Avatar removal failed', err));
+    } else {
+      // False alarm — clear the report count so it stops showing as flagged.
+      updateDoc(doc(db, 'characterAvatars', docId), { reportCount: 0, hidden: false }).catch(err => console.error('Dismiss failed', err));
+    }
+  });
 
   charAvatarFile.addEventListener('change', () => {
     const file = charAvatarFile.files[0];
@@ -3775,6 +4028,7 @@
       updateAccountHeader();
       loadCloudProfile(user.uid); // overwrites the above with synced data, if any exists
       renderAllLikeButtons(); // this account's like state may differ from the previous one's
+      getDocs(collection(db, 'characterAvatars')).then(renderAdminReports).catch(() => {}); // admin card may now apply
     } else {
       lastSignedInUid = null;
       signedOutView.hidden = false;
