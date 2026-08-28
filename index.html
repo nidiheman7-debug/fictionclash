@@ -1841,11 +1841,17 @@ Contact: fictionclash.app@gmail.com</div>
   async function fetchCharacterAnalysis(names, question){
     const cacheKey = `${names.map(n => n.trim().toLowerCase()).sort().join('||')}::${(question || '').trim().toLowerCase()}`;
     if (aiAnalysisCache[cacheKey]) return aiAnalysisCache[cacheKey];
+    // Match the server's own 9s deadline (see character-analysis.js) so a
+    // stuck request never leaves the button spinning far longer than the
+    // server would ever actually take to respond.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const res = await fetch('/api/character-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ characters: names, question: question || undefined })
+        body: JSON.stringify({ characters: names, question: question || undefined }),
+        signal: controller.signal
       });
       if (!res.ok) throw new Error('AI analysis request failed: ' + res.status);
       const data = await res.json();
@@ -1855,6 +1861,8 @@ Contact: fictionclash.app@gmail.com</div>
     } catch (err) {
       console.warn('AI analysis unavailable, falling back to local ratings:', err);
       return null;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
