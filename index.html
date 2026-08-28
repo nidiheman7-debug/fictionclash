@@ -1021,18 +1021,13 @@
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      width:15px;
-      height:15px;
-      margin-left:6px;
-      border-radius:50%;
-      background:#3b9eff;
-      color:#fff;
-      font-size:10px;
-      font-weight:700;
+      width:16px;
+      height:16px;
+      margin-left:5px;
       vertical-align:middle;
       line-height:1;
     }
-    .comment-body .verified-badge{width:13px;height:13px;font-size:9px;margin-left:4px;}
+    .comment-body .verified-badge{width:14px;height:14px;margin-left:3px;}
     .verified-progress{
       font-size:11px;
       opacity:0.7;
@@ -1465,7 +1460,7 @@
         </button>
         <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" hidden>
       </div>
-      <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 7 days" style="display:none;">✓</span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
+      <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 7 days" style="display:none;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
     </div>
     <div class="account-card" id="signInCard">
       <div id="signedOutView">
@@ -3014,7 +3009,7 @@ Contact: fictionclash.app@gmail.com</div>
     const write = confirmedLikeKeys.has(key)
       ? updateDoc(doc(db, 'likes', key), { [`uids.${uid}`]: liked ? true : deleteField() })
       : setDoc(doc(db, 'likes', key), { uids: { [uid]: true } });
-    if (liked) write.then(() => recordVerifiedAction(uid));
+    if (liked) write.then(() => recordVerifiedAction(uid, 'like:' + key));
     write.catch(err => {
       console.error('Like sync failed', err);
       // The optimistic bump above never actually landed on the server —
@@ -3289,7 +3284,7 @@ Contact: fictionclash.app@gmail.com</div>
   function renderCommentEl(data){
     const el = document.createElement('div');
     el.className = 'comment';
-    const badge = data.verified ? '<span class="verified-badge" title="Verified">✓</span>' : '';
+    const badge = data.verified ? '<span class="verified-badge" title="Verified"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span>' : '';
     el.innerHTML = `<div class="comment-avatar">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b>${escapeHtml(data.name || 'You')}${badge}</b><span>${escapeHtml(data.text || '')}</span></div>`;
     return el;
   }
@@ -3946,9 +3941,20 @@ Contact: fictionclash.app@gmail.com</div>
   // Called after a like or a share actually succeeds. Fails soft — if the
   // Firestore round-trip errors out, the action itself still stands, the
   // person just doesn't get credit toward the badge for it this time.
-  async function recordVerifiedAction(uid){
+  // dedupeKey (optional) makes an action count toward the badge only ONCE
+  // ever — used for likes so unliking then reliking the same clip/matchup
+  // over and over can't be used to farm the counter. Backed by a small
+  // per-user subcollection (rather than a client-side flag) so a page
+  // reload — or the person clearing local state — can't reset the credit.
+  async function recordVerifiedAction(uid, dedupeKey){
     if (!uid) return;
     try {
+      if (dedupeKey) {
+        const creditRef = doc(db, 'users', uid, 'actionCredits', dedupeKey);
+        const creditSnap = await getDoc(creditRef);
+        if (creditSnap.exists()) return; // already credited for this exact like before
+        await setDoc(creditRef, { creditedAt: serverTimestamp() });
+      }
       const ref = doc(db, 'users', uid);
       await setDoc(ref, { actionCount: increment(1) }, { merge: true });
       const snap = await getDoc(ref);
