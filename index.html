@@ -1617,7 +1617,7 @@
   <div class="modal-overlay" id="verifiedInfoOverlay">
     <div class="modal-sheet">
       <div class="modal-title">Verified Badge</div>
-      <div class="modal-sub">Like or share 20 clips or matchups (any mix counts) and you'll unlock a verified badge for 7 days. Keep hitting 20 to re-earn it.</div>
+      <div class="modal-sub">Like or share 40 clips or matchups (any mix counts) and you'll unlock a verified badge for 7 days. Keep hitting 40 to re-earn it.</div>
       <button class="modal-close" id="verifiedInfoClose">Got it</button>
     </div>
   </div>
@@ -2184,7 +2184,7 @@ Contact: fictionclash.app@gmail.com</div>
     shareLink({
       title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
       text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
-      url: location.href
+      url: buildShareUrl('matchup', matchupPairKey(m))
     });
   });
 
@@ -2241,7 +2241,7 @@ Contact: fictionclash.app@gmail.com</div>
     const matchupId = heroCommentsMatchupId;
     heroCommentInput.value = '';
     addDoc(collection(db, 'matchupComments'), {
-      matchupId, text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, verified: identity.verified, createdAt: serverTimestamp()
+      matchupId, text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, createdAt: serverTimestamp()
     }).catch(err => {
       console.error('Matchup comment post failed', err);
       heroCommentInput.value = text;
@@ -2864,7 +2864,27 @@ Contact: fictionclash.app@gmail.com</div>
     matchupsSynced = true;
     if (listChanged) { renderTrendScroll(); refreshCharacterSuggestions(); }
     if (heroNeedsRefresh) renderHero();
+    tryOpenSharedMatchup();
   }, err => console.error('Matchup listener failed', err));
+
+  // Deep-link support: a shared matchup URL looks like ?matchup=<pairKey>.
+  // Built-in matchups are present immediately; community ones stream in
+  // async above, so this is safe to call repeatedly — it only acts once,
+  // then gets out of the way.
+  let sharedMatchupHandled = false;
+  function tryOpenSharedMatchup(){
+    if (sharedMatchupHandled) return;
+    const key = new URLSearchParams(location.search).get('matchup');
+    if (!key) { sharedMatchupHandled = true; return; }
+    const idx = matchups.findIndex(m => matchupPairKey(m) === key);
+    if (idx === -1) return; // might still be loading (community matchup) — try again on the next snapshot
+    sharedMatchupHandled = true;
+    activeIdx = idx;
+    renderHero();
+    renderTrendScroll();
+    document.getElementById('heroCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  tryOpenSharedMatchup(); // covers built-in matchups, which are already loaded at this point
 
   // ---------- trending clashes (dynamic, includes user-submitted matchups) ----------
   const trendScroll = document.getElementById('trendScroll');
@@ -3023,6 +3043,21 @@ Contact: fictionclash.app@gmail.com</div>
     });
   }
 
+  // Builds a link that lands the receiver directly on the specific
+  // matchup or clip that was shared, instead of just the app's home
+  // screen. Matchups are identified by their pairKey (works for both
+  // built-in and community matchups, since built-ins have no Firestore
+  // docId), clips by their clipId (Firestore docId, or the built-in
+  // demo id). Strips any existing query/hash so old share params never
+  // stack up on a re-share.
+  function buildShareUrl(kind, id){
+    const url = new URL(location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set(kind, id);
+    return url.toString();
+  }
+
   // Opens the device's native share sheet (all installed apps: WhatsApp,
   // Messenger, X, Instagram, Mail, etc. — whatever the OS offers), falling
   // back to copying the link when the Web Share API isn't available
@@ -3065,7 +3100,7 @@ Contact: fictionclash.app@gmail.com</div>
     likeBtn.addEventListener('click', () => toggleLike(key));
     shareBtn.addEventListener('click', () => {
       const title = card.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
-      shareLink({ title, text: title, url: location.href });
+      shareLink({ title, text: title, url: buildShareUrl('clip', id) });
     });
   }
 
@@ -3192,7 +3227,7 @@ Contact: fictionclash.app@gmail.com</div>
   reelsShareBtn.addEventListener('click', () => {
     if (!reelsClipCard) return;
     const title = reelsClipCard.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
-    shareLink({ title, text: title, url: location.href });
+    shareLink({ title, text: title, url: buildShareUrl('clip', reelsClipCard.dataset.clipId) });
   });
   reelsCommentBtn.addEventListener('click', () => {
     if (!reelsClipCard) return;
@@ -3268,7 +3303,7 @@ Contact: fictionclash.app@gmail.com</div>
     // Accept either an http(s) URL or a compressed data URL (small enough
     // to embed safely) — but never an uncompressed multi-MB preview.
     const usable = avatarDataUrl && (avatarDataUrl.startsWith('http') || avatarDataUrl.length < 400000);
-    return { uid: user.uid, name, avatarUrl: usable ? avatarDataUrl : (user.photoURL || ''), verified: isCurrentlyVerified() };
+    return { uid: user.uid, name, avatarUrl: usable ? avatarDataUrl : (user.photoURL || '') };
   }
 
   function requireSignIn(message){
@@ -3284,8 +3319,8 @@ Contact: fictionclash.app@gmail.com</div>
   function renderCommentEl(data){
     const el = document.createElement('div');
     el.className = 'comment';
-    const badge = data.verified ? '<span class="verified-badge" title="Verified"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span>' : '';
-    el.innerHTML = `<div class="comment-avatar">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b>${escapeHtml(data.name || 'You')}${badge}</b><span>${escapeHtml(data.text || '')}</span></div>`;
+    el.innerHTML = `<div class="comment-avatar">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span></div>`;
+    attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
     return el;
   }
 
@@ -3318,7 +3353,7 @@ Contact: fictionclash.app@gmail.com</div>
     if (!identity) { requireSignIn('Sign in to comment'); return; }
     input.value = '';
     addDoc(collection(db, 'movieClips', clipId, 'comments'), {
-      text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, verified: identity.verified, createdAt: serverTimestamp()
+      text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, createdAt: serverTimestamp()
     }).catch(err => {
       console.error('Comment post failed', err);
       input.value = text;
@@ -3343,6 +3378,27 @@ Contact: fictionclash.app@gmail.com</div>
     const id = card.dataset.clipId;
     wireClipSocial(id, card, CLIP_BASE_LIKES[id] || 0);
   });
+
+  // Deep-link support: a shared clip URL looks like ?clip=<clipId>. Built-in
+  // demo clips are in the DOM immediately; community clips stream in async
+  // below, so this is safe to call repeatedly — it only acts once, then
+  // gets out of the way. Opens the Movies Hub (reusing the same nav-item
+  // click the person would use manually) and drops straight into the reels player.
+  let sharedClipHandled = false;
+  function tryOpenSharedClip(){
+    if (sharedClipHandled) return;
+    const id = new URLSearchParams(location.search).get('clip');
+    if (!id) { sharedClipHandled = true; return; }
+    const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
+    if (!card) return; // might still be streaming in (community clip) — try again on the next snapshot
+    const thumb = card.querySelector('.clip-thumb');
+    if (!thumb || !thumb.dataset.videoSrc) { sharedClipHandled = true; return; } // demo card, no real video yet
+    sharedClipHandled = true;
+    const moviesNav = document.querySelector('.nav-item[data-nav="Movies"]');
+    if (moviesNav) moviesNav.click();
+    openReelsPlayer(thumb);
+  }
+  tryOpenSharedClip(); // covers built-in demo clips, already in the DOM at this point
 
   publishClip.addEventListener('click', async () => {
     const rawLink = clipYoutubeUrl.value;
@@ -3474,6 +3530,7 @@ Contact: fictionclash.app@gmail.com</div>
         }
       });
       clipsSynced = true;
+      tryOpenSharedClip();
     },
     err => console.error('Movie clips listener failed', err)
   );
@@ -3907,10 +3964,55 @@ Contact: fictionclash.app@gmail.com</div>
   // extended) on every qualifying streak. verifiedUntil is a hard
   // 7-day expiry from the moment it's granted — being active again
   // doesn't push the expiry back, only reaching 20 new actions does.
-  const VERIFIED_ACTION_THRESHOLD = 20;
+  const VERIFIED_ACTION_THRESHOLD = 40;
   const VERIFIED_BADGE_DAYS = 7;
   let currentUserVerifiedUntil = null; // Firestore Timestamp or null
-  let currentUserActionCount = 0; // progress toward the next badge (0-20)
+  let currentUserActionCount = 0; // progress toward the next badge (0-40)
+
+  // Same seal shape used everywhere the badge shows up.
+  const VERIFIED_BADGE_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg>';
+
+  // Live badge status for OTHER people's comments — deliberately NOT based
+  // on a "verified" flag saved onto the comment at post time, so that (a)
+  // an account that becomes verified after a comment was posted still
+  // shows the badge on that old comment, and (b) the badge disappears
+  // from it again the moment that 7-day window runs out, same as
+  // everywhere else. verifiedUntilCache holds each uid's expiry (in ms,
+  // or null) fetched at most once per uid — cheap on reads since the
+  // value itself rarely changes — and a periodic sweep below just
+  // re-compares each visible badge's cached expiry against the clock.
+  const verifiedUntilCache = {}; // uid -> millis | null
+  const liveVerifiedBadges = []; // { el, uid } for every badge currently on screen
+  async function getVerifiedUntilMillis(uid){
+    if (uid in verifiedUntilCache) return verifiedUntilCache[uid];
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      const vu = snap.exists() && snap.data().verifiedUntil ? snap.data().verifiedUntil.toMillis() : null;
+      verifiedUntilCache[uid] = vu;
+      return vu;
+    } catch (err) {
+      console.error('Verified status lookup failed', err);
+      return null;
+    }
+  }
+  // Wires one badge element to a uid: shows/hides it now (once the lookup
+  // resolves) and registers it for the periodic expiry sweep.
+  function attachVerifiedBadge(badgeEl, uid){
+    if (!badgeEl || !uid) return;
+    const entry = { el: badgeEl, uid };
+    liveVerifiedBadges.push(entry);
+    getVerifiedUntilMillis(uid).then(() => recomputeVerifiedBadge(entry));
+  }
+  function recomputeVerifiedBadge(entry){
+    const vu = verifiedUntilCache[entry.uid];
+    entry.el.style.display = (typeof vu === 'number' && vu > Date.now()) ? 'inline-flex' : 'none';
+  }
+  // Every minute, re-check every badge currently on screen against its
+  // already-cached expiry — no extra Firestore reads, just a clock
+  // comparison, so a badge disappears from old comments right on
+  // schedule even if the page has been open the whole 7 days.
+  setInterval(() => liveVerifiedBadges.forEach(recomputeVerifiedBadge), 60000);
+  setInterval(renderVerifiedBadge, 60000);
 
   function isCurrentlyVerified(){
     return !!(currentUserVerifiedUntil && currentUserVerifiedUntil.toMillis() > Date.now());
@@ -3968,6 +4070,11 @@ Contact: fictionclash.app@gmail.com</div>
           renderVerifiedBadge();
           showToast('🎉 Verified badge unlocked for 7 days!');
         }
+        // Keep the live comment-badge cache in sync too, so any of this
+        // account's comments already on screen pick up the badge right
+        // away instead of waiting on a stale cached lookup.
+        verifiedUntilCache[uid] = verifiedUntil.toMillis();
+        liveVerifiedBadges.filter(b => b.uid === uid).forEach(recomputeVerifiedBadge);
       } else if (auth.currentUser && auth.currentUser.uid === uid) {
         currentUserActionCount = count;
         renderVerifiedProgress();
@@ -4018,6 +4125,7 @@ Contact: fictionclash.app@gmail.com</div>
       if (data.avatarUrl) avatarDataUrl = data.avatarUrl;
       currentUserVerifiedUntil = data.verifiedUntil || null;
       currentUserActionCount = data.actionCount || 0;
+      verifiedUntilCache[uid] = currentUserVerifiedUntil ? currentUserVerifiedUntil.toMillis() : null;
       updateAccountHeader();
     }).catch(err => console.error('Profile load failed', err));
   }
