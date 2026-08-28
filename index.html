@@ -1622,8 +1622,8 @@
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Share a movie scene</div>
       <div class="modal-sub">Paste a YouTube link to the scene — no file upload needed.</div>
-      <input class="clip-field" id="clipYoutubeUrl" type="text" placeholder="YouTube link e.g. https://youtu.be/dQw4w9WgXcQ">
-      <div class="file-name" id="clipFileName">Paste a link above to preview it here</div>
+      <input class="clip-field" id="clipYoutubeUrl" type="text" placeholder="YouTube Shorts link e.g. https://youtube.com/shorts/dQw4w9WgXcQ">
+      <div class="file-name" id="clipFileName">Paste a YouTube Shorts link for best results</div>
       <input class="clip-field" id="clipTitle" type="text" placeholder="Scene title e.g. The final hallway shot">
       <textarea class="clip-field" id="clipReview" placeholder="Write a short review or tell us what makes this scene work..."></textarea>
       <button class="clip-submit" id="publishClip">PUBLISH CLIP &amp; REVIEW</button>
@@ -3177,6 +3177,9 @@ Contact: fictionclash.app@gmail.com</div>
 
   // Pulls the 11-character video ID out of any common YouTube URL shape
   // (watch?v=, youtu.be/, shorts/, embed/), or accepts a bare ID typed in.
+  // Also flags whether the link was specifically a /shorts/ URL — that's
+  // the signal that the underlying video is actually vertical, which is
+  // what makes it fill the reels player instead of letterboxing.
   function extractYoutubeId(input){
     const value = (input || '').trim();
     if (!value) return null;
@@ -3184,21 +3187,25 @@ Contact: fictionclash.app@gmail.com</div>
     const match = value.match(/(?:youtube\.com\/watch\?[^#]*\bv=|youtube\.com\/shorts\/|youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
     return match ? match[1] : null;
   }
+  function isYoutubeShortsLink(input){
+    return /youtube\.com\/shorts\//.test((input || '').trim());
+  }
 
   // Figures out which platform a pasted link belongs to and returns its ID,
   // or null if it isn't a recognizable YouTube link.
   function parseClipLink(input){
     const youtubeId = extractYoutubeId(input);
-    if (youtubeId) return { platform: 'youtube', id: youtubeId };
+    if (youtubeId) return { platform: 'youtube', id: youtubeId, isShort: isYoutubeShortsLink(input) };
     return null;
   }
 
   clipYoutubeUrl.addEventListener('input', () => {
     const raw = clipYoutubeUrl.value;
     const parsed = parseClipLink(raw);
-    if (parsed) clipFileName.textContent = `Looks good — ready to publish`;
+    if (parsed && parsed.isShort) clipFileName.textContent = `Looks good — this'll fill the reels view properly`;
+    else if (parsed) clipFileName.textContent = `Works, but it's a regular video — it may show with black bars in reels view. A youtube.com/shorts/ link looks best.`;
     else if (raw.trim()) clipFileName.textContent = "That doesn't look like a YouTube link";
-    else clipFileName.textContent = 'Paste a link above to preview it here';
+    else clipFileName.textContent = 'Paste a YouTube Shorts link for best results';
   });
 
 
@@ -3317,14 +3324,14 @@ Contact: fictionclash.app@gmail.com</div>
       // and clips will auto-delete themselves after 30 days too.
       const CLIP_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
       addDoc(collection(db, 'movieClips'), {
-        title, review, videoPlatform: parsed.platform, videoId: parsed.id,
+        title, review, videoPlatform: parsed.platform, videoId: parsed.id, isShort: !!parsed.isShort,
         postedByUid: identity.uid, postedByName: identity.name, postedByAvatar: identity.avatarUrl,
         createdAt: serverTimestamp(),
         expiresAt: Timestamp.fromMillis(Date.now() + CLIP_LIFETIME_MS)
       })
         .then(() => {
           clipYoutubeUrl.value = '';
-          clipFileName.textContent = 'Paste a link above to preview it here';
+          clipFileName.textContent = 'Paste a YouTube Shorts link for best results';
           clipTitle.value = '';
           clipReview.value = '';
           clipUploaderOverlay.classList.remove('show');
@@ -3352,17 +3359,27 @@ Contact: fictionclash.app@gmail.com</div>
   onSnapshot(
     query(collection(db, 'movieClips'), orderBy('createdAt', 'desc')),
     snapshot => {
-      snapshot.docChanges().forEach(change => {
+      const changes = snapshot.docChanges();
+      changes.filter(c => c.type === 'removed').forEach(change => {
         const id = change.doc.id;
-        if (change.type === 'removed') {
-          renderedClipIds.delete(id);
-          const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
-          if (card) card.remove();
-          const unsubscribe = commentUnsubscribes.get(id);
-          if (unsubscribe) { unsubscribe(); commentUnsubscribes.delete(id); }
-          return;
-        }
-        if (change.type === 'added' && !renderedClipIds.has(id)) {
+        renderedClipIds.delete(id);
+        const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
+        if (card) card.remove();
+        const unsubscribe = commentUnsubscribes.get(id);
+        if (unsubscribe) { unsubscribe(); commentUnsubscribes.delete(id); }
+      });
+      // The query is already newest-first, but clipFeed.prepend() puts
+      // each new card at the very top as it's processed — so looping
+      // through an "added" batch in query order (newest → oldest) ends up
+      // flipping the visual order, since the oldest one in the batch gets
+      // prepended LAST and lands above everything else. Reversing the
+      // batch before prepending fixes it: the oldest of the batch goes in
+      // first, then progressively newer ones land on top of it, so the
+      // final stack reads newest-first exactly like the query intended.
+      changes.filter(c => c.type === 'added').reverse().forEach(change => {
+        const id = change.doc.id;
+        if (renderedClipIds.has(id)) return;
+        {
           const data = change.doc.data();
           // Same TTL workaround as matchups — no Blaze plan means no
           // Firestore-side auto-delete, so just don't render clips
@@ -3383,7 +3400,7 @@ Contact: fictionclash.app@gmail.com</div>
             ? ` style="background-image:url('https://img.youtube.com/vi/${videoId}/hqdefault.jpg')"`
             : '';
           card.innerHTML = `
-            <div class="clip-thumb" data-video-type="${platform}" data-video-src="${videoId}"${posterStyle}>
+            <div class="clip-thumb" data-video-type="${platform}" data-video-src="${videoId}" data-is-short="${!!data.isShort}"${posterStyle}>
               <button type="button" class="clip-play-btn" aria-label="Play video">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
               </button>
