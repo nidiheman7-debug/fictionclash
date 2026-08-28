@@ -1033,6 +1033,15 @@
       line-height:1;
     }
     .comment-body .verified-badge{width:13px;height:13px;font-size:9px;margin-left:4px;}
+    .verified-progress{
+      font-size:11px;
+      opacity:0.7;
+      margin:2px 0 0;
+      cursor:pointer;
+      text-decoration:underline dotted;
+      text-underline-offset:2px;
+    }
+    #accountVerifiedBadge{cursor:pointer;}
 </style>
 <!-- OneSignal Web Push SDK — ONESIGNAL_APP_ID below must be replaced with
      the real App ID from your OneSignal dashboard (Settings > Keys & IDs)
@@ -1456,7 +1465,7 @@
         </button>
         <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" hidden>
       </div>
-      <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 7 days" style="display:none;">✓</span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p></div>
+      <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 7 days" style="display:none;">✓</span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
     </div>
     <div class="account-card" id="signInCard">
       <div id="signedOutView">
@@ -1607,6 +1616,14 @@
       <input class="modal-input" type="password" placeholder="Password (min. 6 characters)" id="signinPassword">
       <button class="modal-submit" id="signinSubmit">Continue</button>
       <button class="modal-close" id="signinCancel">Not now</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="verifiedInfoOverlay">
+    <div class="modal-sheet">
+      <div class="modal-title">Verified Badge</div>
+      <div class="modal-sub">Like or share 20 clips or matchups (any mix counts) and you'll unlock a verified badge for 7 days. Keep hitting 20 to re-earn it.</div>
+      <button class="modal-close" id="verifiedInfoClose">Got it</button>
     </div>
   </div>
 
@@ -3831,6 +3848,17 @@ Contact: fictionclash.app@gmail.com</div>
   const accountAvatar = document.getElementById('accountAvatar');
   const accountDisplayName = document.getElementById('accountDisplayNameText');
   const accountDisplayHandle = document.getElementById('accountDisplayHandle');
+
+  // Tapping the badge or the progress line explains how to earn/keep it.
+  const verifiedInfoOverlay = document.getElementById('verifiedInfoOverlay');
+  const verifiedInfoClose = document.getElementById('verifiedInfoClose');
+  function openVerifiedInfo(){ verifiedInfoOverlay.classList.add('show'); }
+  document.getElementById('accountVerifiedBadge').addEventListener('click', openVerifiedInfo);
+  document.getElementById('verifiedProgressText').addEventListener('click', openVerifiedInfo);
+  verifiedInfoClose.addEventListener('click', () => verifiedInfoOverlay.classList.remove('show'));
+  verifiedInfoOverlay.addEventListener('click', event => {
+    if (event.target === verifiedInfoOverlay) verifiedInfoOverlay.classList.remove('show');
+  });
   const accountEmail = document.getElementById('accountEmail');
   const profileName = document.getElementById('profileName');
   const profileHandle = document.getElementById('profileHandle');
@@ -3887,6 +3915,7 @@ Contact: fictionclash.app@gmail.com</div>
   const VERIFIED_ACTION_THRESHOLD = 20;
   const VERIFIED_BADGE_DAYS = 7;
   let currentUserVerifiedUntil = null; // Firestore Timestamp or null
+  let currentUserActionCount = 0; // progress toward the next badge (0-20)
 
   function isCurrentlyVerified(){
     return !!(currentUserVerifiedUntil && currentUserVerifiedUntil.toMillis() > Date.now());
@@ -3895,6 +3924,23 @@ Contact: fictionclash.app@gmail.com</div>
   function renderVerifiedBadge(){
     const el = document.getElementById('accountVerifiedBadge');
     if (el) el.style.display = isCurrentlyVerified() ? 'inline-flex' : 'none';
+    renderVerifiedProgress();
+  }
+
+  // Shows "X/20 to verified badge" while someone's working toward it, or
+  // a days-left countdown once they've earned it. Hidden entirely when
+  // signed out, since progress is meaningless without an account to save it to.
+  function renderVerifiedProgress(){
+    const el = document.getElementById('verifiedProgressText');
+    if (!el) return;
+    if (!auth.currentUser) { el.style.display = 'none'; return; }
+    if (isCurrentlyVerified()) {
+      const daysLeft = Math.max(1, Math.ceil((currentUserVerifiedUntil.toMillis() - Date.now()) / (24 * 60 * 60 * 1000)));
+      el.textContent = `✓ Verified · ${daysLeft}d left · tap to learn more`;
+    } else {
+      el.textContent = `${currentUserActionCount}/${VERIFIED_ACTION_THRESHOLD} to verified badge · tap to learn more`;
+    }
+    el.style.display = 'block';
   }
 
   // Called after a like or a share actually succeeds. Fails soft — if the
@@ -3912,9 +3958,13 @@ Contact: fictionclash.app@gmail.com</div>
         await setDoc(ref, { actionCount: 0, verifiedUntil }, { merge: true });
         if (auth.currentUser && auth.currentUser.uid === uid) {
           currentUserVerifiedUntil = verifiedUntil;
+          currentUserActionCount = 0;
           renderVerifiedBadge();
           showToast('🎉 Verified badge unlocked for 7 days!');
         }
+      } else if (auth.currentUser && auth.currentUser.uid === uid) {
+        currentUserActionCount = count;
+        renderVerifiedProgress();
       }
     } catch (err) {
       console.error('Verified badge tracking failed', err);
@@ -3961,6 +4011,7 @@ Contact: fictionclash.app@gmail.com</div>
       if (data.bio) profileBio.value = data.bio;
       if (data.avatarUrl) avatarDataUrl = data.avatarUrl;
       currentUserVerifiedUntil = data.verifiedUntil || null;
+      currentUserActionCount = data.actionCount || 0;
       updateAccountHeader();
     }).catch(err => console.error('Profile load failed', err));
   }
@@ -4136,6 +4187,8 @@ Contact: fictionclash.app@gmail.com</div>
       profileHandle.value = '';
       profileBio.value = '';
       avatarDataUrl = '';
+      currentUserVerifiedUntil = null;
+      currentUserActionCount = 0;
       updateAccountHeader();
       syncTopbarAvatar();
       closeAccountDropdown();
