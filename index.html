@@ -1017,6 +1017,22 @@
        .account-section{padding-left:14px;padding-right:14px;}
       .bottomnav{padding-bottom:max(18px, env(safe-area-inset-bottom));}
     }
+    .verified-badge{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:15px;
+      height:15px;
+      margin-left:6px;
+      border-radius:50%;
+      background:#3b9eff;
+      color:#fff;
+      font-size:10px;
+      font-weight:700;
+      vertical-align:middle;
+      line-height:1;
+    }
+    .comment-body .verified-badge{width:13px;height:13px;font-size:9px;margin-left:4px;}
 </style>
 <!-- OneSignal Web Push SDK — ONESIGNAL_APP_ID below must be replaced with
      the real App ID from your OneSignal dashboard (Settings > Keys & IDs)
@@ -1440,7 +1456,7 @@
         </button>
         <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" hidden>
       </div>
-      <div><h2 id="accountDisplayName">Your account</h2><p id="accountDisplayHandle">Sign in to save your clashes</p></div>
+      <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 7 days" style="display:none;">✓</span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p></div>
     </div>
     <div class="account-card" id="signInCard">
       <div id="signedOutView">
@@ -2213,7 +2229,7 @@ Contact: fictionclash.app@gmail.com</div>
     const matchupId = heroCommentsMatchupId;
     heroCommentInput.value = '';
     addDoc(collection(db, 'matchupComments'), {
-      matchupId, text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, createdAt: serverTimestamp()
+      matchupId, text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, verified: identity.verified, createdAt: serverTimestamp()
     }).catch(err => {
       console.error('Matchup comment post failed', err);
       heroCommentInput.value = text;
@@ -2981,6 +2997,7 @@ Contact: fictionclash.app@gmail.com</div>
     const write = confirmedLikeKeys.has(key)
       ? updateDoc(doc(db, 'likes', key), { [`uids.${uid}`]: liked ? true : deleteField() })
       : setDoc(doc(db, 'likes', key), { uids: { [uid]: true } });
+    if (liked) write.then(() => recordVerifiedAction(uid));
     write.catch(err => {
       console.error('Like sync failed', err);
       // The optimistic bump above never actually landed on the server —
@@ -2999,16 +3016,21 @@ Contact: fictionclash.app@gmail.com</div>
   // back to copying the link when the Web Share API isn't available
   // (mainly desktop browsers).
   async function shareLink({ title, text, url }){
+    let shared = false;
     if (navigator.share) {
-      try { await navigator.share({ title, text, url }); } catch (err) { /* user cancelled — ignore */ }
-      return;
+      try { await navigator.share({ title, text, url }); shared = true; } catch (err) { /* user cancelled — ignore */ }
+    } else {
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast('Link copied!');
+        shared = true;
+      } catch (err) {
+        showToast('Could not copy link');
+      }
     }
-    try {
-      await navigator.clipboard.writeText(url);
-      showToast('Link copied!');
-    } catch (err) {
-      showToast('Could not copy link');
-    }
+    // Only counts toward the verified badge when a share actually went
+    // through (not on cancel) and someone's signed in to get credit for it.
+    if (shared && auth.currentUser) recordVerifiedAction(auth.currentUser.uid);
   }
 
   // Wires a clip card's like + share buttons. Safe to call more than once
@@ -3234,7 +3256,7 @@ Contact: fictionclash.app@gmail.com</div>
     // Accept either an http(s) URL or a compressed data URL (small enough
     // to embed safely) — but never an uncompressed multi-MB preview.
     const usable = avatarDataUrl && (avatarDataUrl.startsWith('http') || avatarDataUrl.length < 400000);
-    return { uid: user.uid, name, avatarUrl: usable ? avatarDataUrl : (user.photoURL || '') };
+    return { uid: user.uid, name, avatarUrl: usable ? avatarDataUrl : (user.photoURL || ''), verified: isCurrentlyVerified() };
   }
 
   function requireSignIn(message){
@@ -3250,7 +3272,8 @@ Contact: fictionclash.app@gmail.com</div>
   function renderCommentEl(data){
     const el = document.createElement('div');
     el.className = 'comment';
-    el.innerHTML = `<div class="comment-avatar">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b>${escapeHtml(data.name || 'You')}</b><span>${escapeHtml(data.text || '')}</span></div>`;
+    const badge = data.verified ? '<span class="verified-badge" title="Verified">✓</span>' : '';
+    el.innerHTML = `<div class="comment-avatar">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b>${escapeHtml(data.name || 'You')}${badge}</b><span>${escapeHtml(data.text || '')}</span></div>`;
     return el;
   }
 
@@ -3283,7 +3306,7 @@ Contact: fictionclash.app@gmail.com</div>
     if (!identity) { requireSignIn('Sign in to comment'); return; }
     input.value = '';
     addDoc(collection(db, 'movieClips', clipId, 'comments'), {
-      text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, createdAt: serverTimestamp()
+      text, name: identity.name, avatarUrl: identity.avatarUrl, uid: identity.uid, verified: identity.verified, createdAt: serverTimestamp()
     }).catch(err => {
       console.error('Comment post failed', err);
       input.value = text;
@@ -3806,7 +3829,7 @@ Contact: fictionclash.app@gmail.com</div>
   // ---------- account ----------
   const accountSection = document.getElementById('accountSection');
   const accountAvatar = document.getElementById('accountAvatar');
-  const accountDisplayName = document.getElementById('accountDisplayName');
+  const accountDisplayName = document.getElementById('accountDisplayNameText');
   const accountDisplayHandle = document.getElementById('accountDisplayHandle');
   const accountEmail = document.getElementById('accountEmail');
   const profileName = document.getElementById('profileName');
@@ -3853,12 +3876,58 @@ Contact: fictionclash.app@gmail.com</div>
     syncTopbarAvatar();
   }
 
+  // ---------- verified badge (earned via activity) ----------
+  // A user earns a "verified" badge for 7 days once they rack up 20
+  // qualifying actions (likes + shares of clips/matchups, combined —
+  // any mix counts). actionCount lives on users/{uid} and resets to 0
+  // each time it crosses 20, so the badge is re-earned fresh (not
+  // extended) on every qualifying streak. verifiedUntil is a hard
+  // 7-day expiry from the moment it's granted — being active again
+  // doesn't push the expiry back, only reaching 20 new actions does.
+  const VERIFIED_ACTION_THRESHOLD = 20;
+  const VERIFIED_BADGE_DAYS = 7;
+  let currentUserVerifiedUntil = null; // Firestore Timestamp or null
+
+  function isCurrentlyVerified(){
+    return !!(currentUserVerifiedUntil && currentUserVerifiedUntil.toMillis() > Date.now());
+  }
+
+  function renderVerifiedBadge(){
+    const el = document.getElementById('accountVerifiedBadge');
+    if (el) el.style.display = isCurrentlyVerified() ? 'inline-flex' : 'none';
+  }
+
+  // Called after a like or a share actually succeeds. Fails soft — if the
+  // Firestore round-trip errors out, the action itself still stands, the
+  // person just doesn't get credit toward the badge for it this time.
+  async function recordVerifiedAction(uid){
+    if (!uid) return;
+    try {
+      const ref = doc(db, 'users', uid);
+      await setDoc(ref, { actionCount: increment(1) }, { merge: true });
+      const snap = await getDoc(ref);
+      const count = snap.exists() ? (snap.data().actionCount || 0) : 0;
+      if (count >= VERIFIED_ACTION_THRESHOLD) {
+        const verifiedUntil = Timestamp.fromMillis(Date.now() + VERIFIED_BADGE_DAYS * 24 * 60 * 60 * 1000);
+        await setDoc(ref, { actionCount: 0, verifiedUntil }, { merge: true });
+        if (auth.currentUser && auth.currentUser.uid === uid) {
+          currentUserVerifiedUntil = verifiedUntil;
+          renderVerifiedBadge();
+          showToast('🎉 Verified badge unlocked for 7 days!');
+        }
+      }
+    } catch (err) {
+      console.error('Verified badge tracking failed', err);
+    }
+  }
+
   function updateAccountHeader(){
     const name = profileName.value.trim() || 'Your account';
     const handle = profileHandle.value.trim() || 'Sign in to save your clashes';
     accountDisplayName.textContent = name;
     accountDisplayHandle.textContent = handle;
     renderAvatar();
+    renderVerifiedBadge();
   }
 
   function persistProfile(){
@@ -3891,6 +3960,7 @@ Contact: fictionclash.app@gmail.com</div>
       if (data.handle) profileHandle.value = data.handle;
       if (data.bio) profileBio.value = data.bio;
       if (data.avatarUrl) avatarDataUrl = data.avatarUrl;
+      currentUserVerifiedUntil = data.verifiedUntil || null;
       updateAccountHeader();
     }).catch(err => console.error('Profile load failed', err));
   }
