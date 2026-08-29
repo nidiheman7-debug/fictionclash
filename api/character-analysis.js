@@ -36,19 +36,27 @@
 // Add "firebase-admin" to package.json dependencies if it isn't already
 // there (npm install firebase-admin, or add "firebase-admin": "^12.7.0"
 // to the dependencies block and let Vercel install it on deploy).
+//
+// NOTE: firebase-admin is imported dynamically further down, not at the
+// top of this file. A missing dependency or misconfigured env var should
+// only ever disable CACHING — it must never be able to take down the
+// whole AI-stats endpoint the way a top-level import failure would.
 import crypto from 'crypto';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 
 const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — generous, since ratings rarely change
 
 // Lazy singleton — serverless functions can reuse a "warm" instance between
 // invocations, so this avoids re-initializing the admin SDK on every request.
 let cachedDb = null;
-function getAdminDb() {
+let adminInitAttempted = false;
+async function getAdminDb() {
   if (cachedDb) return cachedDb;
+  if (adminInitAttempted) return null; // already failed once this warm instance — don't keep retrying every request
+  adminInitAttempted = true;
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY) return null; // caching just won't run — see callers below
   try {
+    const { initializeApp, getApps, cert } = await import('firebase-admin/app');
+    const { getFirestore } = await import('firebase-admin/firestore');
     if (!getApps().length) {
       const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
       // Private keys pasted into env vars sometimes end up with literal
@@ -61,6 +69,8 @@ function getAdminDb() {
     cachedDb = getFirestore();
     return cachedDb;
   } catch (err) {
+    // Covers: firebase-admin not installed yet, bad/missing credentials,
+    // malformed JSON in the env var — any of these disable caching only.
     console.error('Firebase admin init failed — caching disabled for this request:', err);
     return null;
   }
@@ -111,7 +121,7 @@ export default async function handler(req, res) {
   // just falls through to calling Gemini fresh, same as before caching
   // existed — a cache outage should never take the feature down with it.
   const cacheKey = buildCacheKey(cleanNames, cleanQuestion);
-  const db = getAdminDb();
+  const db = await getAdminDb();
   let cacheRef = null;
   if (db) {
     try {
