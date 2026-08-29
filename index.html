@@ -1037,6 +1037,19 @@
       text-underline-offset:2px;
     }
     #accountVerifiedBadge{cursor:pointer;}
+    .verified-promo{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      background:rgba(88,101,242,0.12);
+      border:1px solid rgba(88,101,242,0.35);
+      border-radius:10px;
+      padding:10px 12px;
+      margin-bottom:14px;
+      font-size:12.5px;
+      line-height:1.4;
+    }
+    .verified-promo .verified-badge{width:18px;height:18px;flex-shrink:0;margin-left:0;}
 </style>
 <!-- OneSignal Web Push SDK — ONESIGNAL_APP_ID below must be replaced with
      the real App ID from your OneSignal dashboard (Settings > Keys & IDs)
@@ -1464,6 +1477,10 @@
     </div>
     <div class="account-card" id="signInCard">
       <div id="signedOutView">
+        <div class="verified-promo">
+          <span class="verified-badge" style="display:inline-flex;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span>
+          <span>Sign in and stay active to earn a <b>verified badge</b> for 7 days.</span>
+        </div>
         <h3>Sign in or create account</h3>
         <p>Save votes, follow your favourite characters, and keep your profile across devices.</p>
         <button class="google-signin" id="googleSignIn" type="button">
