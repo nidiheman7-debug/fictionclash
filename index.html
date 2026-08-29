@@ -162,14 +162,16 @@
      margin:24px 12px 0;
     border-radius:22px;
     overflow:hidden;
-     background:linear-gradient(180deg,#292929 0%,#111 100%);
+     background-image:linear-gradient(180deg,rgba(41,41,41,.93) 0%,rgba(17,17,17,.93) 100%), url('/icons/intro-collage.webp');
+     background-size:cover; background-position:top center; background-repeat:no-repeat;
      border:1px solid rgba(255,255,255,.24);
   }
   .hero-vs{
     position:relative;
     height:220px;
     display:flex;
-     background:radial-gradient(circle at 50% 0%,#303030 0%,#000 68%);
+     background-image:radial-gradient(circle at 50% 0%,rgba(48,48,48,.93) 0%,rgba(0,0,0,.93) 68%), url('/icons/intro-collage.webp');
+     background-size:cover; background-position:top center; background-repeat:no-repeat;
      height:178px;
   }
   .side{
@@ -308,13 +310,14 @@
   }
   .trend-card{
     min-width:148px;
-     background:var(--surface);
     border-radius:16px;
     padding:12px;
      border:1px solid var(--line);
      cursor:pointer;
      -webkit-tap-highlight-color:transparent;
      transition:transform .12s ease, border-color .2s ease;
+     background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size: cover; background-position: top center; background-repeat: no-repeat;
   }
   .trend-card:active{ transform:scale(.96); }
   .trend-card.active-card{ border-color:var(--ember); }
@@ -347,8 +350,10 @@
      color:var(--muted); font-size:12.5px; line-height:1.45; margin-bottom:18px;
    }
    .clip-uploader, .clip-card{
-     background:var(--surface); border:1px solid var(--line); border-radius:16px;
+     border:1px solid var(--line); border-radius:16px;
      padding:14px; margin-bottom:14px;
+     background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size: cover; background-position: top center; background-repeat: no-repeat;
    }
    .movies-header-row{
      display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
@@ -662,8 +667,10 @@
    .account-hero h2{font-family:'Bricolage Grotesque',sans-serif; font-weight:800;font-size:17px;margin-bottom:3px;}
    .account-hero p{color:var(--muted);font-size:11px;}
    .account-card{
-     background:var(--surface);border:1px solid var(--line);border-radius:16px;
+     border:1px solid var(--line);border-radius:16px;
      padding:14px;margin-bottom:13px;
+     background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size: cover; background-position: top center; background-repeat: no-repeat;
    }
    .account-card h3{font-family:'Bricolage Grotesque',sans-serif; font-weight:800;font-size:15px;margin-bottom:5px;}
    .account-card > p{color:var(--muted);font-size:11px;line-height:1.4;margin-bottom:12px;}
@@ -831,13 +838,13 @@
    body.light .theme-toggle{background:var(--surface2);border-color:var(--line);}
    body.light .theme-toggle .sun{display:none;}
    body.light .theme-toggle .moon{display:block;}
-    body.light .hero{border-color:var(--line);background:linear-gradient(180deg,#ffffff 0%,#e4e4e2 100%);}
-    body.light .hero-vs{background:radial-gradient(circle at 50% 0%,#ffffff 0%,#e4e4e2 68%);}
+    body.light .hero{border-color:var(--line);background-image:linear-gradient(180deg,rgba(255,255,255,.93) 0%,rgba(228,228,226,.93) 100%), url('/icons/intro-collage.webp');background-size:cover;background-position:top center;background-repeat:no-repeat;}
+    body.light .hero-vs{background-image:radial-gradient(circle at 50% 0%,rgba(255,255,255,.93) 0%,rgba(228,228,226,.93) 68%), url('/icons/intro-collage.webp');background-size:cover;background-position:top center;background-repeat:no-repeat;}
    body.light .avatar.hi{border-color:#ffffff;}
    body.light .avatar.lo{color:#fff;border-color:#ffffff;}
    body.light .live-tag{border-color:var(--line);}
    body.light .vote-btn.hi{color:#ffffff;}
-   body.light .trend-card{background:var(--surface);}
+   body.light .trend-card{}
    body.light .bottomnav{
       background:linear-gradient(180deg,rgba(241,241,239,0) 0%,rgba(241,241,239,.92) 28%,#f1f1ef 56%);
    }
