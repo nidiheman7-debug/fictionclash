@@ -15,6 +15,76 @@
 //
 // Set GEMINI_API_KEY in Vercel → Project Settings → Environment Variables.
 // Get a key at https://aistudio.google.com/apikey
+//
+// ---------- caching ----------
+// Character power ratings barely change over time, and the same pairs get
+// looked up over and over (Thanos vs Batman alone has 6k+ votes) — so every
+// tap was re-paying for a fresh Gemini call even when someone else asked
+// the exact same thing five minutes earlier. This now checks a Firestore
+// cache first, keyed on the sorted character names (+ the custom question,
+// if any, since that changes the answer) and only calls Gemini on a miss.
+//
+// Uses firebase-admin (NOT the client SDK) so writes bypass Firestore
+// security rules entirely — this cache is server-only, nothing a browser
+// client ever writes to directly.
+//
+// Setup needed in Vercel → Project Settings → Environment Variables:
+//   FIREBASE_SERVICE_ACCOUNT_KEY = the full JSON key from
+//   Firebase Console → Project Settings → Service Accounts → Generate new
+//   private key. Paste the whole JSON file's contents as the value.
+//
+// Add "firebase-admin" to package.json dependencies if it isn't already
+// there (npm install firebase-admin, or add "firebase-admin": "^12.7.0"
+// to the dependencies block and let Vercel install it on deploy).
+//
+// NOTE: firebase-admin is imported dynamically further down, not at the
+// top of this file. A missing dependency or misconfigured env var should
+// only ever disable CACHING — it must never be able to take down the
+// whole AI-stats endpoint the way a top-level import failure would.
+import crypto from 'crypto';
+
+const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — generous, since ratings rarely change
+
+// Lazy singleton — serverless functions can reuse a "warm" instance between
+// invocations, so this avoids re-initializing the admin SDK on every request.
+let cachedDb = null;
+let adminInitAttempted = false;
+async function getAdminDb() {
+  if (cachedDb) return cachedDb;
+  if (adminInitAttempted) return null; // already failed once this warm instance — don't keep retrying every request
+  adminInitAttempted = true;
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY) return null; // caching just won't run — see callers below
+  try {
+    const { initializeApp, getApps, cert } = await import('firebase-admin/app');
+    const { getFirestore } = await import('firebase-admin/firestore');
+    if (!getApps().length) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+      // Private keys pasted into env vars sometimes end up with literal
+      // "\n" instead of real newlines — this normalizes either form.
+      if (serviceAccount.private_key) {
+        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+      }
+      initializeApp({ credential: cert(serviceAccount) });
+    }
+    cachedDb = getFirestore();
+    return cachedDb;
+  } catch (err) {
+    // Covers: firebase-admin not installed yet, bad/missing credentials,
+    // malformed JSON in the env var — any of these disable caching only.
+    console.error('Firebase admin init failed — caching disabled for this request:', err);
+    return null;
+  }
+}
+
+// One stable key per (character set + question) combination, independent
+// of name order or capitalization, so "Batman vs Thanos" and "Thanos vs
+// Batman" share a cache entry instead of doubling storage for no reason.
+function buildCacheKey(cleanNames, cleanQuestion) {
+  const normalizedNames = [...cleanNames].map(n => n.toLowerCase().trim()).sort();
+  const normalizedQuestion = cleanQuestion.toLowerCase().trim();
+  const raw = JSON.stringify({ n: normalizedNames, q: normalizedQuestion });
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -45,6 +115,30 @@ export default async function handler(req, res) {
   }
 
   const cleanQuestion = typeof question === 'string' ? question.trim().slice(0, 300) : '';
+
+  // ---------- cache lookup ----------
+  // Fails soft: any problem here (missing credentials, Firestore hiccup)
+  // just falls through to calling Gemini fresh, same as before caching
+  // existed — a cache outage should never take the feature down with it.
+  const cacheKey = buildCacheKey(cleanNames, cleanQuestion);
+  const db = await getAdminDb();
+  let cacheRef = null;
+  if (db) {
+    try {
+      cacheRef = db.collection('aiCache').doc(cacheKey);
+      const cacheSnap = await cacheRef.get();
+      if (cacheSnap.exists) {
+        const cached = cacheSnap.data();
+        const age = Date.now() - (cached.cachedAt || 0);
+        if (age < CACHE_TTL_MS && cached.result) {
+          res.status(200).json(cached.result);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Cache read failed — continuing without it:', err);
+    }
+  }
 
   const prompt = `You are a fictional-character analyst for a versus-battle app called Fiction Clash.
 For EACH character listed below, provide:
@@ -127,6 +221,20 @@ Respond with ONLY valid JSON, no markdown code fences, no commentary outside the
     }
 
     res.status(200).json(parsed);
+
+    // ---------- cache write ----------
+    // Happens after the response is already sent so it never adds latency
+    // to what the user is waiting on. Also fails soft — a write error here
+    // just means the next request pays for a fresh Gemini call, no worse
+    // off than if caching didn't exist at all.
+    if (cacheRef) {
+      cacheRef.set({
+        result: parsed,
+        cachedAt: Date.now(),
+        names: cleanNames,
+        question: cleanQuestion || null
+      }).catch(err => console.error('Cache write failed:', err));
+    }
   } catch (err) {
     if (err.name === 'AbortError') {
       console.error('character-analysis handler timed out waiting on Gemini');
