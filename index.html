@@ -293,8 +293,10 @@
    .ai-stat-bars{display:grid;gap:6px;margin-top:9px;}
    .ai-stat-row{display:grid;grid-template-columns:58px 1fr 58px;align-items:center;gap:6px;font:9px 'Martian Mono',monospace;}
    .ai-stat-row span:last-child{text-align:right;}
-   .ai-stat-track{height:5px;border-radius:6px;background:var(--surface2);overflow:hidden;}
-   .ai-stat-fill{height:100%;background:var(--ember);border-radius:6px;}
+   .ai-stat-track{height:11px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;flex-direction:column;gap:1px;}
+   .ai-stat-fill-a,.ai-stat-fill-b{height:5px;border-radius:3px;}
+   .ai-stat-fill-a{background:var(--ember);}
+   .ai-stat-fill-b{background:var(--muted);}
 
   /* section */
   .section-head{
@@ -2544,7 +2546,10 @@ Contact: fictionclash.app@gmail.com</div>
       const bars = labels.map((label, index) => `
         <div class="ai-stat-row">
           <span>${label}</span>
-          <div class="ai-stat-track"><div class="ai-stat-fill" style="width:${Math.max(statsA[index], statsB[index])}%"></div></div>
+          <div class="ai-stat-track">
+            <div class="ai-stat-fill-a" style="width:${statsA[index]}%"></div>
+            <div class="ai-stat-fill-b" style="width:${statsB[index]}%"></div>
+          </div>
           <span>${statsA[index]} · ${statsB[index]}</span>
         </div>`).join('');
       const verdict = data && data.verdict
@@ -2661,7 +2666,10 @@ Contact: fictionclash.app@gmail.com</div>
       const bars = labels.map((label, i) => `
         <div class="ai-stat-row">
           <span>${label}</span>
-          <div class="ai-stat-track"><div class="ai-stat-fill" style="width:${Math.max(statsA[i], statsB[i])}%"></div></div>
+          <div class="ai-stat-track">
+            <div class="ai-stat-fill-a" style="width:${statsA[i]}%"></div>
+            <div class="ai-stat-fill-b" style="width:${statsB[i]}%"></div>
+          </div>
           <span>${statsA[i]} · ${statsB[i]}</span>
         </div>`).join('');
       let note;
