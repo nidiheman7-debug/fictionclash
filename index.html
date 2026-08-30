@@ -3760,28 +3760,24 @@ Contact: fictionclash.app@gmail.com</div>
   const characterSearchNote = document.getElementById('characterSearchNote');
   const teams = { alpha: [], omega: [] };
 
-  // Each AI feat check is a real Gemini call (a fresh team roster/question
-  // combo almost never hits the cache), so this caps it at 3 per team
-  // build. Tracked per signed-in account in Firestore — not just a local
-  // JS variable — so refreshing the page can't reset it; the count lives
-  // on users/{uid}/featCredits/{buildHash}, one doc per unique roster
-  // combination (order-independent), and Firestore rules (not just this
-  // client code) enforce the +1-per-write, max-3 ceiling server-side.
+  // Each AI feat check is a real Gemini call, so this caps it at 3 PER
+  // ACCOUNT PER DAY — not per team roster, since swapping a fighter
+  // shouldn't reset the clock. Tracked in Firestore, not a local JS
+  // variable, so refreshing the page can't reset it: the count lives on
+  // users/{uid}/featCredits/{YYYY-MM-DD} (UTC date), one doc per day, and
+  // Firestore rules (not just this client code) enforce the +1-per-write,
+  // max-3 ceiling server-side.
   const AI_FEATS_CREDIT_LIMIT = 3;
-  async function buildTeamHash(names){
-    const normalized = [...names].map(n => n.toLowerCase().trim()).sort().join('|');
-    const bytes = new TextEncoder().encode(normalized);
-    const digest = await crypto.subtle.digest('SHA-256', bytes);
-    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  function todayKey(){
+    return new Date().toISOString().slice(0, 10); // UTC date — same reset moment for everyone, no timezone edge cases
   }
-  // Reads the current count for this exact roster without spending a
-  // credit — used to paint the counter correctly as teams are edited or
-  // the page reloads, without every glance at the screen costing a write.
-  async function peekAiFeatsCredits(names){
-    if (!auth.currentUser || names.length === 0) return AI_FEATS_CREDIT_LIMIT;
+  // Reads today's used count without spending a credit — used to paint
+  // the counter correctly on load/sign-in without every glance at the
+  // screen costing a write.
+  async function peekAiFeatsCredits(){
+    if (!auth.currentUser) return AI_FEATS_CREDIT_LIMIT;
     try {
-      const hash = await buildTeamHash(names);
-      const snap = await getDoc(doc(db, 'users', auth.currentUser.uid, 'featCredits', hash));
+      const snap = await getDoc(doc(db, 'users', auth.currentUser.uid, 'featCredits', todayKey()));
       const used = snap.exists() ? (snap.data().count || 0) : 0;
       return Math.max(0, AI_FEATS_CREDIT_LIMIT - used);
     } catch (err) {
@@ -3789,14 +3785,12 @@ Contact: fictionclash.app@gmail.com</div>
       return AI_FEATS_CREDIT_LIMIT; // fail open on read errors — the write-time check below is the real gate
     }
   }
-  // Attempts to spend one credit for this roster. Returns true if allowed
-  // (and already recorded the spend), false if the build is out of
-  // credits. The Firestore rules only accept a write that increments by
-  // exactly 1 and never exceeds the limit, so this can't be spoofed by
-  // calling it directly from devtools either.
-  async function spendAiFeatsCredit(names){
-    const hash = await buildTeamHash(names);
-    const ref = doc(db, 'users', auth.currentUser.uid, 'featCredits', hash);
+  // Attempts to spend one of today's credits. Returns true if allowed
+  // (and already recorded the spend), false if today's quota is used up.
+  // The Firestore rules only accept a write that increments by exactly 1
+  // and never exceeds the limit, so this can't be spoofed from devtools.
+  async function spendAiFeatsCredit(){
+    const ref = doc(db, 'users', auth.currentUser.uid, 'featCredits', todayKey());
     const snap = await getDoc(ref);
     const used = snap.exists() ? (snap.data().count || 0) : 0;
     if (used >= AI_FEATS_CREDIT_LIMIT) return false;
@@ -3886,28 +3880,22 @@ Contact: fictionclash.app@gmail.com</div>
     refreshAiFeatsCreditsDisplay();
   }
 
-  // Repaints the credits line/button state for whatever roster is
-  // currently selected. Read-only — never spends a credit itself.
+  // Repaints the credits line/button state for today's account-level
+  // quota. Read-only — never spends a credit itself. Doesn't depend on
+  // the current team roster anymore (limit is per account per day now).
   async function refreshAiFeatsCreditsDisplay(){
     if (!aiFeatsCreditsEl) return;
-    const allNames = [...teams.alpha, ...teams.omega];
     const submitBtn = aiFeatsForm?.querySelector('button[type="submit"]');
-    if (!allNames.length) {
-      aiFeatsCreditsEl.textContent = `${AI_FEATS_CREDIT_LIMIT} AI checks available once both teams are set`;
-      aiFeatsCreditsEl.classList.remove('exhausted');
-      if (submitBtn) submitBtn.disabled = false;
-      return;
-    }
     if (!auth.currentUser) {
-      aiFeatsCreditsEl.textContent = `Sign in to use AI feat checks (${AI_FEATS_CREDIT_LIMIT} per team build)`;
+      aiFeatsCreditsEl.textContent = `Sign in to use AI feat checks (${AI_FEATS_CREDIT_LIMIT} per day)`;
       aiFeatsCreditsEl.classList.remove('exhausted');
       if (submitBtn) submitBtn.disabled = false; // let the submit handler prompt sign-in rather than blocking here
       return;
     }
-    const remaining = await peekAiFeatsCredits(allNames);
+    const remaining = await peekAiFeatsCredits();
     aiFeatsCreditsEl.textContent = remaining > 0
-      ? `${remaining} of ${AI_FEATS_CREDIT_LIMIT} AI checks left for this team build`
-      : `No AI checks left for this exact team — swap a fighter to start a fresh build`;
+      ? `${remaining} of ${AI_FEATS_CREDIT_LIMIT} AI checks left today`
+      : `No AI checks left today — resets at midnight UTC`;
     aiFeatsCreditsEl.classList.toggle('exhausted', remaining === 0);
     if (submitBtn) submitBtn.disabled = remaining === 0;
   }
@@ -4001,14 +3989,14 @@ Contact: fictionclash.app@gmail.com</div>
       const allNames = [...teams.alpha, ...teams.omega];
       let credited;
       try {
-        credited = await spendAiFeatsCredit(allNames);
+        credited = await spendAiFeatsCredit();
       } catch (err) {
         console.error('Could not check AI feat check credits', err);
         showToast('Could not verify AI check credits — try again');
         return;
       }
       if (!credited) {
-        showToast('No AI checks left for this exact team — swap a fighter for a fresh build');
+        showToast('No AI checks left today — resets at midnight UTC');
         refreshAiFeatsCreditsDisplay();
         return;
       }
