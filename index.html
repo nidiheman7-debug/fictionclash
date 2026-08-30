@@ -590,6 +590,8 @@
    .ai-feats h3{font-family:'Bricolage Grotesque',sans-serif; font-weight:800;font-size:16px;margin:7px 0 5px;}
    .ai-feats p{color:var(--muted);font-size:11px;line-height:1.4;margin-bottom:11px;}
    .ai-feats-form{display:flex;gap:7px;}
+   .ai-feats-credits{color:var(--muted);font-size:10.5px;margin-top:7px;}
+   .ai-feats-credits.exhausted{color:#c0392b;}
    .ai-feats-form input{
      flex:1;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--line);
      border-radius:9px;padding:10px 11px;font:11px 'Instrument Sans',sans-serif;outline:none;
@@ -1502,6 +1504,7 @@
           <input id="aiFeatsQuestion" type="text" placeholder="e.g. Who has the better speed feats?" aria-label="Ask AI about character feats">
           <button type="submit">ANALYSE</button>
         </form>
+        <p class="ai-feats-credits" id="aiFeatsCredits">3 of 3 AI checks left for this team build</p>
         <div class="ai-feats-result" id="aiFeatsResult" hidden></div>
       </div>
     </div>
@@ -3751,10 +3754,59 @@ Contact: fictionclash.app@gmail.com</div>
   const aiFeatsForm = document.getElementById('aiFeatsForm');
   const aiFeatsQuestion = document.getElementById('aiFeatsQuestion');
   const aiFeatsResult = document.getElementById('aiFeatsResult');
+  const aiFeatsCreditsEl = document.getElementById('aiFeatsCredits');
   const characterSearch = document.getElementById('characterSearch');
   const characterSearchInput = document.getElementById('characterSearchInput');
   const characterSearchNote = document.getElementById('characterSearchNote');
   const teams = { alpha: [], omega: [] };
+
+  // Each AI feat check is a real Gemini call (a fresh team roster/question
+  // combo almost never hits the cache), so this caps it at 3 per team
+  // build. Tracked per signed-in account in Firestore — not just a local
+  // JS variable — so refreshing the page can't reset it; the count lives
+  // on users/{uid}/featCredits/{buildHash}, one doc per unique roster
+  // combination (order-independent), and Firestore rules (not just this
+  // client code) enforce the +1-per-write, max-3 ceiling server-side.
+  const AI_FEATS_CREDIT_LIMIT = 3;
+  async function buildTeamHash(names){
+    const normalized = [...names].map(n => n.toLowerCase().trim()).sort().join('|');
+    const bytes = new TextEncoder().encode(normalized);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Reads the current count for this exact roster without spending a
+  // credit — used to paint the counter correctly as teams are edited or
+  // the page reloads, without every glance at the screen costing a write.
+  async function peekAiFeatsCredits(names){
+    if (!auth.currentUser || names.length === 0) return AI_FEATS_CREDIT_LIMIT;
+    try {
+      const hash = await buildTeamHash(names);
+      const snap = await getDoc(doc(db, 'users', auth.currentUser.uid, 'featCredits', hash));
+      const used = snap.exists() ? (snap.data().count || 0) : 0;
+      return Math.max(0, AI_FEATS_CREDIT_LIMIT - used);
+    } catch (err) {
+      console.error('Could not read AI feat check credits', err);
+      return AI_FEATS_CREDIT_LIMIT; // fail open on read errors — the write-time check below is the real gate
+    }
+  }
+  // Attempts to spend one credit for this roster. Returns true if allowed
+  // (and already recorded the spend), false if the build is out of
+  // credits. The Firestore rules only accept a write that increments by
+  // exactly 1 and never exceeds the limit, so this can't be spoofed by
+  // calling it directly from devtools either.
+  async function spendAiFeatsCredit(names){
+    const hash = await buildTeamHash(names);
+    const ref = doc(db, 'users', auth.currentUser.uid, 'featCredits', hash);
+    const snap = await getDoc(ref);
+    const used = snap.exists() ? (snap.data().count || 0) : 0;
+    if (used >= AI_FEATS_CREDIT_LIMIT) return false;
+    if (snap.exists()) {
+      await updateDoc(ref, { count: used + 1 });
+    } else {
+      await setDoc(ref, { count: 1 });
+    }
+    return true;
+  }
   let activeTeam = 'alpha';
   const featProfiles = {
     'Gojo Satoru':'Infinity-level defense, limitless space manipulation, and domain expansion.',
@@ -3831,6 +3883,33 @@ Contact: fictionclash.app@gmail.com</div>
       chip.classList.toggle('used', teams.alpha.includes(chip.dataset.character) || teams.omega.includes(chip.dataset.character));
     });
     teamPickHint.textContent = activeTeam === 'alpha' ? 'Adding to Alpha' : 'Adding to Omega';
+    refreshAiFeatsCreditsDisplay();
+  }
+
+  // Repaints the credits line/button state for whatever roster is
+  // currently selected. Read-only — never spends a credit itself.
+  async function refreshAiFeatsCreditsDisplay(){
+    if (!aiFeatsCreditsEl) return;
+    const allNames = [...teams.alpha, ...teams.omega];
+    const submitBtn = aiFeatsForm?.querySelector('button[type="submit"]');
+    if (!allNames.length) {
+      aiFeatsCreditsEl.textContent = `${AI_FEATS_CREDIT_LIMIT} AI checks available once both teams are set`;
+      aiFeatsCreditsEl.classList.remove('exhausted');
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    if (!auth.currentUser) {
+      aiFeatsCreditsEl.textContent = `Sign in to use AI feat checks (${AI_FEATS_CREDIT_LIMIT} per team build)`;
+      aiFeatsCreditsEl.classList.remove('exhausted');
+      if (submitBtn) submitBtn.disabled = false; // let the submit handler prompt sign-in rather than blocking here
+      return;
+    }
+    const remaining = await peekAiFeatsCredits(allNames);
+    aiFeatsCreditsEl.textContent = remaining > 0
+      ? `${remaining} of ${AI_FEATS_CREDIT_LIMIT} AI checks left for this team build`
+      : `No AI checks left for this exact team — swap a fighter to start a fresh build`;
+    aiFeatsCreditsEl.classList.toggle('exhausted', remaining === 0);
+    if (submitBtn) submitBtn.disabled = remaining === 0;
   }
 
   characterSearch.addEventListener('submit', event => {
@@ -3903,7 +3982,7 @@ Contact: fictionclash.app@gmail.com</div>
     teams.alpha.length = 0;
     teams.omega.length = 0;
     teamResult.hidden = true;
-    renderTeams();
+    renderTeams(); // also refreshes the credits line for the now-empty roster
   });
 
   aiFeatsForm.addEventListener('submit', event => {
@@ -3913,9 +3992,27 @@ Contact: fictionclash.app@gmail.com</div>
       showToast('Choose fighters for both teams first');
       return;
     }
+    if (!auth.currentUser) {
+      requireSignIn('Sign in to use AI feat checks');
+      return;
+    }
     const analyseBtn = aiFeatsForm.querySelector('button[type="submit"]');
     withSpinner(analyseBtn, 'ANALYSING…', async () => {
       const allNames = [...teams.alpha, ...teams.omega];
+      let credited;
+      try {
+        credited = await spendAiFeatsCredit(allNames);
+      } catch (err) {
+        console.error('Could not check AI feat check credits', err);
+        showToast('Could not verify AI check credits — try again');
+        return;
+      }
+      if (!credited) {
+        showToast('No AI checks left for this exact team — swap a fighter for a fresh build');
+        refreshAiFeatsCreditsDisplay();
+        return;
+      }
+      refreshAiFeatsCreditsDisplay();
       const data = await fetchCharacterAnalysis(allNames, question);
       const profile = name => {
         const entry = data && data.characters && data.characters[name];
@@ -4367,6 +4464,7 @@ Contact: fictionclash.app@gmail.com</div>
       loadCloudProfile(user.uid); // overwrites the above with synced data, if any exists
       renderAllLikeButtons(); // this account's like state may differ from the previous one's
       getDocs(collection(db, 'characterAvatars')).then(renderAdminReports).catch(() => {}); // admin card may now apply
+      refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
     } else {
       lastSignedInUid = null;
       signedOutView.hidden = false;
@@ -4385,6 +4483,7 @@ Contact: fictionclash.app@gmail.com</div>
       syncTopbarAvatar();
       closeAccountDropdown();
       renderAllLikeButtons(); // signed out — nothing should show as "liked" now
+      refreshAiFeatsCreditsDisplay(); // back to "sign in to use AI feat checks"
     }
   });
 
