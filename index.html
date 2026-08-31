@@ -739,12 +739,14 @@
      position:absolute;bottom:-2px;right:-2px;width:22px;height:22px;border-radius:50%;
      background:var(--ember);color:#0A0806;border:2px solid var(--bg);
      display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;
+     z-index:3;
    }
    .avatar-edit-btn:active{transform:scale(.92);}
    .avatar-report-btn{
      position:absolute;bottom:-2px;left:-2px;width:20px;height:20px;border-radius:50%;
      background:var(--surface2);color:var(--muted);border:2px solid var(--bg);
      display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;
+     z-index:3;
    }
    .avatar-report-btn:active{transform:scale(.92);}
    .avatar-report-btn.flagged{color:#c0392b;}
@@ -879,10 +881,12 @@
    .signin-btn:hover svg{ stroke:var(--ember); }
    body.light .signin-btn{background:var(--surface2);border-color:var(--line);}
    .signin-btn.is-avatar{
-     background:var(--ember); color:#0A0806; font:800 12px 'Bricolage Grotesque',sans-serif;
+     position:relative; background:var(--ember); color:#0A0806; font:800 12px 'Bricolage Grotesque',sans-serif;
      overflow:hidden; border-color:var(--ember);
    }
-   .signin-btn.is-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
+   .signin-btn.is-avatar img{ width:100%; height:100%; object-fit:cover; display:block; position:relative; z-index:2; }
+   .signin-btn.is-avatar.has-decoration{ overflow:visible; }
+   .signin-btn.is-avatar .profile-deco{ inset:-2px; }
    .account-menu-wrap{ position:relative; }
    .account-dropdown{
      position:absolute; top:38px; right:0; min-width:150px;
@@ -4549,13 +4553,14 @@ Contact: fictionclash.app@gmail.com</div>
     const user = window.firebaseAuth && window.firebaseAuth.currentUser;
     if (user) {
       signinBtn.classList.add('is-avatar');
+      signinBtn.classList.toggle('has-decoration', !!decorationById(equippedDecoration));
       signinBtn.setAttribute('aria-label', 'Account menu');
       signinBtn.title = 'Account';
       if (avatarDataUrl) {
-        signinBtn.innerHTML = `<img src="${avatarDataUrl}" alt="Profile picture">`;
+        signinBtn.innerHTML = `<img src="${avatarDataUrl}" alt="Profile picture">${profileDecorationMarkup(equippedDecoration)}`;
       } else {
         const name = profileName.value.trim() || user.displayName || (user.email ? user.email.split('@')[0] : '') || 'Your account';
-        signinBtn.textContent = name === 'Your account' ? 'YU' : name.trim().charAt(0).toUpperCase();
+        signinBtn.innerHTML = `${escapeHtml(name === 'Your account' ? 'YU' : name.trim().charAt(0).toUpperCase())}${profileDecorationMarkup(equippedDecoration)}`;
       }
     } else {
       signinBtn.classList.remove('is-avatar');
