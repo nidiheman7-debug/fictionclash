@@ -5025,8 +5025,13 @@ Contact: fictionclash.app@gmail.com</div>
   function applyDecorationToContainer(container, id){
     const item = decorationById(id);
     container.classList.toggle('has-decoration', !!item);
-    const existing = container.querySelector('.profile-deco');
-    if (existing) existing.remove();
+    // Remove ANY previous decoration markup before adding the new one —
+    // fx-style decorations (hellflame, web-trap, voltage, frostbite,
+    // bloodfang) render as .profile-deco-fx / .profile-deco-fx-web spans
+    // rather than .profile-deco, so only clearing .profile-deco left the
+    // old fx overlay stacked on top of the new decoration whenever either
+    // side of the swap was an fx one.
+    container.querySelectorAll('.profile-deco, .profile-deco-fx, .profile-deco-fx-web').forEach(el => el.remove());
     if (item) container.insertAdjacentHTML('beforeend', profileDecorationMarkup(id));
   }
 
