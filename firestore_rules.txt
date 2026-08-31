@@ -1,0 +1,281 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Tracks which built-in (hardcoded, non-Firestore) matchups/clips
+    // have been removed for everyone by the admin. Public read so every
+    // client can filter its local built-in list against it; write is
+    // restricted to the admin account, since this affects what every
+    // visitor sees, not just one account's own data.
+    match /appConfig/hiddenBuiltins {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2';
+    }
+
+    match /matchups/{id} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['votesA', 'votesB']);
+      allow delete: if request.auth != null && request.auth.uid == 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2';
+    }
+
+    match /characterAvatars/{id} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /movieClips/{clipId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if false;
+      allow delete: if request.auth != null && request.auth.uid == 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2';
+
+      // Comments carry the poster's equipped avatar decoration (denormalized
+      // at post time, same as name/avatarUrl) so it renders without an
+      // extra lookup. decorationId must be null or one of the catalogue IDs
+      // in PROFILE_DECORATIONS (index.html) — kept in sync here — so a
+      // client can't write an arbitrary/spoofed value.
+      match /comments/{cid} {
+        allow read: if true;
+        allow create: if request.resource.data.keys().hasOnly(['text', 'name', 'avatarUrl', 'decorationId', 'uid', 'createdAt'])
+                      && request.resource.data.text is string
+                      && request.resource.data.text.size() > 0
+                      && request.resource.data.text.size() <= 500
+                      && (request.resource.data.decorationId == null
+                          || request.resource.data.decorationId in [
+                               'golden-aura', 'magic-circle', 'halftone', 'chrome', 'fire',
+                               'frost', 'sakura-bloom', 'chakra-flame', 'comic-burst',
+                               'neon-pop', 'ink-crown', 'prism-orbit', 'cosmic-mosaic',
+                               'hellflame', 'web-trap', 'voltage', 'frostbite', 'bloodfang'
+                             ]);
+        allow update, delete: if false;
+      }
+    }
+
+    // Account-based likes for matchups (key "matchup:<pairKey>") and video
+    // clips (key "clip:<clipId>"). Each doc holds a `uids` map so a like
+    // is tied to a specific signed-in account, not a device. A client may
+    // only ever write its OWN uid's entry inside that map — never anyone
+    // else's — and the value must be `true` (an unlike simply removes that
+    // key instead of writing `false`, since the app deletes the field).
+    match /likes/{id} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['uids'])
+                    && request.resource.data.uids.keys().hasOnly([request.auth.uid])
+                    && request.resource.data.uids[request.auth.uid] == true;
+      allow update: if request.auth != null
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uids'])
+                    && resource.data.uids.diff(request.resource.data.uids).affectedKeys().hasOnly([request.auth.uid]);
+      allow delete: if false;
+    }
+
+    // Matchup comments — a FLAT collection (matchupId is just a field,
+    // not a subcollection path) so clearing out an old matchup from the
+    // Firestore console is one filtered query+delete on matchupId,
+    // instead of hunting through each matchup doc's own subcollection.
+    match /matchupComments/{cid} {
+      allow read: if true;
+      // decorationId must be null or one of the catalogue IDs in
+      // PROFILE_DECORATIONS (index.html) — kept in sync here — so a client
+      // can't write an arbitrary/spoofed decoration onto a comment.
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['matchupId', 'text', 'name', 'avatarUrl', 'decorationId', 'uid', 'createdAt'])
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.matchupId is string
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() > 0
+                    && request.resource.data.text.size() <= 500
+                    && (request.resource.data.decorationId == null
+                        || request.resource.data.decorationId in [
+                             'golden-aura', 'magic-circle', 'halftone', 'chrome', 'fire',
+                             'frost', 'sakura-bloom', 'chakra-flame', 'comic-burst',
+                             'neon-pop', 'ink-crown', 'prism-orbit', 'cosmic-mosaic',
+                             'hellflame', 'web-trap', 'voltage', 'frostbite', 'bloodfang'
+                           ]);
+      allow update, delete: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if true;
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function hasProfileFieldsOnly() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['name', 'handle', 'bio', 'avatarUrl', 'updatedAt']);
+      }
+      function isShareCreditGrant() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['clashPoints', 'shareCount', 'lastShareCreditId'])
+          && request.resource.data.lastShareCreditId is string
+          && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) + 5
+          && request.resource.data.shareCount == resource.data.get('shareCount', 0) + 1
+          && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.type == 'appShare'
+          && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.points == 5;
+      }
+      function isDecorationRedemption() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['clashPoints', 'unlockedDecorations', 'lastRedeemedDecoration'])
+          && request.resource.data.lastRedeemedDecoration is string
+          && request.resource.data.unlockedDecorations is list
+          && request.resource.data.unlockedDecorations.hasAll(resource.data.get('unlockedDecorations', []))
+          && request.resource.data.unlockedDecorations.hasAll([request.resource.data.lastRedeemedDecoration])
+          && request.resource.data.unlockedDecorations.size() == resource.data.get('unlockedDecorations', []).size() + 1
+          && (
+               request.resource.data.lastRedeemedDecoration == 'golden-aura'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70
+            || request.resource.data.lastRedeemedDecoration == 'magic-circle'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 80
+            || request.resource.data.lastRedeemedDecoration == 'halftone'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70
+            || request.resource.data.lastRedeemedDecoration == 'chrome'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
+            || request.resource.data.lastRedeemedDecoration == 'fire'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'frost'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'sakura-bloom'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 80
+            || request.resource.data.lastRedeemedDecoration == 'chakra-flame'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'comic-burst'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70
+            || request.resource.data.lastRedeemedDecoration == 'neon-pop'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
+            || request.resource.data.lastRedeemedDecoration == 'ink-crown'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
+            || request.resource.data.lastRedeemedDecoration == 'prism-orbit'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 95
+            || request.resource.data.lastRedeemedDecoration == 'cosmic-mosaic'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'hellflame'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'web-trap'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'voltage'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'frostbite'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'bloodfang'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+          );
+      }
+      function isFontRedemption() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['clashPoints', 'unlockedFonts', 'lastRedeemedFont'])
+          && request.resource.data.lastRedeemedFont is string
+          && request.resource.data.unlockedFonts is list
+          && request.resource.data.unlockedFonts.hasAll(resource.data.get('unlockedFonts', []))
+          && request.resource.data.unlockedFonts.hasAll([request.resource.data.lastRedeemedFont])
+          && request.resource.data.unlockedFonts.size() == resource.data.get('unlockedFonts', []).size() + 1
+          && request.resource.data.lastRedeemedFont in [
+               'bangers', 'luckiest', 'marker', 'creepster',
+               'russo', 'cinzel', 'bungee', 'orbitron'
+             ]
+          && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70;
+      }
+      function isValidEquipmentChange() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['equippedDecoration'])
+          && (request.resource.data.equippedDecoration == null
+              || request.resource.data.equippedDecoration in request.resource.data.get('unlockedDecorations', []))
+          || request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['equippedFont'])
+          && (request.resource.data.equippedFont == null
+              || request.resource.data.equippedFont in request.resource.data.get('unlockedFonts', []));
+      }
+      // Per-character decoration overrides ("show Fire Ring on Goku, Frost
+      // Ring on Saitama, in MY view") — a personal viewer preference only.
+      // Unlike equippedDecoration, this is never read back by anyone but
+      // its owner (it doesn't get denormalized onto comments the way
+      // equippedDecoration does), so an unvalidated or stale value here has
+      // no effect on any other account — it just fails a lookup on the
+      // owner's own client and nothing renders. That's why this only checks
+      // shape (own doc, only this field, still a map), not that every value
+      // is currently-owned: the UI already only offers owned decorations,
+      // and someone bypassing that only ever affects their own screen.
+      function isCharacterDecorationChange() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['characterDecorations'])
+          && request.resource.data.characterDecorations is map;
+      }
+      function isVerifiedProgressWrite() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['actionCount'])
+          && request.resource.data.actionCount == resource.data.get('actionCount', 0) + 1
+          || request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['actionCount', 'verifiedUntil'])
+          && request.resource.data.actionCount == 0
+          && request.resource.data.verifiedUntil is timestamp
+          && request.resource.data.verifiedUntil > request.time;
+      }
+      allow create: if isOwner()
+        && (
+          request.resource.data.keys().hasOnly(['name', 'handle', 'bio', 'avatarUrl', 'updatedAt'])
+          || (request.resource.data.keys().hasOnly(['actionCount'])
+              && request.resource.data.actionCount == 1)
+          || (
+            request.resource.data.keys().hasOnly(['clashPoints', 'shareCount', 'lastShareCreditId'])
+            && request.resource.data.clashPoints == 5
+            && request.resource.data.shareCount == 1
+            && request.resource.data.lastShareCreditId is string
+            && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.type == 'appShare'
+            && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.points == 5
+          )
+        );
+      allow update: if isOwner()
+        && (
+          hasProfileFieldsOnly()
+          || isShareCreditGrant()
+          || isDecorationRedemption()
+          || isFontRedemption()
+          || isValidEquipmentChange()
+          || isCharacterDecorationChange()
+          || isVerifiedProgressWrite()
+        );
+      allow delete: if false;
+
+      // One-time credit records for the verified badge — one doc per
+      // unique like target ("like:clip:<id>" or "like:matchup:<pairKey>").
+      // Existence alone is what prevents unlike/relike farming, so these
+      // are create-only: nobody, including the owner, can update or
+      // delete a credit once it exists.
+      match /actionCredits/{creditId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create: if request.auth != null && request.auth.uid == uid;
+        allow update, delete: if false;
+      }
+
+      // One-time app-share credit records. The companion users/{uid} write
+      // must happen in the same transaction and point back to this document,
+      // which prevents replaying one credit record twice.
+      match /shareCredits/{creditId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create: if request.auth != null
+                      && request.auth.uid == uid
+                      && request.resource.data.keys().hasOnly(['type', 'points', 'creditedAt'])
+                      && request.resource.data.type == 'appShare'
+                      && request.resource.data.points == 5
+                      && getAfter(/databases/$(database)/documents/users/$(uid)).data.lastShareCreditId == creditId;
+        allow update, delete: if false;
+      }
+
+      // AI feat check usage — one doc per day (UTC date, e.g. "2026-08-30"),
+      // tracking how many times this account has spent an AI credit today.
+      // The rule itself (not just the client's JS) enforces that count can
+      // only ever go up by exactly 1 per write and never exceed 3 — so
+      // even someone editing requests directly in devtools can't reset
+      // or inflate their own daily credits.
+      match /featCredits/{buildId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create: if request.auth != null && request.auth.uid == uid
+                      && request.resource.data.count == 1;
+        allow update: if request.auth != null && request.auth.uid == uid
+                      && request.resource.data.count == resource.data.count + 1
+                      && request.resource.data.count <= 3;
+        allow delete: if false;
+      }
+    }
+  }
+}
