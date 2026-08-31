@@ -1098,16 +1098,14 @@
     }
     .verified-promo .verified-badge{width:18px;height:18px;flex-shrink:0;margin-left:0;}
 </style>
-<!-- OneSignal Web Push SDK — ONESIGNAL_APP_ID below must be replaced with
-     the real App ID from your OneSignal dashboard (Settings > Keys & IDs)
-     before push notifications will work. Loaded with `defer` so it never
-     blocks the page from rendering. -->
+<!-- OneSignal Web Push SDK. Loaded with `defer` so it never blocks the
+     page from rendering. -->
 <script defer src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"></script>
 <script>
   window.OneSignalDeferred = window.OneSignalDeferred || [];
   window.OneSignalDeferred.push(async function(OneSignal) {
     await OneSignal.init({
-      appId: "ONESIGNAL_APP_ID", // <-- paste your real OneSignal App ID here
+      appId: "ae58917f-ed36-4d89-8132-70174db86312",
       // Uses the same /sw.js already registered for offline caching —
       // OneSignal's own push-handling code is merged into that file via
       // importScripts(), so this one worker does both jobs.
@@ -1855,7 +1853,7 @@ Contact: fictionclash.app@gmail.com</div>
     signOut
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
-    doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, collection, onSnapshot,
+    doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, arrayUnion, collection, onSnapshot,
     query, where, orderBy, serverTimestamp, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
@@ -1970,6 +1968,41 @@ Contact: fictionclash.app@gmail.com</div>
   }
 
   // ---------- matchup data ----------
+  // Built-in matchups/clips have no Firestore doc of their own (they're
+  // hardcoded in this file), so admin can't just deleteDoc() them the way
+  // community submissions get deleted. Instead, admin deleting one of
+  // these writes its key into this single shared doc — every client
+  // (including admin's own other devices) listens to it live and filters
+  // matching built-ins out of view, so it's a real "gone for everyone"
+  // delete, not just a per-device hide.
+  const globallyHiddenMatchupKeys = new Set();
+  const globallyHiddenClipIds = new Set();
+  function applyGlobalHiddenBuiltins(){
+    let heroNeedsRerender = false;
+    for (let i = matchups.length - 1; i >= 0; i--) {
+      if (globallyHiddenMatchupKeys.has(matchupPairKey(matchups[i]))) {
+        if (i === activeIdx) heroNeedsRerender = true;
+        matchups.splice(i, 1);
+        if (i < activeIdx) activeIdx--;
+      }
+    }
+    if (matchups.length && activeIdx >= matchups.length) activeIdx = matchups.length - 1;
+    if (heroNeedsRerender || matchups.length === 0) renderHero();
+    renderTrendScroll();
+    globallyHiddenClipIds.forEach(clipId => {
+      const card = clipFeed?.querySelector(`.clip-card[data-clip-id="${clipId}"]`);
+      if (card) card.remove();
+    });
+  }
+  onSnapshot(doc(db, 'appConfig', 'hiddenBuiltins'), snap => {
+    const data = snap.exists() ? snap.data() : {};
+    globallyHiddenMatchupKeys.clear();
+    (data.matchupKeys || []).forEach(k => globallyHiddenMatchupKeys.add(k));
+    globallyHiddenClipIds.clear();
+    (data.clipIds || []).forEach(id => globallyHiddenClipIds.add(id));
+    applyGlobalHiddenBuiltins();
+  }, err => console.error('Hidden-builtins listener failed', err));
+
   const matchups = [
     { a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', hint:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', hint:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
     { a:{name:'Goku', sub:'Dragon Ball', hint:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', hint:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
@@ -2331,14 +2364,28 @@ Contact: fictionclash.app@gmail.com</div>
     const m = matchups[idx];
     if (!m || matchups.length <= 1) return; // keep at least one matchup visible
     if (isAdmin() && m.docId) {
-      // Admin account — this actually deletes the doc from Firestore, so
-      // it disappears for every visitor, not just this browser.
+      // Admin account, community matchup — this actually deletes the doc
+      // from Firestore, so it disappears for every visitor, not just this browser.
       if (!confirm(`Delete ${m.a.name} vs ${m.b.name} for everyone? This can't be undone.`)) return;
       deleteDoc(doc(db, 'matchups', m.docId)).catch(err => {
         console.error('Delete failed', err);
         showToast('Could not delete — try again');
       });
       // The list/hero update themselves when the onSnapshot 'removed' event arrives.
+      return;
+    }
+    if (isAdmin() && !m.docId) {
+      // Admin account, built-in matchup — there's no Firestore doc to
+      // delete (it's hardcoded in the app), so instead its key gets added
+      // to the shared hiddenBuiltins doc. Every client, including this
+      // one, is listening to that doc and will filter it out — a real
+      // delete-for-everyone, not just a local hide.
+      if (!confirm(`Remove ${m.a.name} vs ${m.b.name} for everyone? This is a built-in matchup, so it'll be hidden from all users everywhere, not just this device. This can't be undone.`)) return;
+      setDoc(doc(db, 'appConfig', 'hiddenBuiltins'), { matchupKeys: arrayUnion(matchupPairKey(m)) }, { merge: true }).catch(err => {
+        console.error('Global hide failed', err);
+        showToast('Could not remove — try again');
+      });
+      // The list/hero update themselves once the hiddenBuiltins listener picks this up.
       return;
     }
     if (!confirm(`Hide ${m.a.name} vs ${m.b.name} from your feed? It'll stay visible to everyone else — you just won't see it on this device unless you clear your browser data.`)) return;
@@ -2885,6 +2932,7 @@ Contact: fictionclash.app@gmail.com</div>
         createdAt: serverTimestamp(),
         expiresAt: Timestamp.fromMillis(Date.now() + MATCHUP_LIFETIME_MS)
       })
+        .then(() => sendOneSignalPush('New matchup', `${newMatchup.a.name} vs ${newMatchup.b.name}`))
         .catch(err => { console.error('Matchup sync failed', err); showToast('Posted here, but sync to other browsers failed'); });
     }, 700);
   });
@@ -3516,6 +3564,7 @@ Contact: fictionclash.app@gmail.com</div>
           clipReview.value = '';
           clipUploaderOverlay.classList.remove('show');
           showToast('Clip published');
+          sendOneSignalPush('New clip posted', title);
         })
         .catch(err => {
           console.error('Clip post failed', err);
@@ -3625,14 +3674,28 @@ Contact: fictionclash.app@gmail.com</div>
     if (!btn) return;
     const clipId = btn.dataset.hideClip;
     if (isAdmin() && !BUILT_IN_CLIP_IDS.has(clipId)) {
-      // Admin account — actually deletes the doc from Firestore, so the
-      // clip disappears for every visitor, not just this browser.
+      // Admin account, community clip — actually deletes the doc from
+      // Firestore, so the clip disappears for every visitor, not just this browser.
       if (!confirm('Delete this clip for everyone? This can\'t be undone.')) return;
       deleteDoc(doc(db, 'movieClips', clipId)).catch(err => {
         console.error('Clip delete failed', err);
         showToast('Could not delete — try again');
       });
       // Card removal + comment-listener cleanup happen via the onSnapshot 'removed' handler.
+      return;
+    }
+    if (isAdmin() && BUILT_IN_CLIP_IDS.has(clipId)) {
+      // Admin account, built-in clip — there's no Firestore doc to delete
+      // (it's hardcoded in the app), so instead its id gets added to the
+      // shared hiddenBuiltins doc. Every client, including this one, is
+      // listening to that doc and will remove the card — a real
+      // delete-for-everyone, not just a local hide.
+      if (!confirm('Remove this clip for everyone? This is a built-in clip, so it\'ll be hidden from all users everywhere, not just this device. This can\'t be undone.')) return;
+      setDoc(doc(db, 'appConfig', 'hiddenBuiltins'), { clipIds: arrayUnion(clipId) }, { merge: true }).catch(err => {
+        console.error('Global hide failed', err);
+        showToast('Could not remove — try again');
+      });
+      // The card removes itself once the hiddenBuiltins listener picks this up.
       return;
     }
     if (!confirm("Hide this clip from your feed? It'll stay visible to everyone else.")) return;
@@ -4729,38 +4792,30 @@ Contact: fictionclash.app@gmail.com</div>
   }
 
   // ---------- real device push, via OneSignal ----------
-  // ONESIGNAL_APP_ID/REST_API_KEY come from your OneSignal dashboard
-  // (Settings > Keys & IDs). Both must be filled in before this actually
-  // sends anything — until then sendOneSignalPush() just no-ops.
-  // Note: calling OneSignal's REST API directly from the browser means
-  // the REST API key is visible to anyone who views this page's source.
-  // That's a reasonable tradeoff for a small/free setup (no backend
-  // needed), but it does mean that key could be copied and used by
-  // someone else to send notifications to your users too.
-  const ONESIGNAL_APP_ID = "ONESIGNAL_APP_ID";
-  const ONESIGNAL_REST_API_KEY = "ONESIGNAL_REST_API_KEY";
+  // Goes through /api/send-push (a Vercel serverless function) instead of
+  // calling OneSignal's REST API directly — that keeps the REST API key
+  // server-side only, never exposed in this page's source.
+  //
+  // Only ever called from the code that actually CREATES a matchup/clip
+  // (the poster's own browser, once), not from the onSnapshot listener
+  // that watches for new ones — that listener fires in every connected
+  // visitor's browser, so calling a real push send from inside it would
+  // mean N people with the app open = N duplicate pushes blasted to
+  // every subscriber. pushNotification() below (the in-app bell/dropdown
+  // list) is fine to run per-viewer since that only updates their own
+  // local list — it's the real device push that has to stay singular.
   function sendOneSignalPush(title, body){
-    if (ONESIGNAL_APP_ID === "ONESIGNAL_APP_ID" || ONESIGNAL_REST_API_KEY === "ONESIGNAL_REST_API_KEY") return; // not configured yet
-    fetch('https://onesignal.com/api/v1/notifications', {
+    fetch('/api/send-push', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Authorization': `Basic ${ONESIGNAL_REST_API_KEY}`
-      },
-      body: JSON.stringify({
-        app_id: ONESIGNAL_APP_ID,
-        included_segments: ['Subscribed Users'],
-        headings: { en: title },
-        contents: { en: body }
-      })
-    }).catch(err => console.error('OneSignal push failed', err));
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body })
+    }).catch(err => console.error('Push send failed', err));
   }
 
   function pushNotification(type, title, body, target){
     notifications.unshift({ type, title, body, target: target || '', at: Date.now() });
     saveNotifications();
     renderNotifications();
-    sendOneSignalPush(title, body);
   }
 
   const enablePushBtn = document.getElementById('enablePushBtn');
