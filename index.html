@@ -239,6 +239,37 @@
   .hero-delete-btn:active{ transform:scale(.9); }
   .hero-delete-btn.hidden{ display:none; }
   body.light .hero-delete-btn{border-color:var(--line);}
+  .hero-decorate-btn{
+    position:absolute; top:8px; right:40px; z-index:3;
+    width:26px; height:26px; border-radius:50%; border:1px solid rgba(255,255,255,.18);
+    background:var(--surface2); color:var(--muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .hero-decorate-btn:active{ transform:scale(.9); }
+  body.light .hero-decorate-btn{border-color:var(--line);}
+
+  .hero-decorate-section{ margin:16px 0; }
+  .hero-decorate-charname{
+    font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.4px;
+    color:var(--muted); margin-bottom:10px;
+  }
+  .hero-decorate-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px 8px; }
+  .hero-decorate-item{
+    display:flex; flex-direction:column; align-items:center; gap:5px; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .hero-decorate-item:active .hero-decorate-swatch{ transform:scale(.94); }
+  .hero-decorate-swatch{
+    position:relative; width:44px; height:44px; border-radius:50%;
+    background:linear-gradient(155deg,#2a2a2a,#111); border:2px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-size:14px; color:#666;
+    transition:border-color .15s ease, transform .1s ease;
+  }
+  .hero-decorate-item.selected .hero-decorate-swatch{ border-color:var(--ember); color:var(--ember); }
+  .hero-decorate-swatch .profile-deco{ inset:-3px; }
+  .hero-decorate-label{ font-size:8.5px; color:var(--muted); text-align:center; line-height:1.2; }
+  .hero-decorate-empty-hint{ font-size:10.5px; color:var(--muted); margin-top:6px; }
 
   .hero-body{ padding:16px 18px 18px; }
   .hero-title{
@@ -1372,6 +1403,9 @@
   <div class="hero" id="heroCard">
     <div class="hero-vs">
        <div class="live-tag"><span class="live-dot"></span>LIVE MATCHUP</div>
+      <button class="hero-decorate-btn" id="heroDecorateBtn" type="button" aria-label="Choose a decoration for each character" title="Choose a decoration for each character">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+      </button>
       <button class="hero-delete-btn" id="heroDeleteBtn" type="button" aria-label="Hide this matchup from my feed" title="Hide this matchup from my feed">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.6 18.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
       </button>
@@ -2032,6 +2066,24 @@ Contact: fictionclash.app@gmail.com</div>
       <div id="themeStoreModalBody"></div>
     </div>
   </div>
+
+  <div class="modal-overlay" id="heroDecorateOverlay">
+    <div class="modal-sheet modal-sheet-tall theme-store-modal" role="dialog" aria-modal="true" aria-labelledby="heroDecorateTitle">
+      <div class="theme-store-modal-head">
+        <div class="modal-title" id="heroDecorateTitle">Character Decorations</div>
+        <button class="theme-store-close" id="heroDecorateClose" type="button" aria-label="Close">×</button>
+      </div>
+      <p class="profile-store-copy">Pick a decoration per character for this matchup. Only you'll see it — it's your own view, nobody else's.</p>
+      <div class="hero-decorate-section">
+        <h4 class="hero-decorate-charname" id="heroDecorateNameA">Character A</h4>
+        <div class="hero-decorate-grid" id="heroDecorateGridA"></div>
+      </div>
+      <div class="hero-decorate-section">
+        <h4 class="hero-decorate-charname" id="heroDecorateNameB">Character B</h4>
+        <div class="hero-decorate-grid" id="heroDecorateGridB"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script type="module">
@@ -2461,9 +2513,23 @@ Contact: fictionclash.app@gmail.com</div>
   // has to handle for uploaded photos), this just re-skins how the CURRENT
   // signed-in user sees every character avatar, client-side only — nothing
   // is written to Firestore and nobody else's view changes.
+  // Resolves which decoration id should show on one character avatar for
+  // the current viewer: an explicit per-character choice (including an
+  // explicit "none") wins; otherwise it falls back to whatever the viewer
+  // has globally equipped on their profile.
+  function resolveCharacterDecoration(name, version){
+    const key = avatarOverrideKey(name, version);
+    if (Object.prototype.hasOwnProperty.call(characterDecorations, key)) {
+      const chosen = characterDecorations[key];
+      return chosen === 'none' ? null : chosen;
+    }
+    return equippedDecoration;
+  }
+
   function renderHeroCharacterCosmetics(){
-    applyDecorationToContainer(heroAvatarA, equippedDecoration);
-    applyDecorationToContainer(heroAvatarB, equippedDecoration);
+    const m = matchups[activeIdx];
+    applyDecorationToContainer(heroAvatarA, m ? resolveCharacterDecoration(m.a.name, m.a.version) : equippedDecoration);
+    applyDecorationToContainer(heroAvatarB, m ? resolveCharacterDecoration(m.b.name, m.b.version) : equippedDecoration);
     const font = fontById(equippedFont);
     [heroNameA, heroNameB].forEach(el => {
       PROFILE_FONTS.forEach(f => el.classList.remove(f.cls));
@@ -2648,6 +2714,75 @@ Contact: fictionclash.app@gmail.com</div>
     showToast('Hidden from your feed');
   });
 
+
+  // ---------- per-character decoration picker (personal skin, per matchup) ----------
+  const heroDecorateBtn = document.getElementById('heroDecorateBtn');
+  const heroDecorateOverlay = document.getElementById('heroDecorateOverlay');
+  const heroDecorateClose = document.getElementById('heroDecorateClose');
+  const heroDecorateNameA = document.getElementById('heroDecorateNameA');
+  const heroDecorateNameB = document.getElementById('heroDecorateNameB');
+  const heroDecorateGridA = document.getElementById('heroDecorateGridA');
+  const heroDecorateGridB = document.getElementById('heroDecorateGridB');
+
+  function heroDecorateSwatchInner(id){
+    if (id === 'none') return '—';
+    if (id === null) return '✦';
+    return profileDecorationMarkup(id);
+  }
+
+  function renderHeroDecorateGrid(gridEl, name, version){
+    const key = avatarOverrideKey(name, version);
+    const current = Object.prototype.hasOwnProperty.call(characterDecorations, key) ? characterDecorations[key] : null;
+    const options = [
+      { id: null, label: 'Default' },
+      { id: 'none', label: 'None' },
+      ...unlockedDecorations.map(id => ({ id, label: decorationById(id)?.name || id }))
+    ];
+    gridEl.innerHTML = options.map(opt => `
+      <div class="hero-decorate-item${current === opt.id ? ' selected' : ''}" data-deco-id="${opt.id === null ? '' : opt.id}">
+        <div class="hero-decorate-swatch">${heroDecorateSwatchInner(opt.id)}</div>
+        <div class="hero-decorate-label">${escapeHtml(opt.label)}</div>
+      </div>`).join('')
+      + (unlockedDecorations.length === 0 ? `<div class="hero-decorate-empty-hint">Redeem decorations in the Avatar Store to add more options here.</div>` : '');
+    gridEl.querySelectorAll('[data-deco-id]').forEach(item => {
+      item.addEventListener('click', () => {
+        const raw = item.dataset.decoId;
+        setCharacterDecoration(name, version, raw === '' ? null : raw);
+      });
+    });
+  }
+
+  async function setCharacterDecoration(name, version, decorationId){
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to customize character decorations'); return; }
+    const key = avatarOverrideKey(name, version);
+    const next = { ...characterDecorations };
+    if (decorationId === null) delete next[key]; else next[key] = decorationId;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { characterDecorations: next });
+      characterDecorations = next;
+      renderHeroCharacterCosmetics();
+      renderHeroDecorateGrid(heroDecorateGridA, matchups[activeIdx].a.name, matchups[activeIdx].a.version);
+      renderHeroDecorateGrid(heroDecorateGridB, matchups[activeIdx].b.name, matchups[activeIdx].b.version);
+    } catch (err) {
+      console.error('Character decoration save failed', err);
+      showToast('Could not save — try again');
+    }
+  }
+
+  function openHeroDecorateModal(){
+    if (!auth.currentUser) { requireSignIn('Sign in to customize character decorations'); return; }
+    const m = matchups[activeIdx];
+    if (!m) return;
+    heroDecorateNameA.textContent = m.a.name;
+    heroDecorateNameB.textContent = m.b.name;
+    renderHeroDecorateGrid(heroDecorateGridA, m.a.name, m.a.version);
+    renderHeroDecorateGrid(heroDecorateGridB, m.b.name, m.b.version);
+    heroDecorateOverlay.classList.add('show');
+  }
+  heroDecorateBtn.addEventListener('click', (e) => { e.stopPropagation(); openHeroDecorateModal(); });
+  heroDecorateClose.addEventListener('click', () => heroDecorateOverlay.classList.remove('show'));
+  heroDecorateOverlay.addEventListener('click', (e) => { if (e.target === heroDecorateOverlay) heroDecorateOverlay.classList.remove('show'); });
 
   // ---------- per-character avatar upload ----------
   const heroAvatarEditA = document.getElementById('heroAvatarEditA');
@@ -4433,6 +4568,14 @@ Contact: fictionclash.app@gmail.com</div>
   let unlockedFonts = [];
   let equippedDecoration = null;
   let equippedFont = null;
+  // Per-character decoration overrides for the CURRENT viewer only — keyed
+  // the same way as character avatar photos (avatarOverrideKey: name, or
+  // "name|version" for a versioned character like Base Goku vs Ultra
+  // Instinct Goku). A key that's absent means "inherit whatever's globally
+  // equipped"; a key present with value 'none' means "explicitly no
+  // decoration on this character even if one is equipped globally" — those
+  // are different states, so absence and 'none' can't be collapsed into one.
+  let characterDecorations = {};
 
   // Profile cosmetics are deliberately a closed, built-in catalogue. The
   // item IDs are also mirrored in firestore_rules so a browser cannot redeem
@@ -5031,6 +5174,7 @@ Contact: fictionclash.app@gmail.com</div>
       unlockedFonts = Array.isArray(data.unlockedFonts) ? [...data.unlockedFonts] : [];
       equippedDecoration = decorationById(data.equippedDecoration) ? data.equippedDecoration : null;
       equippedFont = fontById(data.equippedFont) ? data.equippedFont : null;
+      characterDecorations = (data.characterDecorations && typeof data.characterDecorations === 'object') ? { ...data.characterDecorations } : {};
       currentUserVerifiedUntil = data.verifiedUntil || null;
       currentUserActionCount = data.actionCount || 0;
       verifiedUntilCache[uid] = currentUserVerifiedUntil ? currentUserVerifiedUntil.toMillis() : null;
@@ -5197,6 +5341,7 @@ Contact: fictionclash.app@gmail.com</div>
          unlockedFonts = [];
          equippedDecoration = null;
          equippedFont = null;
+         characterDecorations = {};
       }
       lastSignedInUid = user.uid;
       updateAccountHeader();
@@ -5222,6 +5367,7 @@ Contact: fictionclash.app@gmail.com</div>
        unlockedFonts = [];
        equippedDecoration = null;
        equippedFont = null;
+       characterDecorations = {};
       currentUserVerifiedUntil = null;
       currentUserActionCount = 0;
       updateAccountHeader();
