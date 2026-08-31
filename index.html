@@ -5002,5 +5002,20 @@ Contact: fictionclash.app@gmail.com</div>
   window.addEventListener('appinstalled', markInstalled);
 </script>
 
+<!-- On-device debug console — visit the site with ?debug=1 added to the
+     URL (e.g. fictionclash.vercel.app/?debug=1) to see a floating button
+     that opens a full console/network/errors panel, right on the phone,
+     no laptop or USB debugging needed. Does nothing for regular visitors
+     since it only loads when that query param is present. Safe to leave
+     in permanently — remove this block later if you never need it again. -->
+<script>
+  if (location.search.includes('debug=1')) {
+    const erudaScript = document.createElement('script');
+    erudaScript.src = 'https://cdn.jsdelivr.net/npm/eruda';
+    erudaScript.onload = () => window.eruda && window.eruda.init();
+    document.body.appendChild(erudaScript);
+  }
+</script>
+
 </body>
 </html>
