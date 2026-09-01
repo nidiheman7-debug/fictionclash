@@ -865,6 +865,27 @@
    .consent-check-row label{ font-size:11px;color:var(--muted);line-height:1.5; }
    .consent-check-row a{ color:var(--ember);text-decoration:underline; }
    .policy-text{ font-size:12px;color:var(--muted);line-height:1.7;white-space:pre-line; }
+
+   /* Cookie consent banner + the matching Accept/Reject controls reused
+      inside the Cookie Policy modal so a choice can be changed later. */
+   .cookie-banner{
+     position:fixed; left:12px; right:12px; bottom:calc(env(safe-area-inset-bottom, 0px) + 78px);
+     z-index:60; background:var(--surface); border:1px solid var(--line); border-radius:14px;
+     padding:14px 16px; box-shadow:0 8px 30px rgba(0,0,0,.4);
+     display:flex; flex-direction:column; gap:10px;
+   }
+   .cookie-banner[hidden]{ display:none; }
+   .cookie-banner p{ font-size:11.5px; color:var(--muted); line-height:1.5; margin:0; }
+   .cookie-banner a{ color:var(--ember); text-decoration:underline; }
+   .cookie-banner-actions, .cookie-policy-actions{ display:flex; gap:8px; }
+   .cookie-policy-actions{ margin:2px 0 12px; }
+   .cookie-banner-btn{
+     flex:1; padding:10px 12px; border-radius:10px; font-size:11.5px; font-weight:800;
+     cursor:pointer; border:1px solid var(--line); background:transparent; color:var(--text);
+     -webkit-tap-highlight-color:transparent;
+   }
+   .cookie-banner-btn.primary{ background:var(--ember); color:#0A0806; border-color:var(--ember); }
+   .cookie-policy-status{ font-size:11px; color:var(--muted); margin:0 0 10px; }
    .report-reason-row{ display:flex;flex-direction:column;gap:8px;margin:14px 0; }
    .report-reason-btn{
      text-align:left;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
@@ -1837,12 +1858,25 @@
       <p>Character pictures are user-uploaded. See how we handle rights requests and reports.</p>
       <button class="remove-avatar-btn" id="openContentPolicyBtn" type="button">Read Content Policy</button>
     </div>
+    <div class="account-card">
+      <h3>Privacy &amp; Cookies</h3>
+      <p>What we store on your device, why, and how to change your choice.</p>
+      <button class="remove-avatar-btn" id="openCookiePolicyBtn" type="button">Cookie Policy &amp; Preferences</button>
+    </div>
     <div class="account-card hidden" id="adminReportsCard">
       <h3>Flagged pictures</h3>
       <p>Reported uploads awaiting review.</p>
       <div id="adminReportsList"></div>
     </div>
   </section>
+  </div>
+
+  <div class="cookie-banner" id="cookieBanner" hidden>
+    <p>We use local storage to remember your votes, sign-in, and a few optional preferences like theme. No third-party ads or tracking. <a href="#" id="cookieBannerPolicyLink">Read the Cookie Policy</a>.</p>
+    <div class="cookie-banner-actions">
+      <button class="cookie-banner-btn secondary" id="cookieRejectBtn" type="button">Reject non-essential</button>
+      <button class="cookie-banner-btn primary" id="cookieAcceptBtn" type="button">Accept all</button>
+    </div>
   </div>
 
   <div class="bottomnav" id="bottomNav">
@@ -2063,6 +2097,34 @@ Contact: fictionclash.app@gmail.com</div>
     </div>
   </div>
 
+  <div class="modal-overlay" id="cookiePolicyOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Cookie Policy</div>
+      <div class="policy-text">Fiction Clash doesn't run any third-party advertising or analytics trackers — nothing here is sold or shared with ad networks. But it does use your browser's local storage, plus Firebase's own sign-in session storage, to remember things between visits, and the rules around cookies cover those too. Here's what we store and why.
+
+Essential (always on — needed to deliver something you explicitly asked for):
+• Your sign-in session
+• Votes you've cast, matchups/clips you've hidden, and pictures you've uploaded
+• Your saved profile, Avatar Store redemptions, and equipped decorations/fonts
+• This cookie choice itself
+
+Optional (only saved if you Accept all):
+• Your chosen accent theme
+• Whether you've seen the intro screen
+• Your notification history and read-state
+
+Reject non-essential and the app still works fully — those few preferences just won't be remembered on your next visit.
+
+Contact: fictionclash.app@gmail.com</div>
+      <p class="cookie-policy-status" id="cookiePolicyStatus"></p>
+      <div class="cookie-policy-actions">
+        <button class="cookie-banner-btn secondary" id="cookiePolicyReject" type="button">Reject non-essential</button>
+        <button class="cookie-banner-btn primary" id="cookiePolicyAccept" type="button">Accept all</button>
+      </div>
+      <button class="modal-close" id="cookiePolicyClose">Close</button>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="themeStoreOverlay">
     <div class="modal-sheet modal-sheet-tall theme-store-modal" role="dialog" aria-modal="true" aria-labelledby="themeStoreTitle">
       <div class="theme-store-modal-head">
@@ -2260,6 +2322,32 @@ Contact: fictionclash.app@gmail.com</div>
   // delete, not just a per-device hide.
   const globallyHiddenMatchupKeys = new Set();
   const globallyHiddenClipIds = new Set();
+
+  // ---------- cookie / local-storage consent ----------
+  // Fiction Clash has no third-party ads or analytics trackers, but it does
+  // use localStorage (and Firebase's own sign-in session storage) — which
+  // the cookie/ePrivacy rules this banner is for treat the same as cookies.
+  // "Essential" storage (votes, hidden items, uploads, profile, sign-in,
+  // and this consent flag itself) is needed to deliver something the user
+  // explicitly asked for, so it's written regardless of this choice — same
+  // legal basis most sites use to skip a consent prompt for a shopping
+  // cart. Only the purely optional/preference writes below are gated.
+  const COOKIE_CONSENT_KEY = 'fictionClashCookieConsent'; // 'accepted' | 'rejected'
+  function getCookieConsent(){
+    try { return localStorage.getItem(COOKIE_CONSENT_KEY); } catch (err) { return null; }
+  }
+  function setCookieConsent(value){
+    try { localStorage.setItem(COOKIE_CONSENT_KEY, value); } catch (err) {}
+  }
+  function nonEssentialStorageAllowed(){
+    return getCookieConsent() === 'accepted';
+  }
+  function applyCookieConsentChoice(value){
+    setCookieConsent(value);
+    cookieBanner.hidden = true;
+    renderCookiePolicyStatus();
+    showToast(value === 'accepted' ? 'Preferences saved — thanks!' : 'Only essential storage will be used');
+  }
   function applyGlobalHiddenBuiltins(){
     let heroNeedsRerender = false;
     for (let i = matchups.length - 1; i >= 0; i--) {
@@ -2838,6 +2926,32 @@ Contact: fictionclash.app@gmail.com</div>
   document.getElementById('openPolicyFromConsent').addEventListener('click', (e) => { e.preventDefault(); openContentPolicy(); });
   document.getElementById('contentPolicyClose').addEventListener('click', () => contentPolicyOverlay.classList.remove('show'));
   contentPolicyOverlay.addEventListener('click', (e) => { if (e.target === contentPolicyOverlay) contentPolicyOverlay.classList.remove('show'); });
+
+  // ---------- cookie policy modal + consent banner ----------
+  const cookieBanner = document.getElementById('cookieBanner');
+  const cookiePolicyOverlay = document.getElementById('cookiePolicyOverlay');
+  const cookiePolicyStatus = document.getElementById('cookiePolicyStatus');
+  function renderCookiePolicyStatus(){
+    const c = getCookieConsent();
+    cookiePolicyStatus.textContent = c === 'accepted'
+      ? 'Your current choice: accepted all storage.'
+      : c === 'rejected'
+        ? 'Your current choice: essential storage only.'
+        : "You haven't made a choice yet.";
+  }
+  function openCookiePolicy(){ renderCookiePolicyStatus(); cookiePolicyOverlay.classList.add('show'); }
+  document.getElementById('openCookiePolicyBtn').addEventListener('click', openCookiePolicy);
+  document.getElementById('cookieBannerPolicyLink').addEventListener('click', (e) => { e.preventDefault(); openCookiePolicy(); });
+  document.getElementById('cookiePolicyClose').addEventListener('click', () => cookiePolicyOverlay.classList.remove('show'));
+  cookiePolicyOverlay.addEventListener('click', (e) => { if (e.target === cookiePolicyOverlay) cookiePolicyOverlay.classList.remove('show'); });
+  document.getElementById('cookieAcceptBtn').addEventListener('click', () => applyCookieConsentChoice('accepted'));
+  document.getElementById('cookieRejectBtn').addEventListener('click', () => applyCookieConsentChoice('rejected'));
+  document.getElementById('cookiePolicyAccept').addEventListener('click', () => applyCookieConsentChoice('accepted'));
+  document.getElementById('cookiePolicyReject').addEventListener('click', () => applyCookieConsentChoice('rejected'));
+  // Shown once per browser until a choice is made either way — same "never
+  // block browsing" spirit as the first-visit intro overlay just below.
+  if (!getCookieConsent()) cookieBanner.hidden = false;
+
 
   // ---------- report a picture ----------
   const reportAvatarOverlay = document.getElementById('reportAvatarOverlay');
@@ -4524,7 +4638,7 @@ Contact: fictionclash.app@gmail.com</div>
     root.setProperty('--ember-dim', theme.emberDim);
     root.setProperty('--navy', theme.navy);
     document.querySelectorAll('.theme-swatch').forEach(sw => sw.classList.toggle('active', sw.dataset.theme === name));
-    localStorage.setItem('fictionClashTheme', name);
+    if (nonEssentialStorageAllowed()) localStorage.setItem('fictionClashTheme', name);
   }
   themeSwatchRow.addEventListener('click', event => {
     const swatch = event.target.closest('.theme-swatch');
@@ -5556,7 +5670,7 @@ Contact: fictionclash.app@gmail.com</div>
   const introEmailSubmit = document.getElementById('introEmailSubmit');
   function dismissIntro(){
     introOverlay.classList.remove('show');
-    localStorage.setItem(INTRO_SEEN_KEY, '1');
+    if (nonEssentialStorageAllowed()) localStorage.setItem(INTRO_SEEN_KEY, '1');
   }
   if (!localStorage.getItem(INTRO_SEEN_KEY)) {
     introOverlay.classList.add('show');
@@ -5643,7 +5757,7 @@ Contact: fictionclash.app@gmail.com</div>
 
   function saveNotifications(){
     notifications = notifications.slice(0, 30); // cap so localStorage doesn't grow forever
-    localStorage.setItem(NOTIFS_KEY, JSON.stringify(notifications));
+    if (nonEssentialStorageAllowed()) localStorage.setItem(NOTIFS_KEY, JSON.stringify(notifications));
   }
 
   function notifTimeAgo(ts){
@@ -5735,7 +5849,7 @@ Contact: fictionclash.app@gmail.com</div>
     if (!notifDropdown.hidden) {
       // Give them a beat to see which ones were unread before the dots clear.
       setTimeout(() => {
-        localStorage.setItem(NOTIFS_SEEN_KEY, String(Date.now()));
+        if (nonEssentialStorageAllowed()) localStorage.setItem(NOTIFS_SEEN_KEY, String(Date.now()));
         renderNotifications();
       }, 1200);
     }
