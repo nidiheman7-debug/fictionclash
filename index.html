@@ -6018,6 +6018,29 @@ Contact: fictionclash.app@gmail.com</div>
     document.body.appendChild(erudaScript);
   }
 </script>
+     
+<script>
+  if (location.search.includes('debug=vote')) {
+    (async () => {
+      const user = firebase.auth().currentUser;
+      if (!user) { alert('Log in first, then reload with ?debug=vote'); return; }
 
+      const idToken = await user.getIdToken();
+      const matchupId = 'PASTE_A_REAL_MATCHUP_ID_HERE';
+
+      const res = await fetch('/api/vote', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ matchupId, choice: 'a' }),
+      });
+
+      const data = await res.json();
+      alert('Status: ' + res.status + '\n' + JSON.stringify(data, null, 2));
+    })();
+  }
+</script>
 </body>
 </html>
