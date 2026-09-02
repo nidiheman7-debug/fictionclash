@@ -777,6 +777,47 @@
    .planet-body{filter:drop-shadow(0 0 1.6px rgba(255,255,255,.5));animation:planetTwinkle 3.2s ease-in-out infinite;}
    .planet-ring{fill:none;stroke:rgba(227,211,165,.75);stroke-width:.9;}
    @keyframes planetTwinkle{0%,100%{opacity:.85}50%{opacity:1}}
+
+   /* Web-Slinger */
+   .webslinger-strand{fill:none;stroke:#f2f2f5;stroke-width:1;opacity:.85;filter:drop-shadow(0 0 2px #ffffff80);}
+   .webslinger-scallop{fill:none;stroke:#e2e2ea;stroke-width:.8;opacity:.7;}
+   .webslinger-ring{fill:none;stroke:#c8102e;stroke-width:1.5;filter:drop-shadow(0 0 3px #c8102e);}
+   .webslinger-shot{stroke:#f5f5f8;stroke-width:1.4;stroke-linecap:round;filter:drop-shadow(0 0 3px #2b4fd8);opacity:0;}
+   @keyframes webslingerPulse{0%,100%{opacity:.3}50%{opacity:.6}}
+   .ws-pulse{animation:webslingerPulse 2.4s ease-in-out infinite;}
+   @keyframes webslingerShotFire{0%,80%,100%{opacity:0}82%,90%{opacity:1}}
+   .ws-shot-1{animation:webslingerShotFire 3s infinite;}
+   .ws-shot-2{animation:webslingerShotFire 3s infinite 1s;}
+   .ws-shot-3{animation:webslingerShotFire 3s infinite 2s;}
+
+   /* Kryptonian Flight */
+   .kryptonian-glow-blue{fill:#3c5ce8;opacity:.22;filter:blur(6px);}
+   .kryptonian-glow-red{fill:#c8102e;opacity:.22;filter:blur(6px);}
+   .kryptonian-emblem{fill:#ffd23d;filter:drop-shadow(0 0 4px #ffb100) drop-shadow(0 0 8px #ffb100);transform-origin:65px 65px;animation:kryptonianPulse 2.2s ease-in-out infinite;}
+   @keyframes kryptonianPulse{0%,100%{transform:scale(1);opacity:.88}50%{transform:scale(1.12);opacity:1}}
+   .kryptonian-streak{stroke:#7db8ff;stroke-width:1.6;fill:none;stroke-linecap:round;filter:drop-shadow(0 0 3px #4f8dff);opacity:0;}
+   @keyframes kryptonianStreak{0%{opacity:0;stroke-dashoffset:40}15%{opacity:1}35%{opacity:0;stroke-dashoffset:0}100%{opacity:0}}
+   .k-streak-1{animation:kryptonianStreak 2.6s infinite;}
+   .k-streak-2{animation:kryptonianStreak 2.6s infinite .9s;}
+   .k-streak-3{animation:kryptonianStreak 2.6s infinite 1.8s;}
+
+   /* Dark Knight */
+   .darkknight-mist{fill:#4a3a63;opacity:.35;filter:blur(5px);animation:mistPulse 3.4s ease-in-out infinite;}
+   .bat-wing{fill:#141018;}
+   @keyframes batBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
+   .bat-bob{animation:batBob 2.4s ease-in-out infinite;}
+
+   /* Thunderstrike */
+   .storm-cloud{fill:#3a4257;opacity:.5;filter:blur(3px);}
+   .storm-bolt{fill:none;stroke:#eaf6ff;stroke-width:1.8;stroke-linejoin:round;filter:drop-shadow(0 0 4px #9fd3ff) drop-shadow(0 0 9px #6fb8ff);}
+   @keyframes stormBoltStrobe{0%,85%,100%{opacity:0}86%,90%{opacity:1}}
+   .storm-bolt-a{animation:stormBoltStrobe 2.6s infinite;}
+   .storm-bolt-b{animation:stormBoltStrobe 3.1s infinite .8s;}
+   .storm-bolt-c{animation:stormBoltStrobe 2.9s infinite 1.6s;}
+   .storm-flash{fill:#dceeff;opacity:0;}
+   @keyframes stormFlash{0%,84%,100%{opacity:0}85%,89%{opacity:.4}}
+   .storm-flash-anim{animation:stormFlash 2.6s infinite;}
+
    .profile-font-bangers{font-family:'Bangers',cursive!important;letter-spacing:1px;}
    .profile-font-luckiest{font-family:'Luckiest Guy',cursive!important;}
    .profile-font-marker{font-family:'Permanent Marker',cursive!important;}
@@ -4993,7 +5034,11 @@ Contact: fictionclash.app@gmail.com</div>
     { id:'voltage', name:'Voltage', category:'Mecha', rarity:'Epic', cost:90, fx:true },
     { id:'frostbite', name:'Frostbite', category:'Elemental', rarity:'Epic', cost:90, fx:true },
     { id:'bloodfang', name:'Bloodfang', category:'Gothic', rarity:'Legendary', cost:100, fx:true },
-    { id:'solar-orbit', name:'Solar Orbit', category:'Cosmic', rarity:'Legendary', cost:100, fx:true }
+    { id:'solar-orbit', name:'Solar Orbit', category:'Cosmic', rarity:'Legendary', cost:100, fx:true },
+    { id:'web-slinger', name:'Web-Slinger', category:'Heroes', rarity:'Epic', cost:90, fx:true },
+    { id:'kryptonian-flight', name:'Kryptonian Flight', category:'Heroes', rarity:'Legendary', cost:100, fx:true },
+    { id:'dark-knight', name:'Dark Knight', category:'Heroes', rarity:'Legendary', cost:100, fx:true },
+    { id:'thunderstrike', name:'Thunderstrike', category:'Elemental', rarity:'Epic', cost:90, fx:true }
   ];
   const PROFILE_FONTS = [
     { id:'bangers', name:'Bangers', category:'Comic', cls:'profile-font-bangers' },
@@ -5152,6 +5197,107 @@ Contact: fictionclash.app@gmail.com</div>
       return `<span class="profile-deco-fx" aria-hidden="true">
         <svg class="fx-back" viewBox="0 0 130 130">${orbitRings}</svg>
         <svg class="fx-front" viewBox="0 0 130 130">${bodies}</svg>
+      </span>`;
+    },
+    'web-slinger'(){
+      // Color-swapped, un-clipped cousin of Web Trap: red/blue instead of
+      // gothic black/white, plus three "shot" strands that fire past the
+      // rim (Web Trap deliberately stays inside the circle; this one
+      // bleeds outward like a sling in motion).
+      const CX = 65, CY = 65, SPOKES = 8, OUTER_R = 40;
+      const angles = Array.from({length: SPOKES}, (_, i) => (i / SPOKES) * 2 * Math.PI);
+      const spokes = angles.map(a =>
+        `<line class="webslinger-strand" x1="${CX}" y1="${CY}" x2="${(CX + OUTER_R * Math.cos(a)).toFixed(1)}" y2="${(CY + OUTER_R * Math.sin(a)).toFixed(1)}"/>`
+      ).join('');
+      const scallops = [12, 24, 34].map(r => {
+        const pts = angles.map(a => `${(CX + r * Math.cos(a)).toFixed(1)},${(CY + r * Math.sin(a)).toFixed(1)}`).join(' ');
+        return `<polygon class="webslinger-scallop" points="${pts}"/>`;
+      }).join('');
+      const shots = [angles[1], angles[4], angles[6]].map((a, i) =>
+        `<line class="webslinger-shot ws-shot-${i + 1}" x1="${(CX + OUTER_R * 0.8 * Math.cos(a)).toFixed(1)}" y1="${(CY + OUTER_R * 0.8 * Math.sin(a)).toFixed(1)}" x2="${(CX + 62 * Math.cos(a)).toFixed(1)}" y2="${(CY + 62 * Math.sin(a)).toFixed(1)}"/>`
+      ).join('');
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130"><circle class="webslinger-ring ws-pulse" cx="${CX}" cy="${CY}" r="41"/></svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <g>${spokes}</g>
+          <g>${scallops}</g>
+          <g>${shots}</g>
+        </svg>
+      </span>`;
+    },
+    'kryptonian-flight'(){
+      // Red/blue flight-trail streaks plus a generic pulsing heraldic
+      // diamond at the chest position — deliberately a plain rhombus
+      // rather than any specific crest, so it reads as "Kryptonian" in
+      // spirit without reproducing a trademarked emblem.
+      const streakPaths = [
+        'M20,50 C35,45 50,48 62,58',
+        'M108,42 C93,40 78,46 66,56',
+        'M30,95 C42,86 55,80 65,72'
+      ];
+      const streaks = streakPaths.map((d, i) => `<path class="kryptonian-streak k-streak-${i + 1}" d="${d}" stroke-dasharray="10 30"/>`).join('');
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130">
+          <ellipse class="kryptonian-glow-blue" cx="65" cy="48" rx="44" ry="30"/>
+          <ellipse class="kryptonian-glow-red" cx="65" cy="86" rx="44" ry="30"/>
+        </svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          ${streaks}
+          <path class="kryptonian-emblem" d="M65,50 L78,65 L65,80 L52,65 Z"/>
+        </svg>
+      </span>`;
+    },
+    'dark-knight'(uid){
+      // Two bat silhouettes on independent slow orbits (opposite
+      // directions, different periods so they never lock into sync) plus
+      // a spotlight wedge sweeping back and forth like a signal scanning
+      // the sky, and a low purple mist underneath.
+      const beamGrad = `darkknightBeam-${uid}`;
+      const bat = `<g class="bat-wing">
+          <ellipse cx="0" cy="0" rx="2.4" ry="4"/>
+          <path d="M0,-1 L-14,-6 L-6,1 L-11,5 L-2,3 Z"/>
+          <path d="M0,-1 L14,-6 L6,1 L11,5 L2,3 Z"/>
+        </g>`;
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130">
+          <defs>
+            <linearGradient id="${beamGrad}" x1="50%" y1="100%" x2="50%" y2="0%">
+              <stop offset="0%" stop-color="#ffdf82" stop-opacity="0.32"/>
+              <stop offset="100%" stop-color="#ffdf82" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <ellipse class="darkknight-mist" cx="65" cy="65" rx="46" ry="46"/>
+          <path fill="url(#${beamGrad})" d="M65,65 L40,4 L90,4 Z">
+            <animateTransform attributeName="transform" type="rotate" values="-35 65 65;35 65 65;-35 65 65" dur="6s" repeatCount="indefinite"/>
+          </path>
+        </svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <g>
+            <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 65 65" to="360 65 65" dur="14s" repeatCount="indefinite"/>
+            <g class="bat-bob" transform="translate(65,26)">${bat}</g>
+          </g>
+          <g>
+            <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="360 65 65" to="0 65 65" dur="18s" repeatCount="indefinite"/>
+            <g class="bat-bob" transform="translate(65,104) rotate(180)">${bat}</g>
+          </g>
+        </svg>
+      </span>`;
+    },
+    thunderstrike(){
+      // Storm-cousin of Voltage: same strobing zigzag-bolt technique, but
+      // with clouds, more branching bolts at varied angles, and an
+      // irregular whole-avatar flash synced loosely to the bolt timing.
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130">
+          <ellipse class="storm-cloud" cx="46" cy="26" rx="26" ry="12"/>
+          <ellipse class="storm-cloud" cx="84" cy="22" rx="22" ry="10"/>
+          <circle class="storm-flash storm-flash-anim" cx="65" cy="65" r="46"/>
+        </svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <path class="storm-bolt storm-bolt-a" d="M50,20 L60,45 L48,45 L66,80 L58,52 L70,52 Z"/>
+          <path class="storm-bolt storm-bolt-b" transform="rotate(150 65 65)" d="M52,18 L62,44 L50,44 L67,78 L59,50 L71,50 Z"/>
+          <path class="storm-bolt storm-bolt-c" transform="rotate(255 65 65)" d="M48,22 L58,46 L46,46 L64,79 L56,53 L68,53 Z"/>
+        </svg>
       </span>`;
     }
   };
