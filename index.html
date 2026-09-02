@@ -1268,9 +1268,17 @@
     .leaderboard-row.top1 .leaderboard-rank,
     .leaderboard-row.top2 .leaderboard-rank,
     .leaderboard-row.top3 .leaderboard-rank{ color:var(--ember); font-size:15px; }
-    .leaderboard-avatar{ width:36px; height:36px; border-radius:50%; flex-shrink:0; border:1.5px solid var(--line); }
+    .leaderboard-avatar{
+      width:36px; height:36px; border-radius:50%; flex-shrink:0; border:1.5px solid var(--line);
+      display:flex; align-items:center; justify-content:center; background:var(--ember);
+      color:#0A0806; font-size:12px; font-weight:800; overflow:hidden;
+    }
+    .leaderboard-avatar.has-decoration{position:relative;overflow:visible;}
+    .leaderboard-avatar .profile-deco{inset:-2px;}
+    .leaderboard-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }
     .leaderboard-info{ flex:1; min-width:0; }
-    .leaderboard-name{ font-size:12.5px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .leaderboard-name{ font-size:12.5px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; }
+    .leaderboard-name .verified-badge{ width:13px; height:13px; margin-left:3px; flex-shrink:0; }
     .leaderboard-sub{ font-size:10px; color:var(--muted); margin-top:1px; }
     .leaderboard-votes{
       font-family:'Martian Mono',monospace; font-size:11px; color:var(--muted);
@@ -1520,103 +1528,6 @@
     <p class="movies-intro">Share your take and join the conversation around the moments that stay with you.</p>
 
     <div id="clipFeed">
-      <article class="clip-card" data-clip-id="featured">
-        <div class="clip-thumb" data-video-type="youtube" data-video-src="R2VIfF0ppt0" style="background-image:url('https://img.youtube.com/vi/R2VIfF0ppt0/hqdefault.jpg')">
-          <button type="button" class="clip-play-btn" aria-label="Play video">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          </button>
-        </div>
-        <h3>What makes a great opening shot?</h3>
-        <p class="clip-review">The first few seconds tell you everything: the pace, the mood, and the kind of story you're about to enter.</p>
-        <div class="clip-meta"><span>Posted by Maya</span><button type="button" class="clip-delete-btn" data-hide-clip="featured">Hide</button></div>
-        <div class="social-row">
-          <button class="social-btn like-btn" type="button" aria-label="Like this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
-            <span class="like-count">0</span>
-          </button>
-          <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-            <span>Share</span>
-          </button>
-        </div>
-        <div class="comments-title">Conversation</div>
-        <div class="hero-comments-list">
-          <div class="comment">
-            <div class="comment-avatar">JD</div>
-            <div class="comment-body"><b>Jordan</b><span>The sound design is doing so much work here. That transition is perfect.</span></div>
-          </div>
-          <div class="comment">
-            <div class="comment-avatar">AM</div>
-            <div class="comment-body"><b>Amara</b><span>Agreed. It creates tension before anyone even says a word.</span></div>
-          </div>
-        </div>
-        <form class="comment-form" data-comments-for="featured">
-          <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
-          <button type="submit">POST</button>
-        </form>
-      </article>
-      <article class="clip-card" data-clip-id="hallway">
-        <div class="clip-thumb" data-video-type="file" data-video-src="">
-          <button type="button" class="clip-play-btn" aria-label="Play video">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          </button>
-        </div>
-        <h3>The hallway fight, one continuous take</h3>
-        <p class="clip-review">No cuts, no shortcuts. You feel every hit land because the camera never lets you look away.</p>
-        <div class="clip-meta"><span>Posted by Tobi</span><button type="button" class="clip-delete-btn" data-hide-clip="hallway">Hide</button></div>
-        <div class="social-row">
-          <button class="social-btn like-btn" type="button" aria-label="Like this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
-            <span class="like-count">0</span>
-          </button>
-          <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-            <span>Share</span>
-          </button>
-        </div>
-        <div class="comments-title">Conversation</div>
-        <div class="hero-comments-list">
-          <div class="comment">
-            <div class="comment-avatar">CN</div>
-            <div class="comment-body"><b>Chinedu</b><span>The choreography holds up even on a rewatch. Insane stunt work.</span></div>
-          </div>
-        </div>
-        <form class="comment-form" data-comments-for="hallway">
-          <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
-          <button type="submit">POST</button>
-        </form>
-      </article>
-      <article class="clip-card" data-clip-id="twist">
-        <div class="clip-thumb" data-video-type="file" data-video-src="">
-          <button type="button" class="clip-play-btn" aria-label="Play video">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          </button>
-        </div>
-        <h3>That twist reveal, frame by frame</h3>
-        <p class="clip-review">Rewatch it once you know the ending — the clues were there the whole time, hidden in plain sight.</p>
-        <div class="clip-meta"><span>Posted by Sarah</span><button type="button" class="clip-delete-btn" data-hide-clip="twist">Hide</button></div>
-        <div class="social-row">
-          <button class="social-btn like-btn" type="button" aria-label="Like this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
-            <span class="like-count">0</span>
-          </button>
-          <button class="social-btn share-btn" type="button" aria-label="Share this clip">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-            <span>Share</span>
-          </button>
-        </div>
-        <div class="comments-title">Conversation</div>
-        <div class="hero-comments-list">
-          <div class="comment">
-            <div class="comment-avatar">BJ</div>
-            <div class="comment-body"><b>Bola</b><span>Second watch hits completely different. Every glance means something.</span></div>
-          </div>
-        </div>
-        <form class="comment-form" data-comments-for="twist">
-          <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
-          <button type="submit">POST</button>
-        </form>
-      </article>
     </div>
   </section>
 
@@ -2002,7 +1913,7 @@
   <div class="modal-overlay" id="leaderboardOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Clash Leaderboard</div>
-      <div class="modal-sub">Ranked by total votes across all live matchups.</div>
+      <div class="modal-sub">Top players, ranked by total XP.</div>
       <div class="leaderboard-list" id="leaderboardList"></div>
       <button class="modal-close" id="leaderboardClose">Close</button>
     </div>
@@ -2199,7 +2110,7 @@ Contact: fictionclash.app@gmail.com</div>
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
     doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, arrayUnion, runTransaction, collection, onSnapshot,
-    query, where, orderBy, serverTimestamp, Timestamp
+    query, where, orderBy, limit, serverTimestamp, Timestamp
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   const auth = window.firebaseAuth;
@@ -2374,12 +2285,11 @@ Contact: fictionclash.app@gmail.com</div>
     applyGlobalHiddenBuiltins();
   }, err => console.error('Hidden-builtins listener failed', err));
 
-  const matchups = [
-    { a:{name:'Gojo Satoru', sub:'Jujutsu Kaisen', hint:'Jujutsu Kaisen', initials:'GJ'}, b:{name:'Saitama', sub:'One Punch Man', hint:'One Punch Man', initials:'SR'}, votesA:7070, votesB:5333 },
-    { a:{name:'Goku', sub:'Dragon Ball', hint:'Dragon Ball', initials:'GK'}, b:{name:'Naruto', sub:'Naruto', hint:'Naruto', initials:'NR'}, votesA:5015, votesB:3906 },
-    { a:{name:'Thanos', sub:'Marvel', hint:'Marvel', initials:'TA'}, b:{name:'Batman', sub:'DC', hint:'DC', initials:'BM'}, votesA:3868, votesB:2472 },
-    { a:{name:'Levi Ackerman', sub:'Attack on Titan', hint:'Attack on Titan', initials:'LE'}, b:{name:'John Wick', sub:'John Wick', hint:'John Wick', initials:'JW'}, votesA:2678, votesB:2424 }
-  ];
+  // No hardcoded seed matchups anymore — every matchup shown comes from
+  // the 'matchups' Firestore collection via the onSnapshot listener below.
+  // Starts empty; renderHero() and renderTrendScroll() both handle the
+  // zero-matchups case until the first one streams in.
+  const matchups = [];
   let activeIdx = 0;
   const VOTED_STATE_KEY = 'fictionClashVotedState';
   const VOTE_DELTA_KEY = 'fictionClashVoteDeltas'; // extra votes this browser cast on built-in (non-Firestore) matchups
@@ -2633,6 +2543,16 @@ Contact: fictionclash.app@gmail.com</div>
 
   function renderHero(){
     const m = matchups[activeIdx];
+    const heroCardWrapper = document.getElementById('heroCard');
+    if (!m) {
+      // No matchups yet (fresh install, or Firestore hasn't synced its
+      // first one in) — hide the hero card instead of crashing on
+      // undefined character data. renderHero() runs again automatically
+      // once a matchup streams in (see the matchups onSnapshot handler).
+      if (heroCardWrapper) heroCardWrapper.hidden = true;
+      return;
+    }
+    if (heroCardWrapper) heroCardWrapper.hidden = false;
     setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
     setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
     renderHeroCharacterCosmetics();
@@ -3316,38 +3236,56 @@ Contact: fictionclash.app@gmail.com</div>
   const leaderboardList = document.getElementById('leaderboardList');
   const leaderboardClose = document.getElementById('leaderboardClose');
 
-  function buildLeaderboardData(){
-    const totals = {};
-    matchups.forEach(m => {
-      [[m.a, m.votesA], [m.b, m.votesB]].forEach(([char, votes]) => {
-        const key = charLabel(char); // different versions rank separately
-        if (!totals[key]) totals[key] = { name: char.name, version: char.version, hint: char.hint, label: key, sub: char.sub, initials: char.initials, votes: 0 };
-        totals[key].votes += votes;
-      });
-    });
-    return Object.values(totals).sort((x, y) => y.votes - x.votes);
+  // Top players by cumulative XP (users.xp — awarded server-side via
+  // /api/vote and /api/comment, see /api/lib/xp.js). Firestore rules make
+  // users/{uid} publicly readable, so a straight orderBy('xp','desc')
+  // query works without any extra grants.
+  async function fetchTopUsers(){
+    const snap = await getDocs(
+      query(collection(db, 'users'), orderBy('xp', 'desc'), limit(50))
+    );
+    return snap.docs
+      .map(d => ({ uid: d.id, ...d.data() }))
+      .filter(u => (u.xp || 0) > 0);
   }
 
-  function renderLeaderboard(){
-    const ranked = buildLeaderboardData();
+  async function renderLeaderboard(){
+    let ranked;
+    try {
+      ranked = await fetchTopUsers();
+    } catch (err) {
+      console.error('Leaderboard fetch failed:', err);
+      leaderboardList.innerHTML = `<div class="leaderboard-loading">Couldn't load the leaderboard — try again in a moment.</div>`;
+      return;
+    }
+
+    if (!ranked.length) {
+      leaderboardList.innerHTML = `<div class="leaderboard-loading">No ranked players yet — be the first to earn XP!</div>`;
+      return;
+    }
+
     const medals = ['🥇','🥈','🥉'];
     leaderboardList.innerHTML = ranked.map((entry, index) => `
       <div class="leaderboard-row ${index < 3 ? 'top' + (index + 1) : ''}">
         <div class="leaderboard-rank">${medals[index] || (index + 1)}</div>
-        <img class="leaderboard-avatar" data-char-photo="${escapeHtml(entry.name)}" data-char-hint="${escapeHtml(entry.hint || '')}" data-char-version="${escapeHtml(entry.version || '')}" src="${avatarUrl(entry.name, entry.initials)}" alt="">
+        <div class="leaderboard-avatar" data-uid="${escapeHtml(entry.uid)}">${commentAvatarHtml(entry.name || 'User', entry.avatarUrl)}</div>
         <div class="leaderboard-info">
-          <div class="leaderboard-name">${escapeHtml(entry.label)}</div>
-          <div class="leaderboard-sub">${escapeHtml(entry.sub)}</div>
+          <div class="leaderboard-name">${escapeHtml(entry.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></div>
         </div>
-        <div class="leaderboard-votes">${entry.votes.toLocaleString()}<br>votes</div>
+        <div class="leaderboard-votes">${(entry.xp || 0).toLocaleString()}<br>xp</div>
       </div>`).join('');
-    hydrateCharacterPhotos(leaderboardList);
+
+    leaderboardList.querySelectorAll('.leaderboard-row').forEach((row, index) => {
+      const entry = ranked[index];
+      attachVerifiedBadge(row.querySelector('.verified-badge'), entry.uid);
+      attachDecoration(row.querySelector('.leaderboard-avatar'), entry.uid);
+    });
   }
 
   document.getElementById('qaLeaderboard').addEventListener('click', () => {
     leaderboardOverlay.classList.add('show');
     leaderboardList.innerHTML = `<div class="leaderboard-loading"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--ember);"></span>Loading rankings…</div>`;
-    setTimeout(renderLeaderboard, 500);
+    renderLeaderboard();
   });
   leaderboardClose.addEventListener('click', () => leaderboardOverlay.classList.remove('show'));
   leaderboardOverlay.addEventListener('click', event => {
@@ -3515,6 +3453,7 @@ Contact: fictionclash.app@gmail.com</div>
   onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
     let listChanged = false;
     let heroNeedsRefresh = false;
+    const wasEmpty = matchups.length === 0;
     snapshot.docChanges().forEach(change => {
       const docSnap = change.doc;
       if (change.type === 'removed') {
@@ -3554,7 +3493,10 @@ Contact: fictionclash.app@gmail.com</div>
     });
     matchupsSynced = true;
     if (listChanged) { renderTrendScroll(); refreshCharacterSuggestions(); }
-    if (heroNeedsRefresh) renderHero();
+    // wasEmpty case covers going from zero matchups (no hardcoded seed
+    // data anymore) to the first one ever streaming in — heroNeedsRefresh
+    // alone only catches the 'removed' path above.
+    if (heroNeedsRefresh || (wasEmpty && matchups.length > 0)) renderHero();
     tryOpenSharedMatchup();
   }, err => console.error('Matchup listener failed', err));
 
@@ -4249,7 +4191,10 @@ Contact: fictionclash.app@gmail.com</div>
   // "Hide" only affects this browser — it removes the card locally and
   // remembers the choice in localStorage, but never touches Firestore, so
   // the clip stays fully visible to everyone else.
-  const BUILT_IN_CLIP_IDS = new Set(['featured', 'hallway', 'twist']); // no Firestore doc — can only ever be hidden locally
+  // No hardcoded clips exist anymore (every clip has a real Firestore doc),
+  // so this stays empty — kept only so the admin-delete branch below still
+  // has somewhere to check, in case built-ins ever come back.
+  const BUILT_IN_CLIP_IDS = new Set();
   clipFeed.addEventListener('click', event => {
     const btn = event.target.closest('[data-hide-clip]');
     if (!btn) return;
