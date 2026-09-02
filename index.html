@@ -1779,6 +1779,14 @@
       <p>Reported uploads awaiting review.</p>
       <div id="adminReportsList"></div>
     </div>
+    <div class="account-card hidden" id="adminModerationCard">
+      <h3>Pending matchups</h3>
+      <p>Fan-submitted matchups awaiting review.</p>
+      <div id="pendingMatchupsList"></div>
+      <h3 style="margin-top:18px;">Pending clips</h3>
+      <p>Fan-submitted clips awaiting review.</p>
+      <div id="pendingClipsList"></div>
+    </div>
   </section>
   </div>
 
@@ -1927,7 +1935,7 @@
       <div class="file-name" id="clipFileName">Paste a YouTube Shorts link for best results</div>
       <input class="clip-field" id="clipTitle" type="text" placeholder="Scene title e.g. The final hallway shot">
       <textarea class="clip-field" id="clipReview" placeholder="Write a short review or tell us what makes this scene work..."></textarea>
-      <button class="clip-submit" id="publishClip">PUBLISH CLIP &amp; REVIEW</button>
+      <button class="clip-submit" id="publishClip">SUBMIT CLIP &amp; REVIEW</button>
       <button class="modal-close" id="clipUploaderClose">Close</button>
     </div>
   </div>
@@ -1958,8 +1966,8 @@
         </div>
       </div>
       <datalist id="characterSuggestions"></datalist>
-      <button class="modal-submit" id="submitMatchupBtn" type="button">Post Matchup</button>
-      <p class="submit-note">Posts go live immediately in this demo. Once there's a backend, route new submissions through a review queue before they're public.</p>
+      <button class="modal-submit" id="submitMatchupBtn" type="button">Submit Matchup</button>
+      <p class="submit-note">Submissions are reviewed before they go live — you'll see it on the board once it's approved.</p>
       <button class="modal-close" id="submitClose">Close</button>
     </div>
   </div>
@@ -2986,6 +2994,97 @@ Contact: fictionclash.app@gmail.com</div>
     }
   });
 
+  // ---------- admin: review pending matchups & clips ----------
+  const adminModerationCard = document.getElementById('adminModerationCard');
+  const pendingMatchupsList = document.getElementById('pendingMatchupsList');
+  const pendingClipsList = document.getElementById('pendingClipsList');
+  function updateModerationCardVisibility(){
+    adminModerationCard.classList.toggle('hidden', !isAdmin());
+  }
+  function renderPendingMatchups(snapshot){
+    updateModerationCardVisibility();
+    const rows = [];
+    snapshot.forEach(docSnap => rows.push({ id: docSnap.id, ...docSnap.data() }));
+    pendingMatchupsList.innerHTML = rows.length ? rows.map(item => `
+      <div class="admin-report-row" data-doc-id="${item.id}">
+        <div class="admin-report-info">
+          <b>${escapeHtml(charLabel(item.a))} vs ${escapeHtml(charLabel(item.b))}</b>
+          <span>submitted by ${escapeHtml(item.submittedByName || 'unknown')}</span>
+        </div>
+        <div class="admin-report-actions">
+          <button data-action="reject" class="danger">Reject</button>
+          <button data-action="approve">Approve</button>
+        </div>
+      </div>`).join('') : `<p style="font-size:11px;color:var(--muted);">Nothing pending.</p>`;
+  }
+  function renderPendingClips(snapshot){
+    updateModerationCardVisibility();
+    const rows = [];
+    snapshot.forEach(docSnap => rows.push({ id: docSnap.id, ...docSnap.data() }));
+    pendingClipsList.innerHTML = rows.length ? rows.map(item => `
+      <div class="admin-report-row" data-doc-id="${item.id}">
+        <div class="admin-report-info">
+          <b>${escapeHtml(item.title)}</b>
+          <span>by ${escapeHtml(item.postedByName || 'unknown')} · ${escapeHtml(item.videoPlatform)}</span>
+        </div>
+        <div class="admin-report-actions">
+          <button data-action="reject" class="danger">Reject</button>
+          <button data-action="approve">Approve</button>
+        </div>
+      </div>`).join('') : `<p style="font-size:11px;color:var(--muted);">Nothing pending.</p>`;
+  }
+  // Approve/reject both go through /api/moderate (Admin SDK) rather than
+  // touching Firestore directly — the client can't write to `matchups` or
+  // `movieClips` at all anymore (see rules), and can't be trusted to
+  // delete its own way out of the pending queue either, since anyone with
+  // devtools open could otherwise "moderate" their own submission in.
+  async function moderatePending(type, pendingId, action, btn){
+    const user = auth.currentUser;
+    if (!user) return;
+    btn.disabled = true;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/moderate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ type, pendingId, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Moderation action failed');
+    } catch (err) {
+      console.error('Moderation action failed', err);
+      showToast('Could not complete that action — try again');
+      btn.disabled = false;
+    }
+  }
+  pendingMatchupsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const docId = btn.closest('.admin-report-row').dataset.docId;
+    moderatePending('matchup', docId, btn.dataset.action, btn);
+  });
+  pendingClipsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const docId = btn.closest('.admin-report-row').dataset.docId;
+    moderatePending('clip', docId, btn.dataset.action, btn);
+  });
+  let unsubPendingMatchups = null;
+  let unsubPendingClips = null;
+  // Only the admin account can ever read these collections (see rules) —
+  // an unfiltered query from anyone else would get rejected outright,
+  // since Firestore can't guarantee a per-document "is this my own
+  // submission" rule holds across a whole collection listener. So these
+  // listeners are only ever attached for the admin account, from
+  // onAuthStateChanged below, and detached the moment that's no longer true.
+  function refreshModerationListeners(){
+    if (unsubPendingMatchups) { unsubPendingMatchups(); unsubPendingMatchups = null; }
+    if (unsubPendingClips) { unsubPendingClips(); unsubPendingClips = null; }
+    if (!isAdmin()) { updateModerationCardVisibility(); return; }
+    unsubPendingMatchups = onSnapshot(query(collection(db, 'pendingMatchups'), orderBy('createdAt', 'asc')), renderPendingMatchups, err => console.error('Pending matchups listener failed', err));
+    unsubPendingClips = onSnapshot(query(collection(db, 'pendingClips'), orderBy('createdAt', 'asc')), renderPendingClips, err => console.error('Pending clips listener failed', err));
+  }
+
   charAvatarFile.addEventListener('change', () => {
     const file = charAvatarFile.files[0];
     if (!file || !pendingAvatarChar) { charAvatarFile.value = ''; return; }
@@ -3400,47 +3499,39 @@ Contact: fictionclash.app@gmail.com</div>
       submitOverlay.classList.remove('show');
       return;
     }
-    withSpinner(submitMatchupBtn, 'POSTING…', () => {
+    withSpinner(submitMatchupBtn, 'SUBMITTING…', () => {
       // `sourceA`/`sourceB` (an optional franchise/source label like
       // "Marvel" or "DC") is purely a display detail now — it's combined
       // with the version into `sub`, shown under the character's name.
       // It no longer feeds any lookup since avatars are upload-only.
       const subA = [versionA, sourceA].filter(Boolean).join(' · ') || 'Fan Submission';
       const subB = [versionB, sourceB].filter(Boolean).join(' · ') || 'Fan Submission';
+      const identity = currentUserIdentity();
+      if (!identity) { requireSignIn('Sign in to submit a matchup'); return; }
       const newMatchup = {
         a: { name: nameA, version: versionA, sub: subA, initials: initialsFor(nameA) },
         b: { name: nameB, version: versionB, sub: subB, initials: initialsFor(nameB) },
-        votesA: 0, votesB: 0, community: true
+        votesA: 0, votesB: 0, community: true,
+        submittedBy: identity.uid, submittedByName: identity.name,
       };
       // Apply any photos picked in the submit form the same way the
       // hero-card camera icon does — instant local paint, then a
       // compressed copy synced to Firestore so it shows up everywhere.
+      // Avatars are shown regardless of moderation status since they're a
+      // shared per-character resource, not tied to this specific matchup.
       if (pendingSubmitAvatarA) setCharacterAvatarOverride(nameA, versionA, pendingSubmitAvatarA.dataUrl, pendingSubmitAvatarA.file);
       if (pendingSubmitAvatarB) setCharacterAvatarOverride(nameB, versionB, pendingSubmitAvatarB.dataUrl, pendingSubmitAvatarB.file);
-      matchups.push(newMatchup);
-      activeIdx = matchups.length - 1;
-      renderTrendScroll();
-      renderHero();
-      refreshCharacterSuggestions();
       submitOverlay.classList.remove('show');
-      document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
-      showToast(`${charLabel(matchups[activeIdx].a)} vs ${charLabel(matchups[activeIdx].b)} is live!`);
-      // Persist to Firestore in the background so this matchup shows up
-      // for everyone else too. The optimistic push above already updated
-      // this browser's UI; the onSnapshot listener below will skip this
-      // matchup when it echoes back (matched by character/version key).
-      // Firestore's TTL policy (set up on the "matchups" collection for the
-      // expiresAt field, in the console) auto-deletes the doc once this
-      // timestamp passes — so community matchups clean themselves up
-      // 30 days after being posted.
-      const MATCHUP_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
-      addDoc(collection(db, 'matchups'), {
+      // Goes to a review queue, not straight onto the public matchups list
+      // (that collection now rejects direct client writes — see rules).
+      // An admin approves/rejects from the moderation panel in Account,
+      // which is what actually creates the live "matchups" doc.
+      addDoc(collection(db, 'pendingMatchups'), {
         ...newMatchup,
-        createdAt: serverTimestamp(),
-        expiresAt: Timestamp.fromMillis(Date.now() + MATCHUP_LIFETIME_MS)
+        createdAt: serverTimestamp()
       })
-        .then(() => sendOneSignalPush('New matchup', `${newMatchup.a.name} vs ${newMatchup.b.name}`))
-        .catch(err => { console.error('Matchup sync failed', err); showToast('Posted here, but sync to other browsers failed'); });
+        .then(() => showToast(`${charLabel(newMatchup.a)} vs ${charLabel(newMatchup.b)} submitted — pending review`))
+        .catch(err => { console.error('Matchup submission failed', err); showToast('Could not submit that matchup — try again'); });
     }, 700);
   });
 
@@ -4114,18 +4205,15 @@ Contact: fictionclash.app@gmail.com</div>
     }
     const identity = currentUserIdentity();
     if (!identity) { requireSignIn('Sign in to post a clip'); return; }
-    withSpinner(publishClip, 'POSTING…', () => {
-      // No file upload involved — just the video ID/platform — so this
-      // works on Firebase's free Spark plan (no Blaze billing needed).
-      // expiresAt mirrors the matchups collection's 30-day TTL — set up
-      // the same TTL policy in Firebase console on movieClips.expiresAt
-      // and clips will auto-delete themselves after 30 days too.
-      const CLIP_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
-      addDoc(collection(db, 'movieClips'), {
+    withSpinner(publishClip, 'SUBMITTING…', () => {
+      // Goes to a review queue, not straight onto the public movieClips
+      // list (that collection now rejects direct client writes — see
+      // rules). An admin approves/rejects from the moderation panel in
+      // Account, which is what actually creates the live "movieClips" doc.
+      addDoc(collection(db, 'pendingClips'), {
         title, review, videoPlatform: parsed.platform, videoId: parsed.id, isShort: !!parsed.isShort,
         postedByUid: identity.uid, postedByName: identity.name, postedByAvatar: identity.avatarUrl,
-        createdAt: serverTimestamp(),
-        expiresAt: Timestamp.fromMillis(Date.now() + CLIP_LIFETIME_MS)
+        createdAt: serverTimestamp()
       })
         .then(() => {
           clipYoutubeUrl.value = '';
@@ -4133,12 +4221,11 @@ Contact: fictionclash.app@gmail.com</div>
           clipTitle.value = '';
           clipReview.value = '';
           clipUploaderOverlay.classList.remove('show');
-          showToast('Clip published');
-          sendOneSignalPush('New clip posted', title);
+          showToast('Clip submitted — pending review');
         })
         .catch(err => {
-          console.error('Clip post failed', err);
-          showToast('Could not post that clip — check your connection and try again');
+          console.error('Clip submission failed', err);
+          showToast('Could not submit that clip — check your connection and try again');
         });
     }, 500);
   });
@@ -5518,6 +5605,7 @@ Contact: fictionclash.app@gmail.com</div>
       loadCloudProfile(user.uid); // overwrites the above with synced data, if any exists
       renderAllLikeButtons(); // this account's like state may differ from the previous one's
       getDocs(collection(db, 'characterAvatars')).then(renderAdminReports).catch(() => {}); // admin card may now apply
+      refreshModerationListeners(); // admin's pending queues, if this is the admin account
       refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
     } else {
       lastSignedInUid = null;
@@ -5545,6 +5633,7 @@ Contact: fictionclash.app@gmail.com</div>
       closeAccountDropdown();
       renderAllLikeButtons(); // signed out — nothing should show as "liked" now
       refreshAiFeatsCreditsDisplay(); // back to "sign in to use AI feat checks"
+      refreshModerationListeners(); // detaches the admin queue listeners (isAdmin() is now false)
     }
   });
 
