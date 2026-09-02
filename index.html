@@ -726,6 +726,14 @@
    .profile-deco-fx-web{position:absolute;inset:0;border-radius:50%;overflow:hidden;pointer-events:none;z-index:5;}
    .profile-deco-fx-web svg{position:absolute;inset:0;width:100%;height:100%;}
 
+   /* Canvas-particle FX (real-flame, air-elemental, overdrive-aura,
+      toxic-bloom, spirit-portal, skeletal-reaper, dragon-balls, star-struck)
+      — same wraparound sizing convention as .profile-deco-fx above, but the
+      effect is drawn frame-by-frame onto a <canvas> by AvatarEffect instead
+      of animated SVG. */
+   .profile-deco-canvas{position:absolute;inset:-32%;pointer-events:none;z-index:1;}
+   .profile-deco-canvas canvas{position:absolute;inset:0;width:100%;height:100%;}
+
    /* Hellflame */
    .tongue-back{fill:#ff3b1f;opacity:.55;filter:blur(3px);}
    .tongue-front{filter:drop-shadow(0 0 3px #ff9d00);}
@@ -5012,6 +5020,450 @@ Contact: fictionclash.app@gmail.com</div>
   // are different states, so absence and 'none' can't be collapsed into one.
   let characterDecorations = {};
 
+  // ---------- canvas-based avatar FX effects ----------
+  // Ported verbatim from avatar-effects-canvas-preview.html (the standalone
+  // particle-physics preview) — the AvatarEffect class itself is unchanged.
+  // Each instance owns one <canvas> and joins a single shared
+  // requestAnimationFrame loop (AvatarEffect._globalTick) so having many
+  // decorated avatars on screen at once (feed, comments, store grid) still
+  // costs only one rAF callback, not one per avatar.
+  class AvatarEffect {
+    static instances = new Set();
+    static rafId = null;
+    static lastTime = 0;
+
+    static _globalTick(timestamp) {
+      if (!AvatarEffect.lastTime) AvatarEffect.lastTime = timestamp;
+      const dt = Math.min((timestamp - AvatarEffect.lastTime) / 1000, 0.1);
+      AvatarEffect.lastTime = timestamp;
+
+      for (const instance of AvatarEffect.instances) {
+        if (instance.active) {
+          instance._update(dt);
+          instance._draw();
+        }
+      }
+
+      if (AvatarEffect.instances.size > 0) {
+        AvatarEffect.rafId = requestAnimationFrame(AvatarEffect._globalTick);
+      } else {
+        AvatarEffect.rafId = null;
+      }
+    }
+
+    constructor(canvas, type, options = {}) {
+      this.canvas = canvas;
+      this.ctx = canvas.getContext('2d');
+      this.type = type;
+      this.active = true;
+
+      this.width = canvas.width || 80;
+      this.height = canvas.height || 80;
+      this.center = { x: this.width / 2, y: this.height / 2 };
+      // sized so effects sit right at (and slightly overlap) the avatar edge, like Discord's own decorations
+      this.radius = options.radius || Math.min(this.width, this.height) * 0.32;
+
+      this.maxParticles = options.maxParticles || 26;
+      this.particles = [];
+      this.time = Math.random() * 10;
+      this._initParticles();
+
+      AvatarEffect.instances.add(this);
+      if (!AvatarEffect.rafId) {
+        AvatarEffect.lastTime = performance.now();
+        AvatarEffect.rafId = requestAnimationFrame(AvatarEffect._globalTick);
+      }
+    }
+
+    _initParticles() {
+      for (let i = 0; i < this.maxParticles; i++) {
+        const p = this._createParticle(i);
+        if (Number.isFinite(p.maxAge)) p.age = Math.random() * p.maxAge;
+        this.particles.push(p);
+      }
+    }
+
+    // ---------- particle creation ----------
+    _createParticle(index) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = this.radius + (Math.random() - 0.5) * 4;
+      const x = this.center.x + Math.cos(angle) * r;
+      const y = this.center.y + Math.sin(angle) * r;
+
+      switch (this.type) {
+        case 'flame': {
+          // emitted all the way around the ring — real fire boils up from every side and gathers/overlaps toward the top
+          const fa = Math.random() * Math.PI * 2;
+          const fx = this.center.x + Math.cos(fa) * this.radius;
+          const fy = this.center.y + Math.sin(fa) * this.radius;
+          const outwardSpeed = 1.5 + Math.random() * 2.5;
+          const vx = Math.cos(fa) * outwardSpeed + (Math.random() - 0.5) * 3;
+          const vy = -(10 + Math.random() * 14) + Math.sin(fa) * 2;
+          return { x: fx, y: fy, vx, vy, size: 5 + Math.random() * 6, maxAge: 0.6 + Math.random() * 0.55, age: 0,
+            swirl: (Math.random() - 0.5) * 16, flickerSeed: Math.random() * Math.PI * 2, flickerFreq: 9 + Math.random() * 8 };
+        }
+        case 'air': {
+          const angularSpeed = (0.6 + Math.random() * 0.5) * (Math.random() > 0.5 ? 1 : -1);
+          return { angle, angularSpeed, baseRadius: this.radius + (Math.random() - 0.5) * 10,
+            wobbleAmp: 4 + Math.random() * 5, wobbleFreq: 2 + Math.random() * 2, wobblePhase: Math.random() * Math.PI * 2,
+            streak: 8 + Math.random() * 10, size: 1 + Math.random(), maxAge: 1 + Math.random() * 1.2, age: 0,
+            prevX: x, prevY: y, x, y };
+        }
+        case 'energy': {
+          const isBolt = Math.random() > 0.85;
+          if (isBolt) {
+            const pts = [];
+            const steps = 4;
+            for (let i = 0; i <= steps; i++) {
+              const rr = (this.radius * i) / steps;
+              pts.push({ x: this.center.x + Math.cos(angle) * rr + (Math.random() - 0.5) * 6, y: this.center.y + Math.sin(angle) * rr + (Math.random() - 0.5) * 6 });
+            }
+            return { subType: 'bolt', points: pts, maxAge: 0.12 + Math.random() * 0.1, age: 0, x, y };
+          }
+          const outwardSpeed = 14 + Math.random() * 16;
+          return { subType: 'spark', x, y, vx: Math.cos(angle) * outwardSpeed, vy: Math.sin(angle) * outwardSpeed,
+            size: 1.5 + Math.random() * 2.5, maxAge: 0.25 + Math.random() * 0.35, age: 0 };
+        }
+        case 'toxic': {
+          const isDrip = Math.random() > 0.75;
+          return { subType: isDrip ? 'drip' : 'bubble', x, y,
+            vx: (Math.random() - 0.5) * 3, vy: isDrip ? 10 + Math.random() * 8 : -(6 + Math.random() * 8),
+            wobbleFreq: 3 + Math.random() * 2, wobblePhase: Math.random() * Math.PI * 2,
+            size: isDrip ? 2 + Math.random() * 2 : 2.5 + Math.random() * 3.5, maxAge: 0.8 + Math.random() * 0.8, age: 0 };
+        }
+        case 'portal': {
+          return { angle, angularSpeed: 2 + Math.random() * 2, startRadius: this.radius + Math.random() * 6,
+            size: 1.5 + Math.random() * 2, maxAge: 0.9 + Math.random() * 0.6, age: 0, x, y };
+        }
+        case 'reaper': {
+          const orbitSpeed = (0.35 + Math.random() * 0.3) * (Math.random() > 0.5 ? 1 : -1);
+          return { subType: 'skull', angle, orbitSpeed, orbitRadius: this.radius + (Math.random() - 0.5) * 8,
+            bobPhase: Math.random() * Math.PI * 2, bobFreq: 0.8 + Math.random() * 0.8, bobAmp: 2.5 + Math.random() * 3,
+            size: 5 + Math.random() * 3.5, maxAge: 2.4 + Math.random() * 2, age: 0, x, y };
+        }
+        case 'dragonballs': {
+          const idx = (typeof index === 'number') ? index : Math.floor(Math.random() * 7);
+          const baseAngle = (idx / 7) * Math.PI * 2;
+          const orbitRadius = this.radius * (1.08 + (idx % 2 === 0 ? 0.06 : -0.05));
+          return { subType: 'ball', angle: baseAngle, orbitSpeed: 0.45 + (idx % 3) * 0.05,
+            orbitRadius, bobPhase: idx * 0.9, bobAmp: 2 + (idx % 3), size: 7,
+            starCount: idx + 1, age: 0, maxAge: Infinity, x, y };
+        }
+        case 'star_struck': {
+          const isCloud = Math.random() > 0.7;
+          if (isCloud) {
+            return { subType: 'cloud', angle, angularSpeed: 0.05 + Math.random() * 0.05,
+              orbitRadius: this.radius * (1.1 + Math.random() * 0.12), size: 5 + Math.random() * 4,
+              wobblePhase: Math.random() * Math.PI * 2, age: 0, maxAge: Infinity, x, y };
+          }
+          return { subType: 'star', angle, orbitRadius: this.radius * (0.75 + Math.random() * 0.45),
+            size: 1 + Math.random() * 1.4, twinklePhase: Math.random() * Math.PI * 2,
+            twinkleFreq: 2 + Math.random() * 3, age: 0, maxAge: Infinity, x, y };
+        }
+        default:
+          return { x, y, vx: 0, vy: 0, size: 3, maxAge: 1, age: 0 };
+      }
+    }
+
+    // ---------- physics update ----------
+    _update(dt) {
+      this.time += dt;
+      for (let i = 0; i < this.particles.length; i++) {
+        const p = this.particles[i];
+        p.age += dt;
+        if (p.age >= p.maxAge) { this.particles[i] = this._createParticle(); continue; }
+
+        switch (this.type) {
+          case 'flame':
+            p.vy -= 14 * dt; // buoyancy — accelerates upward as it rises, like real convective fire
+            p.x += (p.vx + Math.sin(p.age * 7 + p.flickerSeed) * (p.swirl * 0.5)) * dt;
+            p.y += p.vy * dt;
+            break;
+          case 'air': {
+            p.prevX = p.x; p.prevY = p.y;
+            p.angle += p.angularSpeed * dt;
+            const r = p.baseRadius + Math.sin(p.age * p.wobbleFreq + p.wobblePhase) * p.wobbleAmp;
+            p.x = this.center.x + Math.cos(p.angle) * r;
+            p.y = this.center.y + Math.sin(p.angle) * r;
+            break;
+          }
+          case 'energy':
+            if (p.subType === 'spark') { p.vx *= 0.9; p.vy *= 0.9; p.x += p.vx * dt; p.y += p.vy * dt; }
+            break;
+          case 'toxic':
+            p.x += (p.vx + Math.sin(p.age * p.wobbleFreq + p.wobblePhase) * 6) * dt;
+            p.y += p.vy * dt;
+            break;
+          case 'portal': {
+            p.angle += p.angularSpeed * dt;
+            const t = p.age / p.maxAge;
+            const r = p.startRadius * (1 - t);
+            p.x = this.center.x + Math.cos(p.angle) * r;
+            p.y = this.center.y + Math.sin(p.angle) * r;
+            break;
+          }
+          case 'reaper': {
+            p.angle += p.orbitSpeed * dt;
+            const r = p.orbitRadius + Math.sin(p.age * p.bobFreq + p.bobPhase) * p.bobAmp;
+            p.x = this.center.x + Math.cos(p.angle) * r;
+            p.y = this.center.y + Math.sin(p.angle) * r;
+            break;
+          }
+          case 'dragonballs': {
+            p.angle += p.orbitSpeed * dt;
+            const r = p.orbitRadius + Math.sin(p.age * 1.3 + p.bobPhase) * p.bobAmp;
+            p.x = this.center.x + Math.cos(p.angle) * r;
+            p.y = this.center.y + Math.sin(p.angle) * r;
+            break;
+          }
+          case 'star_struck': {
+            if (p.subType === 'cloud') {
+              p.angle += p.angularSpeed * dt;
+              const r = p.orbitRadius + Math.sin(p.age * 0.5 + p.wobblePhase) * 3;
+              p.x = this.center.x + Math.cos(p.angle) * r;
+              p.y = this.center.y + Math.sin(p.angle) * r;
+            } else {
+              p.angle += 0.035 * dt;
+              p.x = this.center.x + Math.cos(p.angle) * p.orbitRadius;
+              p.y = this.center.y + Math.sin(p.angle) * p.orbitRadius;
+              p.twinklePhase += dt * p.twinkleFreq;
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    // ---------- drawing ----------
+    _draw() {
+      const ctx = this.ctx;
+      ctx.clearRect(0, 0, this.width, this.height);
+
+      if (this.type === 'star_struck') { this._drawStarStruckRing(); }
+      if (this.type === 'flame') { this._drawFlameGlow(); }
+
+      ctx.globalCompositeOperation = (this.type === 'reaper' || this.type === 'dragonballs') ? 'source-over' : 'lighter';
+
+      for (const p of this.particles) {
+        const progress = p.age / p.maxAge;
+        const fade = Math.sin(Math.min(progress, 1) * Math.PI);
+
+        switch (this.type) {
+          case 'flame': {
+            const coolFade = 1 - Math.min(progress, 1);
+            const flicker = 0.7 + 0.3 * Math.sin(p.age * p.flickerFreq + p.flickerSeed);
+            const size = Math.max(0.4, p.size * (1 - progress * 0.55) * flicker);
+            const g = Math.max(0, 200 - progress * 160);
+            const b = Math.max(0, 80 - progress * 80);
+            const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, size);
+            grad.addColorStop(0, `rgba(255,${250 - progress * 60},${200 - progress * 180},${coolFade * 0.95})`);
+            grad.addColorStop(0.45, `rgba(255,${g},${b},${coolFade * 0.75})`);
+            grad.addColorStop(1, 'rgba(200,20,40,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(p.x, p.y, size, 0, Math.PI * 2); ctx.fill();
+            break;
+          }
+          case 'air': {
+            ctx.strokeStyle = `rgba(235,240,247,${fade * 0.5})`;
+            ctx.lineWidth = p.size;
+            ctx.beginPath(); ctx.moveTo(p.prevX, p.prevY); ctx.lineTo(p.x, p.y); ctx.stroke();
+            break;
+          }
+          case 'energy':
+            if (p.subType === 'bolt') { ctx.strokeStyle = `rgba(255,246,207,${1 - progress})`; ctx.lineWidth = 1.4; ctx.beginPath(); p.points.forEach((pt, i) => i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y)); ctx.stroke(); }
+            else this._softCircle(p.x, p.y, p.size * (1 - progress * 0.5), `rgba(255,210,61,${fade})`);
+            break;
+          case 'toxic':
+            if (p.subType === 'drip') this._filledCircle(p.x, p.y, p.size, `rgba(150,200,60,${(1 - progress) * 0.8})`);
+            else { this._ringCircle(p.x, p.y, p.size, `rgba(200,255,138,${fade * 0.8})`); }
+            break;
+          case 'portal':
+            this._filledCircle(p.x, p.y, p.size * (1 - progress * 0.4), `rgba(217,194,255,${fade * 0.9})`);
+            break;
+          case 'reaper':
+            this._drawSkull(p.x, p.y, p.size, fade * 0.85);
+            break;
+          case 'dragonballs':
+            this._drawDragonBall(p.x, p.y, p.size, p.starCount, 1);
+            break;
+          case 'star_struck':
+            if (p.subType === 'cloud') this._softCircle(p.x, p.y, p.size, 'rgba(210,225,245,0.35)');
+            else {
+              const tw = 0.4 + 0.6 * Math.abs(Math.sin(p.twinklePhase));
+              this._diamond(p.x, p.y, p.size * (0.8 + tw * 0.4), `rgba(255,255,255,${tw})`);
+            }
+            break;
+        }
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // ---------- draw helpers ----------
+    _filledCircle(x, y, r, color) { const ctx = this.ctx; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2); ctx.fill(); }
+    _softCircle(x, y, r, color) { const ctx = this.ctx; const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, color); g.addColorStop(1, color.replace(/[\d.]+\)$/, '0)')); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+    _ringCircle(x, y, r, color) { const ctx = this.ctx; ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.25, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); }
+    _diamond(x, y, size, color) { const ctx = this.ctx; ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(x, y - size * 1.5); ctx.lineTo(x + size * 0.8, y); ctx.lineTo(x, y + size * 1.5); ctx.lineTo(x - size * 0.8, y); ctx.closePath(); ctx.fill(); }
+
+    _drawFlameGlow() {
+      const ctx = this.ctx;
+      const cx = this.center.x, cy = this.center.y;
+      // slow "breathing" pulse so the fire's light swells and settles instead of sitting static
+      const pulse = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(this.time * 1.4));
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      this._softCircle(cx, cy, this.radius * 1.2 * pulse, `rgba(255,110,30,${0.16 * pulse})`);
+      this._softCircle(cx, cy - this.radius * 0.35, this.radius * 0.95 * pulse, `rgba(255,190,70,${0.13 * pulse})`);
+
+      // hot base glow right at the avatar edge, like coals underneath the flame
+      for (let pass = 0; pass < 3; pass++) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, this.radius * (0.97 - pass * 0.04), 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,200,120,${0.2 - pass * 0.05})`;
+        ctx.lineWidth = 2 + pass * 2;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    _drawStarStruckRing() {
+      const ctx = this.ctx;
+      const cx = this.center.x, cy = this.center.y;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      this._softCircle(cx, cy, this.radius * 1.5, 'rgba(140,150,210,0.10)');
+
+      // crescent moon fixed near the top of the ring, like a badge on the frame, overlapping the avatar edge
+      const moonR = this.radius * 0.3;
+      const moonX = cx, moonY = cy - this.radius * 0.92;
+      this._softCircle(moonX, moonY, moonR * 1.9, 'rgba(255,255,240,0.28)');
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#f5f3e8';
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // punch out a crescent by cutting a shifted circle from the moon disc
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.arc(moonX + moonR * 0.55, moonY - moonR * 0.18, moonR * 0.92, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+    }
+
+    _drawSkull(x, y, size, alpha) {
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+      ctx.fillStyle = '#e7e7f0';
+      ctx.beginPath();
+      ctx.arc(x, y - size * 0.1, size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y + size * 0.5, size * 0.5, 0, Math.PI);
+      ctx.fill();
+      ctx.fillStyle = '#141018';
+      ctx.beginPath();
+      ctx.arc(x - size * 0.36, y - size * 0.15, size * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x + size * 0.36, y - size * 0.15, size * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x, y + size * 0.05);
+      ctx.lineTo(x - size * 0.11, y + size * 0.32);
+      ctx.lineTo(x + size * 0.11, y + size * 0.32);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    _drawDragonBall(x, y, size, starCount, alpha) {
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      // soft glow behind the orb
+      this._softCircle(x, y, size * 1.8, 'rgba(255,150,40,0.16)');
+
+      // glossy orange sphere body
+      const grad = ctx.createRadialGradient(x - size * 0.35, y - size * 0.4, size * 0.1, x, y, size);
+      grad.addColorStop(0, '#fff3d6');
+      grad.addColorStop(0.28, '#ffb347');
+      grad.addColorStop(0.7, '#ff8c1a');
+      grad.addColorStop(1, '#c85e00');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(140,55,0,0.45)';
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+
+      // red star cluster at center, count matches the ball's number (1-7)
+      ctx.fillStyle = '#df2130';
+      for (const pos of this._starClusterPositions(starCount, size * 0.34)) {
+        this._tinyStar(x + pos.x, y + pos.y, size * 0.17);
+      }
+
+      ctx.restore();
+    }
+
+    _tinyStar(x, y, r) {
+      const ctx = this.ctx;
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const outerA = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+        const innerA = outerA + Math.PI / 5;
+        const ox = x + Math.cos(outerA) * r, oy = y + Math.sin(outerA) * r;
+        const ix = x + Math.cos(innerA) * r * 0.45, iy = y + Math.sin(innerA) * r * 0.45;
+        i === 0 ? ctx.moveTo(ox, oy) : ctx.lineTo(ox, oy);
+        ctx.lineTo(ix, iy);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    _starClusterPositions(count, spread) {
+      if (count <= 1) return [{ x: 0, y: 0 }];
+      const pts = [];
+      for (let i = 0; i < count; i++) {
+        const a = (Math.PI * 2 * i) / count;
+        pts.push({ x: Math.cos(a) * spread * 0.6, y: Math.sin(a) * spread * 0.6 });
+      }
+      return pts;
+    }
+
+    destroy() { this.active = false; AvatarEffect.instances.delete(this); this.ctx.clearRect(0, 0, this.width, this.height); }
+  }
+
+  // Finds any not-yet-activated canvas.avatar-fx-canvas elements under root
+  // and starts their AvatarEffect. Safe to call repeatedly — canvases that
+  // already have a running effect (canvas._avatarFx) are skipped.
+  function activateCanvasFx(root){
+    if (!root) return;
+    root.querySelectorAll('canvas.avatar-fx-canvas').forEach(canvas => {
+      if (canvas._avatarFx || !canvas.dataset.fxType) return;
+      const opts = {};
+      const mp = Number(canvas.dataset.fxParticles);
+      if (mp) opts.maxParticles = mp;
+      canvas._avatarFx = new AvatarEffect(canvas, canvas.dataset.fxType, opts);
+    });
+  }
+  // Stops and detaches any running AvatarEffect under root before its
+  // canvas gets removed/replaced — otherwise the shared rAF loop keeps
+  // ticking an instance whose canvas is no longer in the document.
+  function deactivateCanvasFx(root){
+    if (!root) return;
+    root.querySelectorAll('canvas.avatar-fx-canvas').forEach(canvas => {
+      if (canvas._avatarFx) { canvas._avatarFx.destroy(); canvas._avatarFx = null; }
+    });
+  }
+
   // Profile cosmetics are deliberately a closed, built-in catalogue. The
   // item IDs are also mirrored in firestore_rules so a browser cannot redeem
   // arbitrary values or bypass the point prices.
@@ -5038,7 +5490,19 @@ Contact: fictionclash.app@gmail.com</div>
     { id:'web-slinger', name:'Web-Slinger', category:'Heroes', rarity:'Epic', cost:90, fx:true },
     { id:'kryptonian-flight', name:'Kryptonian Flight', category:'Heroes', rarity:'Legendary', cost:100, fx:true },
     { id:'dark-knight', name:'Dark Knight', category:'Heroes', rarity:'Legendary', cost:100, fx:true },
-    { id:'thunderstrike', name:'Thunderstrike', category:'Elemental', rarity:'Epic', cost:90, fx:true }
+    { id:'thunderstrike', name:'Thunderstrike', category:'Elemental', rarity:'Epic', cost:90, fx:true },
+    // Canvas-particle effects (fx:'canvas') — rendered by AvatarEffect rather
+    // than static/animated SVG. canvasType is the literal AvatarEffect type
+    // string; fxParticles mirrors the maxParticles override each effect used
+    // in the source preview (avatar-effects-canvas-preview.html).
+    { id:'real-flame', name:'Real Flame', category:'Elemental', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', fxParticles:60 },
+    { id:'air-elemental', name:'Air Elemental', category:'Elemental', rarity:'Rare', cost:80, fx:'canvas', canvasType:'air' },
+    { id:'overdrive-aura', name:'Overdrive Aura', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'energy' },
+    { id:'toxic-bloom', name:'Toxic Bloom', category:'Mystic', rarity:'Rare', cost:85, fx:'canvas', canvasType:'toxic' },
+    { id:'spirit-portal', name:'Spirit Portal', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal' },
+    { id:'skeletal-reaper', name:'Skeletal Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6 },
+    { id:'dragon-balls', name:'Dragon Balls', category:'Legendary', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'dragonballs', fxParticles:7 },
+    { id:'star-struck', name:'Star Struck', category:'Discord Picks', rarity:'Epic', cost:90, fx:'canvas', canvasType:'star_struck', fxParticles:14 }
   ];
   const PROFILE_FONTS = [
     { id:'bangers', name:'Bangers', category:'Comic', cls:'profile-font-bangers' },
@@ -5305,6 +5769,9 @@ Contact: fictionclash.app@gmail.com</div>
   function profileDecorationMarkup(id){
     const item = decorationById(id);
     if (!item) return '';
+    if (item.fx === 'canvas') {
+      return `<span class="profile-deco-canvas" aria-hidden="true"><canvas class="avatar-fx-canvas" width="130" height="130" data-fx-type="${item.canvasType}"${item.fxParticles ? ` data-fx-particles="${item.fxParticles}"` : ''}></canvas></span>`;
+    }
     const builder = item.fx && DECORATION_FX_BUILDERS[item.id];
     if (builder) return builder(nextFxUid());
     return `<span class="profile-deco profile-deco-${item.id}" aria-hidden="true"></span>`;
@@ -5331,6 +5798,7 @@ Contact: fictionclash.app@gmail.com</div>
     const fontGrid = document.getElementById('fontStoreGrid');
     if (!decorationGrid || !fontGrid) return;
 
+    deactivateCanvasFx(decorationGrid);
     decorationGrid.innerHTML = PROFILE_DECORATIONS.map(item => {
       const owned = unlockedDecorations.includes(item.id);
       const equipped = equippedDecoration === item.id;
@@ -5360,6 +5828,7 @@ Contact: fictionclash.app@gmail.com</div>
       </div>`;
     }).join('');
 
+    activateCanvasFx(decorationGrid);
     decorationGrid.querySelectorAll('[data-decoration-action]').forEach(button => {
       button.addEventListener('click', () => handleCustomizationAction('decoration', button.dataset.decorationAction));
     });
@@ -5504,6 +5973,7 @@ Contact: fictionclash.app@gmail.com</div>
   function renderAvatar(){
     accountAvatar.classList.toggle('has-decoration', !!decorationById(equippedDecoration));
     accountAvatar.dataset.decoration = equippedDecoration || '';
+    deactivateCanvasFx(accountAvatar);
     if (avatarDataUrl) {
       accountAvatar.innerHTML = `<img src="${avatarDataUrl}" alt="Profile picture">${profileDecorationMarkup(equippedDecoration)}`;
       removeAvatarBtn.hidden = false;
@@ -5512,6 +5982,7 @@ Contact: fictionclash.app@gmail.com</div>
       accountAvatar.innerHTML = `<span class="avatar-initials">${escapeHtml(initialsForProfile(name))}</span>${profileDecorationMarkup(equippedDecoration)}`;
       removeAvatarBtn.hidden = true;
     }
+    activateCanvasFx(accountAvatar);
     syncTopbarAvatar();
   }
 
@@ -5606,8 +6077,13 @@ Contact: fictionclash.app@gmail.com</div>
     // rather than .profile-deco, so only clearing .profile-deco left the
     // old fx overlay stacked on top of the new decoration whenever either
     // side of the swap was an fx one.
-    container.querySelectorAll('.profile-deco, .profile-deco-fx, .profile-deco-fx-web').forEach(el => el.remove());
+    // canvas-based fx (real-flame, dragon-balls, etc.) run a live rAF loop
+    // per canvas — stop it before its element is torn out, or the shared
+    // AvatarEffect loop keeps ticking an instance nothing shows anymore.
+    deactivateCanvasFx(container);
+    container.querySelectorAll('.profile-deco, .profile-deco-fx, .profile-deco-fx-web, .profile-deco-canvas').forEach(el => el.remove());
     if (item) container.insertAdjacentHTML('beforeend', profileDecorationMarkup(id));
+    activateCanvasFx(container);
   }
 
   // ---------- equipped font (shown on OTHER accounts' comment names) ----------
