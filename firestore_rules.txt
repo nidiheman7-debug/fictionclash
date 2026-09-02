@@ -1,0 +1,341 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Shared by every collection below that's admin-gated — mirrors the
+    // hardcoded ADMIN_UID check in index.html. Firestore rules don't support
+    // custom claims lookups any more cheaply than this for a single-admin
+    // setup, so this stays a literal UID rather than a role lookup.
+    function isAdmin() {
+      return request.auth != null && request.auth.uid == 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2';
+    }
+
+    // Tracks which built-in (hardcoded, non-Firestore) matchups/clips
+    // have been removed for everyone by the admin. Public read so every
+    // client can filter its local built-in list against it; write is
+    // restricted to the admin account, since this affects what every
+    // visitor sees, not just one account's own data.
+    match /appConfig/hiddenBuiltins {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /matchups/{id} {
+      allow read: if true;
+      // No longer directly client-writable. Fan submissions land in
+      // pendingMatchups instead; a doc only ever appears here once an
+      // admin approves it via /api/moderate (Admin SDK, bypasses these
+      // rules entirely).
+      allow create: if false;
+      // votesA/votesB are now written only by the server (Admin SDK via
+      // /api/vote), which bypasses these rules entirely — so any direct
+      // client write, including one that only touches these two fields,
+      // is rejected outright instead of trusting a client-side increment.
+      allow update: if false;
+      allow delete: if isAdmin();
+
+      // One doc per user who has voted on this matchup, written only by
+      // /api/vote (Admin SDK, bypasses these rules). A client may read its
+      // own doc here to check "have I already voted?" but can never write
+      // one directly — that's what would let someone fake a fresh vote.
+      match /voters/{userId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+    }
+
+    // Fan-submitted matchups awaiting review. A signed-in user may create
+    // their own submission (shape-restricted, votes locked at 0, and
+    // submittedBy must be their own uid so nobody can submit "as" someone
+    // else) but never write into the live `matchups` collection directly.
+    // Only the submitter or the admin can read a given doc — an admin
+    // moderation panel lists these; approving/rejecting goes through
+    // /api/moderate (Admin SDK), which is what actually creates the live
+    // matchups doc and deletes this one, so no update rule is needed here.
+    match /pendingMatchups/{id} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == resource.data.submittedBy || isAdmin());
+      allow create: if request.auth != null
+                    && request.resource.data.submittedBy == request.auth.uid
+                    && request.resource.data.keys().hasOnly(['a', 'b', 'votesA', 'votesB', 'community', 'submittedBy', 'submittedByName', 'createdAt'])
+                    && request.resource.data.votesA == 0
+                    && request.resource.data.votesB == 0
+                    && request.resource.data.community == true;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    match /characterAvatars/{id} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /movieClips/{clipId} {
+      allow read: if true;
+      // No longer directly client-writable — see pendingClips below and
+      // the matching note on matchups above.
+      allow create: if false;
+      allow update: if false;
+      allow delete: if isAdmin();
+
+      // Comments are now posted only via /api/clip-comment (Admin SDK,
+      // bypasses these rules), which verifies identity, pulls the poster's
+      // real profile fields server-side, and awards XP — same treatment as
+      // matchupComments below. Direct client writes are rejected outright.
+      match /comments/{cid} {
+        allow read: if true;
+        allow create, update, delete: if false;
+      }
+    }
+
+    // Fan-submitted clips awaiting review — same treatment as
+    // pendingMatchups above: a signed-in user can create their own
+    // submission (shape-restricted, postedByUid must be their own uid),
+    // only the submitter or admin can read it, and only /api/moderate
+    // (Admin SDK) can promote it into the live movieClips collection or
+    // clear it out of this one.
+    match /pendingClips/{id} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == resource.data.postedByUid || isAdmin());
+      allow create: if request.auth != null
+                    && request.resource.data.postedByUid == request.auth.uid
+                    && request.resource.data.keys().hasOnly(['title', 'review', 'videoPlatform', 'videoId', 'isShort', 'postedByUid', 'postedByName', 'postedByAvatar', 'createdAt'])
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.review is string
+                    && request.resource.data.review.size() > 0;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // Account-based likes for matchups (key "matchup:<pairKey>") and video
+    // clips (key "clip:<clipId>"). Each doc holds a `uids` map so a like
+    // is tied to a specific signed-in account, not a device. Likes are now
+    // toggled only via /api/like (Admin SDK, bypasses these rules), which
+    // also awards a one-time XP credit per unique like (see
+    // users/{uid}/actionCredits) — so direct client writes are rejected
+    // outright, the same treatment as matchups/votes and matchupComments.
+    match /likes/{id} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+
+    // Matchup comments — a FLAT collection (matchupId is just a field,
+    // not a subcollection path) so clearing out an old matchup from the
+    // Firestore console is one filtered query+delete on matchupId,
+    // instead of hunting through each matchup doc's own subcollection.
+    match /matchupComments/{cid} {
+      allow read: if true;
+      // Comments are now posted only via /api/comment (Admin SDK, bypasses
+      // these rules), which verifies identity, pulls the poster's real
+      // profile fields server-side, and awards XP. Direct client writes
+      // are rejected outright.
+      allow create, update, delete: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if true;
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function hasProfileFieldsOnly() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['name', 'handle', 'bio', 'avatarUrl', 'updatedAt']);
+      }
+      function isShareCreditGrant() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['clashPoints', 'shareCount', 'lastShareCreditId'])
+          && request.resource.data.lastShareCreditId is string
+          && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) + 5
+          && request.resource.data.shareCount == resource.data.get('shareCount', 0) + 1
+          && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.type == 'appShare'
+          && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.points == 5;
+      }
+      function isDecorationRedemption() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['clashPoints', 'unlockedDecorations', 'lastRedeemedDecoration'])
+          && request.resource.data.lastRedeemedDecoration is string
+          && request.resource.data.unlockedDecorations is list
+          && request.resource.data.unlockedDecorations.hasAll(resource.data.get('unlockedDecorations', []))
+          && request.resource.data.unlockedDecorations.hasAll([request.resource.data.lastRedeemedDecoration])
+          && request.resource.data.unlockedDecorations.size() == resource.data.get('unlockedDecorations', []).size() + 1
+          && (
+               request.resource.data.lastRedeemedDecoration == 'golden-aura'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70
+            || request.resource.data.lastRedeemedDecoration == 'magic-circle'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 80
+            || request.resource.data.lastRedeemedDecoration == 'halftone'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70
+            || request.resource.data.lastRedeemedDecoration == 'chrome'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
+            || request.resource.data.lastRedeemedDecoration == 'fire'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'frost'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'sakura-bloom'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 80
+            || request.resource.data.lastRedeemedDecoration == 'chakra-flame'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'comic-burst'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70
+            || request.resource.data.lastRedeemedDecoration == 'neon-pop'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
+            || request.resource.data.lastRedeemedDecoration == 'ink-crown'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
+            || request.resource.data.lastRedeemedDecoration == 'prism-orbit'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 95
+            || request.resource.data.lastRedeemedDecoration == 'cosmic-mosaic'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'hellflame'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'web-trap'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'voltage'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'frostbite'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'bloodfang'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'solar-orbit'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'real-flame'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'air-elemental'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 80
+            || request.resource.data.lastRedeemedDecoration == 'overdrive-aura'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'toxic-bloom'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
+            || request.resource.data.lastRedeemedDecoration == 'spirit-portal'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'skeletal-reaper'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'dragon-balls'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'star-struck'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'web-slinger'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'kryptonian-flight'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'dark-knight'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'thunderstrike'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+          );
+      }
+      function isFontRedemption() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['clashPoints', 'unlockedFonts', 'lastRedeemedFont'])
+          && request.resource.data.lastRedeemedFont is string
+          && request.resource.data.unlockedFonts is list
+          && request.resource.data.unlockedFonts.hasAll(resource.data.get('unlockedFonts', []))
+          && request.resource.data.unlockedFonts.hasAll([request.resource.data.lastRedeemedFont])
+          && request.resource.data.unlockedFonts.size() == resource.data.get('unlockedFonts', []).size() + 1
+          && request.resource.data.lastRedeemedFont in [
+               'bangers', 'luckiest', 'marker', 'creepster',
+               'russo', 'cinzel', 'bungee', 'orbitron'
+             ]
+          && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70;
+      }
+      function isValidEquipmentChange() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['equippedDecoration'])
+          && (request.resource.data.equippedDecoration == null
+              || request.resource.data.equippedDecoration in request.resource.data.get('unlockedDecorations', []))
+          || request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['equippedFont'])
+          && (request.resource.data.equippedFont == null
+              || request.resource.data.equippedFont in request.resource.data.get('unlockedFonts', []));
+      }
+      // Per-character decoration overrides ("show Fire Ring on Goku, Frost
+      // Ring on Saitama, in MY view") — a personal viewer preference only.
+      // Unlike equippedDecoration, this is never read back by anyone but
+      // its owner (it doesn't get denormalized onto comments the way
+      // equippedDecoration does), so an unvalidated or stale value here has
+      // no effect on any other account — it just fails a lookup on the
+      // owner's own client and nothing renders. That's why this only checks
+      // shape (own doc, only this field, still a map), not that every value
+      // is currently-owned: the UI already only offers owned decorations,
+      // and someone bypassing that only ever affects their own screen.
+      function isCharacterDecorationChange() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['characterDecorations'])
+          && request.resource.data.characterDecorations is map;
+      }
+      // actionCount/verifiedUntil are no longer client-writable — the
+      // verified badge is now driven entirely by `xp` (also not
+      // client-writable), awarded server-side via /api/vote and
+      // /api/comment (see /api/lib/xp.js). Neither field appears in any
+      // allowed update branch below, so both are denied by default.
+      allow create: if isOwner()
+        && (
+          request.resource.data.keys().hasOnly(['name', 'handle', 'bio', 'avatarUrl', 'updatedAt'])
+          || (request.resource.data.keys().hasOnly(['actionCount'])
+              && request.resource.data.actionCount == 1)
+          || (
+            request.resource.data.keys().hasOnly(['clashPoints', 'shareCount', 'lastShareCreditId'])
+            && request.resource.data.clashPoints == 5
+            && request.resource.data.shareCount == 1
+            && request.resource.data.lastShareCreditId is string
+            && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.type == 'appShare'
+            && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.points == 5
+          )
+        );
+      allow update: if isOwner()
+        && (
+          hasProfileFieldsOnly()
+          || isShareCreditGrant()
+          || isDecorationRedemption()
+          || isFontRedemption()
+          || isValidEquipmentChange()
+          || isCharacterDecorationChange()
+        );
+      allow delete: if false;
+
+      // One-time credit records for the verified badge — one doc per
+      // unique like target ("like:clip:<id>" or "like:matchup:<pairKey>").
+      // Existence alone is what prevents unlike/relike farming, so these
+      // are create-only: nobody, including the owner, can update or
+      // delete a credit once it exists.
+      // Credits are now created only by /api/like (Admin SDK, bypasses
+      // these rules) alongside the XP it awards — a client creating one
+      // directly couldn't grant itself XP, but could pre-block its own
+      // future credit for a target it hasn't liked yet, so this is closed
+      // the same way xp/actionCount are.
+      match /actionCredits/{creditId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create, update, delete: if false;
+      }
+
+      // One-time app-share credit records. The companion users/{uid} write
+      // must happen in the same transaction and point back to this document,
+      // which prevents replaying one credit record twice.
+      match /shareCredits/{creditId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create: if request.auth != null
+                      && request.auth.uid == uid
+                      && request.resource.data.keys().hasOnly(['type', 'points', 'creditedAt'])
+                      && request.resource.data.type == 'appShare'
+                      && request.resource.data.points == 5
+                      && getAfter(/databases/$(database)/documents/users/$(uid)).data.lastShareCreditId == creditId;
+        allow update, delete: if false;
+      }
+
+      // AI feat check usage — one doc per day (UTC date, e.g. "2026-08-30"),
+      // tracking how many times this account has spent an AI credit today.
+      // The rule itself (not just the client's JS) enforces that count can
+      // only ever go up by exactly 1 per write and never exceed 3 — so
+      // even someone editing requests directly in devtools can't reset
+      // or inflate their own daily credits.
+      match /featCredits/{buildId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow create: if request.auth != null && request.auth.uid == uid
+                      && request.resource.data.count == 1;
+        allow update: if request.auth != null && request.auth.uid == uid
+                      && request.resource.data.count == resource.data.count + 1
+                      && request.resource.data.count <= 3;
+        allow delete: if false;
+      }
+    }
+  }
+}
