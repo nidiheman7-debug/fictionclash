@@ -139,8 +139,16 @@ export default async function handler(req, res) {
     // bypasses Firestore rules entirely via the Admin SDK, so this is
     // the only path that can ever change `xp` or `verifiedUntil`.
     // Kept outside the vote transaction since an XP/badge hiccup should
-    // never roll back or block a successful vote.
-    awardXp(db, uid, VOTE_XP).catch(err => console.error('XP award failed:', err));
+    // never roll back or block a successful vote — but it IS awaited
+    // (just wrapped so it can't fail the request) because Vercel can
+    // freeze this function's execution the instant the response is
+    // sent, killing any dangling un-awaited promise before it finishes
+    // writing to Firestore.
+    try {
+      await awardXp(db, uid, VOTE_XP);
+    } catch (err) {
+      console.error('XP award failed:', err);
+    }
 
     return res.status(200).json({
       success: true,

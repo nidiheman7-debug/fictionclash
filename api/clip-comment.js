@@ -1,9 +1,8 @@
-// /api/comment.js
-// Server-authoritative comment posting for matchups. Verifies identity,
-// pulls the poster's profile fields from Firestore (so a comment can't be
-// spoofed to show a different name/avatar), and awards XP toward the
-// verified badge. Requires the same FIREBASE_SERVICE_ACCOUNT_KEY env var
-// as vote.js.
+// /api/clip-comment.js
+// Server-authoritative comment posting for movie clips. Same pattern as
+// comment.js (matchup comments): verifies identity, pulls the poster's
+// profile fields from Firestore server-side, and awards XP. Requires the
+// same FIREBASE_SERVICE_ACCOUNT_KEY env var as vote.js/comment.js.
 
 import admin from 'firebase-admin';
 import { awardXp } from './lib/xp.js';
@@ -18,7 +17,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-const COMMENT_XP = 5;
+const CLIP_COMMENT_XP = 5;
 const MAX_COMMENT_LENGTH = 500;
 
 export default async function handler(req, res) {
@@ -26,14 +25,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { matchupId, text } = req.body || {};
+  const { clipId, text } = req.body || {};
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ')
     ? authHeader.slice(7)
     : null;
 
-  if (!matchupId || typeof text !== 'string' || !text.trim()) {
-    return res.status(400).json({ error: 'matchupId and text are required' });
+  if (!clipId || typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'clipId and text are required' });
   }
   if (text.trim().length > MAX_COMMENT_LENGTH) {
     return res.status(400).json({ error: `Comment too long (max ${MAX_COMMENT_LENGTH} chars)` });
@@ -51,9 +50,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    const matchupSnap = await db.collection('matchups').doc(matchupId).get();
-    if (!matchupSnap.exists) {
-      return res.status(404).json({ error: 'Matchup not found' });
+    const clipSnap = await db.collection('movieClips').doc(clipId).get();
+    if (!clipSnap.exists) {
+      return res.status(404).json({ error: 'Clip not found' });
     }
 
     // Pull the poster's current profile fields server-side rather than
@@ -70,9 +69,8 @@ export default async function handler(req, res) {
       decorationId = u.equippedDecoration || null;
     }
 
-    const commentRef = db.collection('matchupComments').doc();
+    const commentRef = db.collection('movieClips').doc(clipId).collection('comments').doc();
     await commentRef.set({
-      matchupId,
       text: text.trim(),
       name,
       avatarUrl,
@@ -81,21 +79,17 @@ export default async function handler(req, res) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Awarded (and awaited) here rather than fired-and-forgotten: a
-    // comment should never FAIL because XP hiccuped, so failures are
-    // swallowed — but the write itself must be awaited, because Vercel
-    // can freeze this function's execution the instant the response is
-    // sent, killing any dangling un-awaited promise before it finishes
-    // writing to Firestore.
+    // Awaited (not fire-and-forget) so Vercel can't freeze this function
+    // before the XP write lands — see vote.js/comment.js for the same fix.
     try {
-      await awardXp(db, uid, COMMENT_XP);
+      await awardXp(db, uid, CLIP_COMMENT_XP);
     } catch (err) {
       console.error('XP award failed:', err);
     }
 
     return res.status(200).json({ success: true, commentId: commentRef.id });
   } catch (err) {
-    console.error('Comment post failed:', err);
+    console.error('Clip comment post failed:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
