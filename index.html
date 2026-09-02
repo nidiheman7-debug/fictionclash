@@ -3660,23 +3660,42 @@ Contact: fictionclash.app@gmail.com</div>
     Object.values(likeRenderers).forEach(render => render());
   }
 
-  function toggleLike(key){
+  async function toggleLike(key){
     const user = auth.currentUser;
     if (!user) { requireSignIn('Sign in to like'); return; }
     const uid = user.uid;
+    // key is "matchup:<pairKey>" or "clip:<clipId>" — split once, since a
+    // pairKey/clipId could itself contain no further colons we need to keep.
+    const sepIndex = key.indexOf(':');
+    const targetType = key.slice(0, sepIndex);
+    const targetId = key.slice(sepIndex + 1);
+
     const previousUids = remoteLikeUids[key] || {};
     const liked = !previousUids[uid];
     const nextUids = { ...previousUids };
     if (liked) nextUids[uid] = true; else delete nextUids[uid];
     remoteLikeUids[key] = nextUids;
     if (likeRenderers[key]) likeRenderers[key]();
-    // If nobody's ever liked this target before, there's no Firestore doc
-    // yet — create it with just this uid. Once a doc exists, update only
-    // this uid's field so two people liking at once don't clobber each other.
-    const write = confirmedLikeKeys.has(key)
-      ? updateDoc(doc(db, 'likes', key), { [`uids.${uid}`]: liked ? true : deleteField() })
-      : setDoc(doc(db, 'likes', key), { uids: { [uid]: true } });
-    write.catch(err => {
+
+    // Server-authoritative toggle via /api/like — verifies identity,
+    // enforces one uid per like, and awards a one-time XP credit. Direct
+    // Firestore writes to `likes/{id}` are rejected by the security rules.
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/like', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ targetType, targetId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Like failed');
+      // Optimistic local bump so the progress bar feels live — the server
+      // already awarded the real XP for a first-time like.
+      if (data.liked && !previousUids[uid]) {
+        currentUserXp += 1;
+        renderVerifiedProgress();
+      }
+    } catch (err) {
       console.error('Like sync failed', err);
       // The optimistic bump above never actually landed on the server —
       // undo it so this account doesn't end up stuck showing a "liked"
@@ -3686,7 +3705,7 @@ Contact: fictionclash.app@gmail.com</div>
       remoteLikeUids[key] = previousUids;
       if (likeRenderers[key]) likeRenderers[key]();
       showToast('Could not save like — try again');
-    });
+    }
   }
 
   // Builds a link that lands the receiver directly on the specific
@@ -4009,21 +4028,36 @@ Contact: fictionclash.app@gmail.com</div>
     commentUnsubscribes.set(clipId, unsubscribe);
   }
 
-  function addComment(form){
+  async function addComment(form){
     const clipId = form.dataset.commentsFor;
     const input = form.querySelector('input');
     const text = input.value.trim();
     if (!text) return;
-    const identity = currentUserIdentity();
-    if (!identity) { requireSignIn('Sign in to comment'); return; }
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to comment'); return; }
     input.value = '';
-    addDoc(collection(db, 'movieClips', clipId, 'comments'), {
-      text, name: identity.name, avatarUrl: identity.avatarUrl, decorationId: identity.decorationId, uid: identity.uid, createdAt: serverTimestamp()
-    }).catch(err => {
+    // Server-authoritative post via /api/clip-comment — verifies identity,
+    // pulls the poster's real profile fields server-side, and awards XP.
+    // Direct Firestore writes to this subcollection are rejected by the
+    // security rules.
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/clip-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ clipId, text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Comment failed');
+      // Optimistic local bump so the progress bar feels live — the server
+      // already awarded the real +5 XP.
+      currentUserXp += 5;
+      renderVerifiedProgress();
+    } catch (err) {
       console.error('Comment post failed', err);
       input.value = text;
       showToast('Could not post comment — try again');
-    });
+    }
   }
 
   clipFeed.addEventListener('submit', event => {
