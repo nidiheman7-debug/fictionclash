@@ -1937,7 +1937,7 @@
     </button>
     <div class="intro-sheet">
       <div class="intro-headline">Vote &amp; Earn a<br>Verified Badge</div>
-      <div class="intro-sub">Vote on character matchups from anime, movies, comics, and games. Like or share 40 times and unlock a verified badge for 3 days.</div>
+      <div class="intro-sub">Vote on character matchups from anime, movies, comics, and games. Vote and comment to earn 1,000 points and unlock a verified badge for 3 days.</div>
       <button class="google-signin" id="introGoogleSignIn" type="button">
         <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
           <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
@@ -1979,7 +1979,7 @@
   <div class="modal-overlay" id="verifiedInfoOverlay">
     <div class="modal-sheet">
       <div class="modal-title">Verified Badge</div>
-      <div class="modal-sub">Like or share 40 clips or matchups (any mix counts) and you'll unlock a verified badge for 3 days. Keep hitting 40 to re-earn it.</div>
+      <div class="modal-sub">Earn points by voting (+2) and commenting (+5) on matchups. Hit 1,000 points and you'll unlock a verified badge for 3 days. Keep earning to re-unlock it every 1,000 points.</div>
       <button class="modal-close" id="verifiedInfoClose">Got it</button>
     </div>
   </div>
@@ -2749,21 +2749,30 @@ Contact: fictionclash.app@gmail.com</div>
     );
   }
 
-  heroCommentForm.addEventListener('submit', event => {
+  heroCommentForm.addEventListener('submit', async event => {
     event.preventDefault();
     const text = heroCommentInput.value.trim();
     if (!text) return;
-    const identity = currentUserIdentity();
-    if (!identity) { requireSignIn('Sign in to comment'); return; }
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to comment'); return; }
     const matchupId = heroCommentsMatchupId;
     heroCommentInput.value = '';
-    addDoc(collection(db, 'matchupComments'), {
-      matchupId, text, name: identity.name, avatarUrl: identity.avatarUrl, decorationId: identity.decorationId, uid: identity.uid, createdAt: serverTimestamp()
-    }).catch(err => {
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ matchupId, text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Comment failed');
+      currentUserXp += 5;
+      renderVerifiedProgress();
+    } catch (err) {
       console.error('Matchup comment post failed', err);
       heroCommentInput.value = text;
       showToast('Could not post comment — try again');
-    });
+    }
   });
 
   const heroDeleteBtn = document.getElementById('heroDeleteBtn');
@@ -3173,6 +3182,11 @@ Contact: fictionclash.app@gmail.com</div>
         }
         m.votesA = data.votesA;
         m.votesB = data.votesB;
+        // Optimistic local bump so the progress bar feels live — the
+        // server awarded the real +2 XP already; this just avoids
+        // waiting on a full profile reload to reflect it here.
+        currentUserXp += 2;
+        renderVerifiedProgress();
       } catch (err) {
         console.error('Vote sync failed', err);
         delete votedState[key];
@@ -3706,7 +3720,6 @@ Contact: fictionclash.app@gmail.com</div>
     const write = confirmedLikeKeys.has(key)
       ? updateDoc(doc(db, 'likes', key), { [`uids.${uid}`]: liked ? true : deleteField() })
       : setDoc(doc(db, 'likes', key), { uids: { [uid]: true } });
-    if (liked) write.then(() => recordVerifiedAction(uid, 'like:' + key));
     write.catch(err => {
       console.error('Like sync failed', err);
       // The optimistic bump above never actually landed on the server —
@@ -3752,11 +3765,8 @@ Contact: fictionclash.app@gmail.com</div>
         showToast('Could not copy link');
       }
     }
-    // Only counts toward the verified badge when a share actually went
-    // through (not on cancel) and someone's signed in to get credit for it.
     if (shared) {
       if (onShared) await onShared();
-      if (auth.currentUser) recordVerifiedAction(auth.currentUser.uid);
     }
     return shared;
   }
@@ -5139,18 +5149,15 @@ Contact: fictionclash.app@gmail.com</div>
     syncTopbarAvatar();
   }
 
-  // ---------- verified badge (earned via activity) ----------
-  // A user earns a "verified" badge for 3 days once they rack up 20
-  // qualifying actions (likes + shares of clips/matchups, combined —
-  // any mix counts). actionCount lives on users/{uid} and resets to 0
-  // each time it crosses 20, so the badge is re-earned fresh (not
-  // extended) on every qualifying streak. verifiedUntil is a hard
-  // 3-day expiry from the moment it's granted — being active again
-  // doesn't push the expiry back, only reaching 20 new actions does.
-  const VERIFIED_ACTION_THRESHOLD = 40;
+  // ---------- verified badge (earned via XP: votes, comments, contributions) ----------
+  // A user earns a "verified" badge for 3 days each time their cumulative
+  // `xp` crosses a new multiple of 1000. xp only ever goes up and is only
+  // ever written server-side (via /api/vote and /api/comment — see
+  // /api/lib/xp.js), so this can't be farmed by scripting client writes.
+  const VERIFIED_XP_THRESHOLD = 1000;
   const VERIFIED_BADGE_DAYS = 3;
   let currentUserVerifiedUntil = null; // Firestore Timestamp or null
-  let currentUserActionCount = 0; // progress toward the next badge (0-40)
+  let currentUserXp = 0; // progress toward the next badge
 
   // Same seal shape used everywhere the badge shows up.
   const VERIFIED_BADGE_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg>';
@@ -5283,54 +5290,18 @@ Contact: fictionclash.app@gmail.com</div>
       const daysLeft = Math.max(1, Math.ceil((currentUserVerifiedUntil.toMillis() - Date.now()) / (24 * 60 * 60 * 1000)));
       el.textContent = `✓ Verified · ${daysLeft}d left · tap to learn more`;
     } else {
-      el.textContent = `${currentUserActionCount}/${VERIFIED_ACTION_THRESHOLD} to verified badge · tap to learn more`;
+      el.textContent = `${currentUserXp % VERIFIED_XP_THRESHOLD}/${VERIFIED_XP_THRESHOLD} points to verified badge · tap to learn more`;
     }
     el.style.display = 'block';
   }
 
-  // Called after a like or a share actually succeeds. Fails soft — if the
-  // Firestore round-trip errors out, the action itself still stands, the
-  // person just doesn't get credit toward the badge for it this time.
-  // dedupeKey (optional) makes an action count toward the badge only ONCE
-  // ever — used for likes so unliking then reliking the same clip/matchup
-  // over and over can't be used to farm the counter. Backed by a small
-  // per-user subcollection (rather than a client-side flag) so a page
-  // reload — or the person clearing local state — can't reset the credit.
-  async function recordVerifiedAction(uid, dedupeKey){
-    if (!uid) return;
-    try {
-      if (dedupeKey) {
-        const creditRef = doc(db, 'users', uid, 'actionCredits', dedupeKey);
-        const creditSnap = await getDoc(creditRef);
-        if (creditSnap.exists()) return; // already credited for this exact like before
-        await setDoc(creditRef, { creditedAt: serverTimestamp() });
-      }
-      const ref = doc(db, 'users', uid);
-      await setDoc(ref, { actionCount: increment(1) }, { merge: true });
-      const snap = await getDoc(ref);
-      const count = snap.exists() ? (snap.data().actionCount || 0) : 0;
-      if (count >= VERIFIED_ACTION_THRESHOLD) {
-        const verifiedUntil = Timestamp.fromMillis(Date.now() + VERIFIED_BADGE_DAYS * 24 * 60 * 60 * 1000);
-        await setDoc(ref, { actionCount: 0, verifiedUntil }, { merge: true });
-        if (auth.currentUser && auth.currentUser.uid === uid) {
-          currentUserVerifiedUntil = verifiedUntil;
-          currentUserActionCount = 0;
-          renderVerifiedBadge();
-          showToast('🎉 Verified badge unlocked for 3 days!');
-        }
-        // Keep the live comment-badge cache in sync too, so any of this
-        // account's comments already on screen pick up the badge right
-        // away instead of waiting on a stale cached lookup.
-        verifiedUntilCache[uid] = verifiedUntil.toMillis();
-        liveVerifiedBadges.filter(b => b.uid === uid).forEach(recomputeVerifiedBadge);
-      } else if (auth.currentUser && auth.currentUser.uid === uid) {
-        currentUserActionCount = count;
-        renderVerifiedProgress();
-      }
-    } catch (err) {
-      console.error('Verified badge tracking failed', err);
-    }
-  }
+  // Verified-badge progress is now driven entirely by server-side XP
+  // awards (see /api/lib/xp.js) — votes and comments call /api/vote and
+  // /api/comment, which bump `xp` and set `verifiedUntil` directly via
+  // the Admin SDK when a new 1000-point threshold is crossed. There's no
+  // client-side action to record anymore; loadCloudProfile() and the
+  // vote/comment response handlers keep currentUserXp and
+  // currentUserVerifiedUntil in sync with what the server already wrote.
 
   function updateAccountHeader(){
     const name = profileName.value.trim() || 'Your account';
@@ -5382,7 +5353,7 @@ Contact: fictionclash.app@gmail.com</div>
       equippedFont = fontById(data.equippedFont) ? data.equippedFont : null;
       characterDecorations = (data.characterDecorations && typeof data.characterDecorations === 'object') ? { ...data.characterDecorations } : {};
       currentUserVerifiedUntil = data.verifiedUntil || null;
-      currentUserActionCount = data.actionCount || 0;
+      currentUserXp = Number(data.xp || 0);
       verifiedUntilCache[uid] = currentUserVerifiedUntil ? currentUserVerifiedUntil.toMillis() : null;
       updateAccountHeader();
     }).catch(err => console.error('Profile load failed', err));
@@ -5575,7 +5546,7 @@ Contact: fictionclash.app@gmail.com</div>
        equippedFont = null;
        characterDecorations = {};
       currentUserVerifiedUntil = null;
-      currentUserActionCount = 0;
+      currentUserXp = 0;
       updateAccountHeader();
       syncTopbarAvatar();
       closeAccountDropdown();
