@@ -1161,6 +1161,29 @@
       z-index:100; white-space:nowrap;
     }
     .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+    /* Rank toast (vote/comment/like) needs its own tappable link inside,
+       so it can't stay pointer-events:none like the plain text toast. */
+    .toast.interactive{ pointer-events:auto; white-space:normal; text-align:center; max-width:88vw; }
+    .toast-xp-line{ display:block; margin-bottom:2px; }
+    .toast-rank-link{ color:var(--ember); text-decoration:none; font-weight:800; cursor:pointer; }
+
+    /* leaderboard: your-rank card + weekly/all-time tabs */
+    .your-rank-card{
+      display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:14px;
+      background:var(--surface2); border:1px solid var(--line); border-radius:14px;
+    }
+    .your-rank-num{ font-size:20px; font-weight:900; color:var(--ember); min-width:38px; text-align:center; }
+    .your-rank-info{ flex:1; min-width:0; }
+    .your-rank-name{ font-size:12.5px; font-weight:800; }
+    .your-rank-xp{ font-size:10.5px; color:var(--muted); margin-top:1px; }
+    .your-rank-gap{ font-size:10.5px; color:var(--muted); margin-top:4px; }
+    .leaderboard-tabs{ display:flex; gap:8px; margin-bottom:12px; }
+    .leaderboard-tab{
+      flex:1; text-align:center; padding:8px 0; border-radius:10px; border:1px solid var(--line);
+      background:transparent; color:var(--muted); font-size:11.5px; font-weight:800; letter-spacing:.03em;
+      cursor:pointer;
+    }
+    .leaderboard-tab.active{ background:var(--ember); border-color:var(--ember); color:#12100e; }
 
     /* sign-in modal */
     .modal-overlay{
@@ -1921,7 +1944,19 @@
   <div class="modal-overlay" id="leaderboardOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Clash Leaderboard</div>
-      <div class="modal-sub">Top players, ranked by total XP.</div>
+      <div class="modal-sub">Top players, ranked by XP.</div>
+      <div class="your-rank-card hidden" id="yourRankCard">
+        <div class="your-rank-num" id="yourRankNum">—</div>
+        <div class="your-rank-info">
+          <div class="your-rank-name" id="yourRankName"></div>
+          <div class="your-rank-xp" id="yourRankXp"></div>
+          <div class="your-rank-gap" id="yourRankGap"></div>
+        </div>
+      </div>
+      <div class="leaderboard-tabs">
+        <button class="leaderboard-tab active" id="leaderboardTabWeekly" type="button">WEEKLY</button>
+        <button class="leaderboard-tab" id="leaderboardTabAllTime" type="button">ALL TIME</button>
+      </div>
       <div class="leaderboard-list" id="leaderboardList"></div>
       <button class="modal-close" id="leaderboardClose">Close</button>
     </div>
@@ -2118,7 +2153,7 @@ Contact: fictionclash.app@gmail.com</div>
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
     doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, arrayUnion, runTransaction, collection, onSnapshot,
-    query, where, orderBy, limit, serverTimestamp, Timestamp
+    query, where, orderBy, limit, serverTimestamp, Timestamp, getCountFromServer
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   const auth = window.firebaseAuth;
@@ -2166,11 +2201,33 @@ Contact: fictionclash.app@gmail.com</div>
   const toastEl = document.getElementById('toast');
   let toastTimer;
   function showToast(msg){
+    toastEl.className = 'toast';
     toastEl.textContent = msg;
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
   }
+
+  // Shown after voting/commenting/liking instead of the plain text toast,
+  // whenever the server actually awarded XP and returned a rank — gives
+  // the "+10 XP 🎉 You're now #23 → View Leaderboard" feedback that makes
+  // the leaderboard part of the moment-to-moment loop, not just a page
+  // someone occasionally checks. Falls back to a plain toast if `rank`
+  // came back null (best-effort computation on the server — see xp.js).
+  function showXpToast(xpAwarded, rank){
+    if (!xpAwarded) return;
+    if (rank == null) { showToast(`+${xpAwarded} XP`); return; }
+    toastEl.className = 'toast interactive';
+    toastEl.innerHTML = `<span class="toast-xp-line">+${xpAwarded} XP 🎉 You're now #${rank}</span><span class="toast-rank-link">View Leaderboard →</span>`;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 4000);
+  }
+  toastEl.addEventListener('click', (e) => {
+    if (!e.target.closest('.toast-rank-link')) return;
+    toastEl.classList.remove('show');
+    document.getElementById('qaLeaderboard').click();
+  });
 
   // ---------- spinner helper ----------
   // Shows a spinner inside a button while an async action runs, then
@@ -2702,7 +2759,9 @@ Contact: fictionclash.app@gmail.com</div>
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
       currentUserXp += 5;
+      currentUserWeeklyXp += 5;
       renderVerifiedProgress();
+      showXpToast(data.xpAwarded, data.rank);
     } catch (err) {
       console.error('Matchup comment post failed', err);
       heroCommentInput.value = text;
@@ -3212,7 +3271,9 @@ Contact: fictionclash.app@gmail.com</div>
         // server awarded the real +2 XP already; this just avoids
         // waiting on a full profile reload to reflect it here.
         currentUserXp += 2;
+        currentUserWeeklyXp += 2;
         renderVerifiedProgress();
+        showXpToast(data.xpAwarded, data.rank);
       } catch (err) {
         console.error('Vote sync failed', err);
         delete votedState[key];
@@ -3341,29 +3402,92 @@ Contact: fictionclash.app@gmail.com</div>
   const leaderboardOverlay = document.getElementById('leaderboardOverlay');
   const leaderboardList = document.getElementById('leaderboardList');
   const leaderboardClose = document.getElementById('leaderboardClose');
+  const yourRankCard = document.getElementById('yourRankCard');
+  const yourRankNum = document.getElementById('yourRankNum');
+  const yourRankName = document.getElementById('yourRankName');
+  const yourRankXp = document.getElementById('yourRankXp');
+  const yourRankGap = document.getElementById('yourRankGap');
+  const leaderboardTabWeekly = document.getElementById('leaderboardTabWeekly');
+  const leaderboardTabAllTime = document.getElementById('leaderboardTabAllTime');
+  let activeLeaderboardField = 'weeklyXp'; // 'weeklyXp' (resets every Monday, see /api/reset-weekly-xp) or 'xp' (lifetime)
 
-  // Top players by cumulative XP (users.xp — awarded server-side via
-  // /api/vote and /api/comment, see /api/lib/xp.js). Firestore rules make
-  // users/{uid} publicly readable, so a straight orderBy('xp','desc')
-  // query works without any extra grants.
-  async function fetchTopUsers(){
+  // Top players by the given field — `xp` (lifetime, awarded server-side
+  // via /api/vote, /api/comment, /api/like, /api/clip-comment) or
+  // `weeklyXp` (same awards, zeroed out every Monday). Firestore rules
+  // make users/{uid} publicly readable, so a straight orderBy desc query
+  // works without any extra grants.
+  async function fetchTopUsers(field){
     const snap = await getDocs(
-      query(collection(db, 'users'), orderBy('xp', 'desc'), limit(50))
+      query(collection(db, 'users'), orderBy(field, 'desc'), limit(50))
     );
     return snap.docs
       .map(d => ({ uid: d.id, ...d.data() }))
-      .filter(u => (u.xp || 0) > 0);
+      .filter(u => (u[field] || 0) > 0);
+  }
+
+  // Renders the "Your Rank" card at the top of the sheet. If the signed-in
+  // user is inside the fetched top 50 their position/value comes straight
+  // from that list; otherwise a single count query finds their real rank
+  // without having to fetch the whole collection. Also shows how much XP
+  // separates them from breaking into the top 10 (or from #1, if they're
+  // already there) — the "+45 XP to reach #10" hook.
+  async function renderYourRank(field, ranked){
+    const user = auth.currentUser;
+    if (!user) { yourRankCard.classList.add('hidden'); return; }
+
+    const myValue = field === 'xp' ? currentUserXp : currentUserWeeklyXp;
+    let rank;
+    const idx = ranked.findIndex(u => u.uid === user.uid);
+    if (idx !== -1) {
+      rank = idx + 1;
+    } else if (myValue > 0) {
+      try {
+        const aggSnap = await getCountFromServer(query(collection(db, 'users'), where(field, '>', myValue)));
+        rank = aggSnap.data().count + 1;
+      } catch (err) {
+        console.error('Your-rank lookup failed', err);
+        yourRankCard.classList.add('hidden');
+        return;
+      }
+    } else {
+      // No XP of this kind yet — nothing to rank.
+      yourRankCard.classList.add('hidden');
+      return;
+    }
+
+    const identity = currentUserIdentity();
+    yourRankCard.classList.remove('hidden');
+    yourRankNum.textContent = `#${rank}`;
+    yourRankName.textContent = (identity && identity.name) || 'You';
+    yourRankXp.textContent = `${myValue.toLocaleString()} XP`;
+
+    if (rank <= 1) {
+      yourRankGap.textContent = "You're #1!";
+    } else if (rank <= 10) {
+      const topValue = ranked[0] ? (ranked[0][field] || 0) : myValue;
+      const gap = topValue - myValue;
+      yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} XP to reach #1` : '';
+    } else if (ranked[9]) {
+      const gap = (ranked[9][field] || 0) - myValue + 1;
+      yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} XP to reach #10` : '';
+    } else {
+      yourRankGap.textContent = '';
+    }
   }
 
   async function renderLeaderboard(){
+    const field = activeLeaderboardField;
     let ranked;
     try {
-      ranked = await fetchTopUsers();
+      ranked = await fetchTopUsers(field);
     } catch (err) {
       console.error('Leaderboard fetch failed:', err);
       leaderboardList.innerHTML = `<div class="leaderboard-loading">Couldn't load the leaderboard — try again in a moment.</div>`;
+      yourRankCard.classList.add('hidden');
       return;
     }
+
+    renderYourRank(field, ranked);
 
     if (!ranked.length) {
       leaderboardList.innerHTML = `<div class="leaderboard-loading">No ranked players yet — be the first to earn XP!</div>`;
@@ -3378,7 +3502,7 @@ Contact: fictionclash.app@gmail.com</div>
         <div class="leaderboard-info">
           <div class="leaderboard-name">${escapeHtml(entry.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></div>
         </div>
-        <div class="leaderboard-votes">${(entry.xp || 0).toLocaleString()}<br>xp</div>
+        <div class="leaderboard-votes">${(entry[field] || 0).toLocaleString()}<br>xp</div>
       </div>`).join('');
 
     leaderboardList.querySelectorAll('.leaderboard-row').forEach((row, index) => {
@@ -3387,6 +3511,17 @@ Contact: fictionclash.app@gmail.com</div>
       attachDecoration(row.querySelector('.leaderboard-avatar'), entry.uid);
     });
   }
+
+  function switchLeaderboardTab(field){
+    if (field === activeLeaderboardField) return;
+    activeLeaderboardField = field;
+    leaderboardTabWeekly.classList.toggle('active', field === 'weeklyXp');
+    leaderboardTabAllTime.classList.toggle('active', field === 'xp');
+    leaderboardList.innerHTML = `<div class="leaderboard-loading"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--ember);"></span>Loading rankings…</div>`;
+    renderLeaderboard();
+  }
+  leaderboardTabWeekly.addEventListener('click', () => switchLeaderboardTab('weeklyXp'));
+  leaderboardTabAllTime.addEventListener('click', () => switchLeaderboardTab('xp'));
 
   document.getElementById('qaLeaderboard').addEventListener('click', () => {
     leaderboardOverlay.classList.add('show');
@@ -3781,10 +3916,13 @@ Contact: fictionclash.app@gmail.com</div>
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Like failed');
       // Optimistic local bump so the progress bar feels live — the server
-      // already awarded the real XP for a first-time like.
-      if (data.liked && !previousUids[uid]) {
-        currentUserXp += 1;
+      // already awarded the real XP for a first-time like (xpAwarded is 0
+      // for an unlike or a re-like that was already credited once).
+      if (data.xpAwarded) {
+        currentUserXp += data.xpAwarded;
+        currentUserWeeklyXp += data.xpAwarded;
         renderVerifiedProgress();
+        showXpToast(data.xpAwarded, data.rank);
       }
     } catch (err) {
       console.error('Like sync failed', err);
@@ -4143,7 +4281,9 @@ Contact: fictionclash.app@gmail.com</div>
       // Optimistic local bump so the progress bar feels live — the server
       // already awarded the real +5 XP.
       currentUserXp += 5;
+      currentUserWeeklyXp += 5;
       renderVerifiedProgress();
+      showXpToast(data.xpAwarded, data.rank);
     } catch (err) {
       console.error('Comment post failed', err);
       input.value = text;
@@ -5238,6 +5378,7 @@ Contact: fictionclash.app@gmail.com</div>
   const VERIFIED_BADGE_DAYS = 30;
   let currentUserVerifiedUntil = null; // Firestore Timestamp or null
   let currentUserXp = 0; // progress toward the next badge
+  let currentUserWeeklyXp = 0; // resets to 0 every Monday — see /api/reset-weekly-xp
 
   // Same seal shape used everywhere the badge shows up.
   const VERIFIED_BADGE_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg>';
@@ -5434,6 +5575,7 @@ Contact: fictionclash.app@gmail.com</div>
       characterDecorations = (data.characterDecorations && typeof data.characterDecorations === 'object') ? { ...data.characterDecorations } : {};
       currentUserVerifiedUntil = data.verifiedUntil || null;
       currentUserXp = Number(data.xp || 0);
+      currentUserWeeklyXp = Number(data.weeklyXp || 0);
       verifiedUntilCache[uid] = currentUserVerifiedUntil ? currentUserVerifiedUntil.toMillis() : null;
       updateAccountHeader();
     }).catch(err => console.error('Profile load failed', err));
@@ -5628,6 +5770,7 @@ Contact: fictionclash.app@gmail.com</div>
        characterDecorations = {};
       currentUserVerifiedUntil = null;
       currentUserXp = 0;
+      currentUserWeeklyXp = 0;
       updateAccountHeader();
       syncTopbarAvatar();
       closeAccountDropdown();
