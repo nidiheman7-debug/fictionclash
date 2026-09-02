@@ -5,6 +5,7 @@
 // stored as a single-line stringified JSON).
 
 import admin from 'firebase-admin';
+import { awardXp } from './lib/xp.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -17,6 +18,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const MILESTONES = [10, 50, 100, 500, 1000, 5000, 10000];
+const VOTE_XP = 2;
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
 const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY;
 
@@ -131,6 +133,14 @@ export default async function handler(req, res) {
       // Fire-and-forget: don't block the response on notification delivery
       sendMilestoneNotification(result.matchup, result.crossedMilestone);
     }
+
+    // Award XP for the vote itself. Also handles the verified-badge
+    // threshold (crossing a new 1000 points) via the shared helper —
+    // bypasses Firestore rules entirely via the Admin SDK, so this is
+    // the only path that can ever change `xp` or `verifiedUntil`.
+    // Kept outside the vote transaction since an XP/badge hiccup should
+    // never roll back or block a successful vote.
+    awardXp(db, uid, VOTE_XP).catch(err => console.error('XP award failed:', err));
 
     return res.status(200).json({
       success: true,
