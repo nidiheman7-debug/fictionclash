@@ -3131,30 +3131,74 @@ Contact: fictionclash.app@gmail.com</div>
     votePctB.textContent = `${pctB}% ${m.b.name.split(' ')[0]}`;
   }
 
-  function castVote(side){
+  async function castVote(side){
     const m = matchups[activeIdx];
     const key = matchupPairKey(m);
     if (votedState[key]) return; // already voted on this matchup
-    if (side === 'a') m.votesA++; else m.votesB++;
-    votedState[key] = side;
-    localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+
     if (m.docId) {
-      // Community matchup — write the vote to Firestore so it persists
-      // and shows up the same way on any other browser/device.
-      updateDoc(doc(db, 'matchups', m.docId), side === 'a' ? { votesA: increment(1) } : { votesB: increment(1) })
-        .catch(err => console.error('Vote sync failed', err));
+      // Community matchup — server-authoritative vote via /api/vote.
+      // The backend verifies the user's identity, blocks duplicate
+      // votes, and is the only thing allowed to write votesA/votesB
+      // in Firestore (see security rules), so we never trust a
+      // client-side increment here.
+      const user = auth.currentUser;
+      if (!user) { showToast('Please sign in to vote'); return; }
+
+      // Lock the UI immediately so a double-tap can't fire two requests
+      // while we wait on the network.
+      votedState[key] = side;
+      localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+      voteRow.classList.add('voted');
+      voteBtnA.classList.toggle('picked', side === 'a');
+      voteBtnB.classList.toggle('picked', side === 'b');
+
+      try {
+        const idToken = await user.getIdToken();
+        const res = await fetch('/api/vote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+          body: JSON.stringify({ matchupId: m.docId, choice: side }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          // Rejected (already voted, clash ended, etc.) — undo the local lock.
+          delete votedState[key];
+          localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+          voteRow.classList.remove('voted');
+          voteBtnA.classList.remove('picked');
+          voteBtnB.classList.remove('picked');
+          showToast(data.error || 'Vote failed, please try again');
+          return;
+        }
+        m.votesA = data.votesA;
+        m.votesB = data.votesB;
+      } catch (err) {
+        console.error('Vote sync failed', err);
+        delete votedState[key];
+        localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+        voteRow.classList.remove('voted');
+        voteBtnA.classList.remove('picked');
+        voteBtnB.classList.remove('picked');
+        showToast('Vote failed, check your connection and try again');
+        return;
+      }
     } else {
       // Built-in matchup — no Firestore doc, so remember the extra vote
       // in this browser's localStorage or it'd be lost on refresh.
+      if (side === 'a') m.votesA++; else m.votesB++;
+      votedState[key] = side;
+      localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
       const delta = voteDeltas[key] || { a: 0, b: 0 };
       delta[side]++;
       voteDeltas[key] = delta;
       localStorage.setItem(VOTE_DELTA_KEY, JSON.stringify(voteDeltas));
+      voteRow.classList.add('voted');
+      voteBtnA.classList.toggle('picked', side === 'a');
+      voteBtnB.classList.toggle('picked', side === 'b');
     }
+
     updatePercentages();
-    voteRow.classList.add('voted');
-    voteBtnA.classList.toggle('picked', side === 'a');
-    voteBtnB.classList.toggle('picked', side === 'b');
     const pickedName = side === 'a' ? m.a.name.split(' ')[0] : m.b.name.split(' ')[0];
     showToast(`Vote locked in for ${pickedName}`);
   }
@@ -6018,31 +6062,6 @@ Contact: fictionclash.app@gmail.com</div>
     document.body.appendChild(erudaScript);
   }
 </script>
-<script>
-  if (location.search.includes('debug=1')) {
-    const btn = document.createElement('button');
-    btn.textContent = 'TEST VOTE';
-    btn.style.cssText = 'position:fixed;bottom:80px;right:10px;z-index:99999;padding:12px;background:red;color:white;font-weight:bold;';
-    btn.onclick = async () => {
-      const auth = window.firebaseAuth;
-      const user = auth.currentUser;
-      if (!user) { alert('Not logged in'); return; }
-      const idToken = await user.getIdToken();
-      const matchupId = 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2';
-      try {
-        const res = await fetch('/api/vote', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-          body: JSON.stringify({ matchupId, choice: 'a' }),
-        });
-        const data = await res.json();
-        alert('Status: ' + res.status + '\n' + JSON.stringify(data, null, 2));
-      } catch (err) {
-        alert('Fetch error: ' + err.message);
-      }
-    };
-    document.body.appendChild(btn);
-  }
-</script>
+
 </body>
 </html>
