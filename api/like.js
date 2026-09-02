@@ -81,15 +81,21 @@ export default async function handler(req, res) {
     // Awaited (not fire-and-forget) so Vercel can't freeze this function
     // before the XP write lands — same fix as vote.js/comment.js. A hiccup
     // here shouldn't fail the like itself, so it's swallowed.
+    let xpResult = null;
     if (awardXpNeeded) {
       try {
-        await awardXp(db, uid, LIKE_XP);
+        xpResult = await awardXp(db, uid, LIKE_XP);
       } catch (err) {
         console.error('XP award failed:', err);
       }
     }
 
-    return res.status(200).json({ success: true, liked });
+    return res.status(200).json({
+      success: true,
+      liked,
+      xpAwarded: xpResult ? LIKE_XP : 0,
+      rank: xpResult ? xpResult.rank : null,
+    });
   } catch (err) {
     console.error('Like toggle failed:', err);
     return res.status(500).json({ error: 'Internal server error' });

@@ -144,8 +144,9 @@ export default async function handler(req, res) {
     // freeze this function's execution the instant the response is
     // sent, killing any dangling un-awaited promise before it finishes
     // writing to Firestore.
+    let xpResult = null;
     try {
-      await awardXp(db, uid, VOTE_XP);
+      xpResult = await awardXp(db, uid, VOTE_XP);
     } catch (err) {
       console.error('XP award failed:', err);
     }
@@ -154,6 +155,8 @@ export default async function handler(req, res) {
       success: true,
       votesA: result.votesA,
       votesB: result.votesB,
+      xpAwarded: xpResult ? VOTE_XP : 0,
+      rank: xpResult ? xpResult.rank : null,
     });
   } catch (err) {
     if (err && err.status) {

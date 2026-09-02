@@ -81,13 +81,19 @@ export default async function handler(req, res) {
 
     // Awaited (not fire-and-forget) so Vercel can't freeze this function
     // before the XP write lands — see vote.js/comment.js for the same fix.
+    let xpResult = null;
     try {
-      await awardXp(db, uid, CLIP_COMMENT_XP);
+      xpResult = await awardXp(db, uid, CLIP_COMMENT_XP);
     } catch (err) {
       console.error('XP award failed:', err);
     }
 
-    return res.status(200).json({ success: true, commentId: commentRef.id });
+    return res.status(200).json({
+      success: true,
+      commentId: commentRef.id,
+      xpAwarded: xpResult ? CLIP_COMMENT_XP : 0,
+      rank: xpResult ? xpResult.rank : null,
+    });
   } catch (err) {
     console.error('Clip comment post failed:', err);
     return res.status(500).json({ error: 'Internal server error' });

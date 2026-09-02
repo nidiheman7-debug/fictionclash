@@ -87,13 +87,19 @@ export default async function handler(req, res) {
     // can freeze this function's execution the instant the response is
     // sent, killing any dangling un-awaited promise before it finishes
     // writing to Firestore.
+    let xpResult = null;
     try {
-      await awardXp(db, uid, COMMENT_XP);
+      xpResult = await awardXp(db, uid, COMMENT_XP);
     } catch (err) {
       console.error('XP award failed:', err);
     }
 
-    return res.status(200).json({ success: true, commentId: commentRef.id });
+    return res.status(200).json({
+      success: true,
+      commentId: commentRef.id,
+      xpAwarded: xpResult ? COMMENT_XP : 0,
+      rank: xpResult ? xpResult.rank : null,
+    });
   } catch (err) {
     console.error('Comment post failed:', err);
     return res.status(500).json({ error: 'Internal server error' });
