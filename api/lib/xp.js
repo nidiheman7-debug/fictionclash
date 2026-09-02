@@ -7,10 +7,10 @@
 import admin from 'firebase-admin';
 
 export const VERIFIED_BADGE_POINTS = 1000;
-export const VERIFIED_BADGE_DAYS = 3;
+export const VERIFIED_BADGE_DAYS = 30;
 
 // Awards `delta` XP to users/{uid}. If this pushes their total across a
-// new multiple of 1000, grants (or re-grants) a fresh 3-day verified
+// new multiple of 1000, grants (or re-grants) a fresh 1-month verified
 // badge — same "cross a milestone" pattern used for vote notifications.
 // Runs in its own transaction so the pre-award xp value is read
 // consistently even under concurrent requests.
