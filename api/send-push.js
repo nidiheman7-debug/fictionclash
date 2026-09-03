@@ -58,15 +58,21 @@ export default async function handler(req, res) {
       })
     });
 
+    const data = await oneSignalRes.json().catch(() => ({}));
+
     if (!oneSignalRes.ok) {
-      const errText = await oneSignalRes.text();
-      console.error('OneSignal API error:', oneSignalRes.status, errText);
-      res.status(502).json({ error: 'OneSignal request failed' });
+      console.error('OneSignal API error:', oneSignalRes.status, data);
+      res.status(502).json({ error: 'OneSignal request failed', status: oneSignalRes.status, details: data });
       return;
     }
 
-    const data = await oneSignalRes.json();
-    res.status(200).json({ sent: true, id: data.id || null });
+    console.log('OneSignal API success:', data);
+    res.status(200).json({
+      sent: true,
+      id: data.id || null,
+      recipients: data.recipients ?? null,
+      raw: data
+    });
   } catch (err) {
     console.error('send-push handler error:', err);
     res.status(500).json({ error: 'Internal server error' });
