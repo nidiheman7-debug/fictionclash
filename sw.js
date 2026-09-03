@@ -1,3 +1,4 @@
+importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDKWorker.js');
 // Fiction Clash service worker
 //
 // Strategy: cache the app shell (HTML/manifest/icons) so the app opens
