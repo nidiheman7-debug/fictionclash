@@ -3114,7 +3114,7 @@ Contact: fictionclash.app@gmail.com</div>
     const rows = [];
     snapshot.forEach(docSnap => rows.push({ id: docSnap.id, ...docSnap.data() }));
     pendingMatchupsList.innerHTML = rows.length ? rows.map(item => `
-      <div class="admin-report-row" data-doc-id="${item.id}">
+      <div class="admin-report-row" data-doc-id="${item.id}" data-push-title="New matchup" data-push-body="${escapeHtml(item.a.name)} vs ${escapeHtml(item.b.name)}">
         <div class="admin-report-info">
           <b>${escapeHtml(charLabel(item.a))} vs ${escapeHtml(charLabel(item.b))}</b>
           <span>submitted by ${escapeHtml(item.submittedByName || 'unknown')}</span>
@@ -3130,7 +3130,7 @@ Contact: fictionclash.app@gmail.com</div>
     const rows = [];
     snapshot.forEach(docSnap => rows.push({ id: docSnap.id, ...docSnap.data() }));
     pendingClipsList.innerHTML = rows.length ? rows.map(item => `
-      <div class="admin-report-row" data-doc-id="${item.id}">
+      <div class="admin-report-row" data-doc-id="${item.id}" data-push-title="New clip posted" data-push-body="${escapeHtml(item.title || 'A new clip')}">
         <div class="admin-report-info">
           <b>${escapeHtml(item.title)}</b>
           <span>by ${escapeHtml(item.postedByName || 'unknown')} · ${escapeHtml(item.videoPlatform)}</span>
@@ -3146,7 +3146,7 @@ Contact: fictionclash.app@gmail.com</div>
   // `movieClips` at all anymore (see rules), and can't be trusted to
   // delete its own way out of the pending queue either, since anyone with
   // devtools open could otherwise "moderate" their own submission in.
-  async function moderatePending(type, pendingId, action, btn){
+  async function moderatePending(type, pendingId, action, btn, pushTitle, pushBody){
     const user = auth.currentUser;
     if (!user) return;
     btn.disabled = true;
@@ -3159,6 +3159,12 @@ Contact: fictionclash.app@gmail.com</div>
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Moderation action failed');
+      // The admin's own click is the one and only place a real device push
+      // should fire for this matchup/clip — this runs once, right here,
+      // never from the `matchups`/`movieClips` onSnapshot listeners (those
+      // fire in every connected visitor's browser and only drive the
+      // in-app bell via pushNotification()).
+      if (action === 'approve' && pushTitle) sendOneSignalPush(pushTitle, pushBody);
     } catch (err) {
       console.error('Moderation action failed', err);
       showToast('Could not complete that action — try again');
@@ -3168,14 +3174,14 @@ Contact: fictionclash.app@gmail.com</div>
   pendingMatchupsList.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
-    const docId = btn.closest('.admin-report-row').dataset.docId;
-    moderatePending('matchup', docId, btn.dataset.action, btn);
+    const row = btn.closest('.admin-report-row');
+    moderatePending('matchup', row.dataset.docId, btn.dataset.action, btn, row.dataset.pushTitle, row.dataset.pushBody);
   });
   pendingClipsList.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
-    const docId = btn.closest('.admin-report-row').dataset.docId;
-    moderatePending('clip', docId, btn.dataset.action, btn);
+    const row = btn.closest('.admin-report-row');
+    moderatePending('clip', row.dataset.docId, btn.dataset.action, btn, row.dataset.pushTitle, row.dataset.pushBody);
   });
   let unsubPendingMatchups = null;
   let unsubPendingClips = null;
@@ -6684,6 +6690,14 @@ Contact: fictionclash.app@gmail.com</div>
 
   const enablePushBtn = document.getElementById('enablePushBtn');
   const pushStatusText = document.getElementById('pushStatusText');
+  // Reflects an already-opted-in state in the UI. Called right after a
+  // successful opt-in, and also at load time below — otherwise a reload
+  // shows "ENABLE NOTIFICATIONS" again for someone who already turned it on.
+  function showPushOptedInUI(){
+    pushStatusText.textContent = "You're set — you'll get notified on this device.";
+    enablePushBtn.textContent = 'NOTIFICATIONS ON';
+    enablePushBtn.disabled = true;
+  }
   enablePushBtn.addEventListener('click', async () => {
     if (typeof OneSignal === 'undefined') {
       showToast('Notifications are still loading — try again in a moment');
@@ -6691,11 +6705,8 @@ Contact: fictionclash.app@gmail.com</div>
     }
     try {
       await OneSignal.User.PushSubscription.optIn();
-      const isOptedIn = OneSignal.User.PushSubscription.optedIn;
-      if (isOptedIn) {
-        pushStatusText.textContent = "You're set — you'll get notified on this device.";
-        enablePushBtn.textContent = 'NOTIFICATIONS ON';
-        enablePushBtn.disabled = true;
+      if (OneSignal.User.PushSubscription.optedIn) {
+        showPushOptedInUI();
       } else {
         showToast('Notifications permission was not granted');
       }
@@ -6703,6 +6714,21 @@ Contact: fictionclash.app@gmail.com</div>
       console.error('Push opt-in failed', err);
       showToast('Could not enable notifications — check browser permissions');
     }
+  });
+  // Load-time sync: this is a module script, so it can't reach into the
+  // classic <script> that calls OneSignal.init() up in <head> to ask it
+  // directly. Instead it pushes its own callback onto the same
+  // OneSignalDeferred queue — that queue is exactly what lets any number of
+  // scripts register work to run once the SDK's ready, in whatever order
+  // they happen to load in.
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  window.OneSignalDeferred.push(function(OneSignal) {
+    if (OneSignal.User.PushSubscription.optedIn) showPushOptedInUI();
+    // Covers permission being granted/revoked from the browser's own site
+    // settings UI, outside of a click on our button.
+    OneSignal.User.PushSubscription.addEventListener('change', event => {
+      if (event.current.optedIn) showPushOptedInUI();
+    });
   });
 
   function closeNotifDropdown(){ notifDropdown.hidden = true; }
