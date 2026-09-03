@@ -6690,10 +6690,8 @@ Contact: fictionclash.app@gmail.com</div>
         console.log('Push send result:', data);
         if (data.skipped) {
           alert('Push skipped: ' + data.reason);
-        } else if (data.recipients === 0) {
-          alert('Push accepted by OneSignal but reached 0 recipients. Check your segment / subscription.');
         } else {
-          alert('Push sent. Recipients: ' + data.recipients);
+          alert('Push response:\n' + JSON.stringify(data.raw || data, null, 2));
         }
       })
       .catch(err => {
