@@ -94,6 +94,8 @@
     overflow-x:hidden;
     scrollbar-width:none;
     -webkit-overflow-scrolling:touch;
+    overscroll-behavior-y:contain;
+    scroll-behavior:smooth;
     display:flex;
     flex-direction:column;
   }
@@ -396,6 +398,11 @@
      background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), url('/icons/intro-collage.webp');
      background-size: cover; background-position: center; background-repeat: no-repeat;
    }
+   /* Offscreen clip cards skip layout/paint until they're about to enter
+      view — keeps scrolling smooth as the feed grows instead of the
+      browser rendering every card (with its particle canvases, video
+      posters, comment threads) all at once. */
+   .clip-card{ content-visibility:auto; contain-intrinsic-size:0 420px; }
    .movies-header-row{
      display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
    }
@@ -1003,6 +1010,55 @@
    }
    @keyframes spin{ to{ transform:rotate(360deg); } }
    .avatar-spinner{ border-color:rgba(255,255,255,.35); border-top-color:#fff; width:18px; height:18px; }
+
+   /* ---------- skeleton loaders (matchups + clips still streaming in) ---------- */
+   @keyframes skeletonShimmer{
+     0%{ background-position:-160% 0; }
+     100%{ background-position:160% 0; }
+   }
+   .skeleton-block{
+     border-radius:8px;
+     background:linear-gradient(100deg, var(--surface2) 30%, var(--line) 50%, var(--surface2) 70%);
+     background-size:250% 100%;
+     animation:skeletonShimmer 1.6s ease-in-out infinite;
+   }
+   .hero.skeleton-hero{ cursor:default; }
+   .hero.skeleton-hero .side{ pointer-events:none; }
+   .skel-avatar{ width:100%; height:100%; border-radius:50%; }
+   .skel-line{ height:11px; margin:0 auto; }
+   .skel-name{ width:78%; margin-top:10px; }
+   .skel-sub{ width:55%; margin-top:7px; height:8px; }
+   .skel-title{ width:70%; height:16px; margin:0 0 10px; }
+   .skel-sub-wide{ width:100%; height:10px; margin-bottom:16px; }
+   .skel-votebar{ width:100%; height:34px; border-radius:11px; margin-bottom:14px; }
+   .skel-split{ width:100%; height:6px; border-radius:4px; margin-bottom:16px; }
+   .trend-card.skeleton{ cursor:default; }
+   .trend-card.skeleton .mini-avatar{ background:none; }
+   .clip-card.skeleton{ cursor:default; }
+   .skel-thumb{ width:100%; padding-top:56.25%; border-radius:10px; margin-bottom:12px; }
+   .skel-h3{ width:65%; height:14px; margin-bottom:8px; }
+   .skel-p{ width:100%; height:9px; margin-bottom:6px; }
+   .skel-p.short{ width:70%; margin-bottom:0; }
+
+   /* ---------- "loading more" strip shown while a feed is still streaming ---------- */
+   .feed-loading-more{
+     display:flex; align-items:center; justify-content:center; gap:9px;
+     padding:16px 0 6px; color:var(--muted); font:10.5px 'Martian Mono',monospace;
+     letter-spacing:.4px; opacity:0; max-height:0; overflow:hidden;
+     transition:opacity .25s ease;
+   }
+   .feed-loading-more.show{ opacity:1; max-height:60px; }
+
+   /* ---------- comments preview cap + "see all" ---------- */
+   .see-more-comments{
+     display:block; width:100%; text-align:center; background:none; border:0;
+     color:var(--ember); font:800 11px 'Bricolage Grotesque',sans-serif; letter-spacing:.2px;
+     padding:9px 0 2px; cursor:pointer;
+   }
+   .see-more-comments:active{ opacity:.65; }
+   #commentsModalList{ display:flex; flex-direction:column; margin-bottom:14px; }
+   #commentsModalList .comment:last-child{ border-bottom:0; }
+   .comments-modal-empty{ color:var(--muted); font-size:12px; text-align:center; padding:22px 0; }
    .account-input{
      width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);
      border-radius:9px;padding:11px 12px;margin-bottom:9px;font:11px 'Instrument Sans',sans-serif;outline:none;
@@ -1580,6 +1636,32 @@
     </div>
   </div>
 
+  <!-- Shown in the hero's place until the first matchup streams in from
+       Firestore (there's no hardcoded seed data anymore). renderHero()
+       toggles between this and #heroCard. -->
+  <div class="hero skeleton-hero" id="heroSkeleton" hidden>
+    <div class="hero-vs">
+      <div class="live-tag"><span class="live-dot"></span>LOADING MATCHUP</div>
+      <div class="side">
+        <div class="char-avatar-wrap"><div class="avatar skel-avatar skeleton-block"></div></div>
+        <div class="skel-line skel-name skeleton-block"></div>
+        <div class="skel-line skel-sub skeleton-block"></div>
+      </div>
+      <div class="side">
+        <div class="char-avatar-wrap"><div class="avatar skel-avatar skeleton-block"></div></div>
+        <div class="skel-line skel-name skeleton-block"></div>
+        <div class="skel-line skel-sub skeleton-block"></div>
+      </div>
+      <div class="vs-badge">VS</div>
+    </div>
+    <div class="hero-body">
+      <div class="skel-line skel-title skeleton-block"></div>
+      <div class="skel-line skel-sub-wide skeleton-block"></div>
+      <div class="skel-votebar skeleton-block"></div>
+      <div class="skel-split skeleton-block"></div>
+    </div>
+  </div>
+
   <div class="section-head">
      <div class="section-title">Trending Clashes</div>
      <div style="display:flex;gap:14px;align-items:center;">
@@ -1588,6 +1670,7 @@
      </div>
   </div>
   <div class="trend-scroll" id="trendScroll"></div>
+  <div class="feed-loading-more" id="trendLoadingMore"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--ember);"></span>Loading more clashes…</div>
 
   <section class="movies-section hidden" id="moviesSection" aria-label="Movie clips">
     <div class="movies-header-row">
@@ -1601,6 +1684,7 @@
 
     <div id="clipFeed">
     </div>
+    <div class="feed-loading-more" id="clipFeedLoadingMore"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--ember);"></span>Loading more clips…</div>
   </section>
 
   <section class="news-section hidden" id="newsSection" aria-label="News">
@@ -2053,6 +2137,22 @@
       <button class="modal-submit" id="submitMatchupBtn" type="button">Submit Matchup</button>
       <p class="submit-note">Submissions are reviewed before they go live — you'll see it on the board once it's approved.</p>
       <button class="modal-close" id="submitClose">Close</button>
+    </div>
+  </div>
+
+  <!-- Shared "see all comments" sheet — reused by the hero matchup card and
+       every clip card. Only the last 2 comments show inline on each post;
+       tapping "See all" opens this with the full thread. -->
+  <div class="modal-overlay" id="commentsModalOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Conversation</div>
+      <div class="modal-sub" id="commentsModalSub">All comments on this post.</div>
+      <div id="commentsModalList"></div>
+      <form class="comment-form" id="commentsModalForm">
+        <input class="clip-field" type="text" id="commentsModalInput" placeholder="Add your comment..." aria-label="Add your comment">
+        <button type="submit">POST</button>
+      </form>
+      <button class="modal-close" id="commentsModalClose">Close</button>
     </div>
   </div>
 
@@ -2658,15 +2758,19 @@ Contact: fictionclash.app@gmail.com</div>
   function renderHero(){
     const m = matchups[activeIdx];
     const heroCardWrapper = document.getElementById('heroCard');
+    const heroSkeleton = document.getElementById('heroSkeleton');
     if (!m) {
       // No matchups yet (fresh install, or Firestore hasn't synced its
-      // first one in) — hide the hero card instead of crashing on
-      // undefined character data. renderHero() runs again automatically
-      // once a matchup streams in (see the matchups onSnapshot handler).
+      // first one in) — hide the hero card and show its shimmering
+      // skeleton instead of crashing on undefined character data.
+      // renderHero() runs again automatically once a matchup streams in
+      // (see the matchups onSnapshot handler).
       if (heroCardWrapper) heroCardWrapper.hidden = true;
+      if (heroSkeleton) heroSkeleton.hidden = false;
       return;
     }
     if (heroCardWrapper) heroCardWrapper.hidden = false;
+    if (heroSkeleton) heroSkeleton.hidden = true;
     setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
     setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
     renderHeroCharacterCosmetics();
@@ -2757,11 +2861,17 @@ Contact: fictionclash.app@gmail.com</div>
   const heroCommentInput = document.getElementById('heroCommentInput');
   let heroCommentsUnsubscribe = null;
   let heroCommentsMatchupId = '';
+  // Only the last 2 comments render inline on the hero card — this object
+  // is the "thread" handed to the shared see-all sheet (see
+  // renderCommentsPreview / openCommentsModal below), which keeps the full
+  // list and knows how to post back to /api/comment.
+  const heroCommentsThread = { type: 'hero', commentsFor: '', label: 'All comments on this matchup.', docs: [] };
 
   function wireHeroComments(matchupId){
     if (matchupId === heroCommentsMatchupId) return; // already watching this matchup — avoid re-subscribing
     if (heroCommentsUnsubscribe) { heroCommentsUnsubscribe(); heroCommentsUnsubscribe = null; }
     heroCommentsMatchupId = matchupId;
+    heroCommentsThread.commentsFor = matchupId;
     heroCommentsList.innerHTML = '';
     heroCommentsList.classList.remove('scrollable');
     if (!matchupId) return;
@@ -2778,10 +2888,7 @@ Contact: fictionclash.app@gmail.com</div>
         const docs = snapshot.docs
           .map(d => d.data())
           .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
-        heroCommentsList.innerHTML = '';
-        docs.forEach(data => heroCommentsList.appendChild(renderCommentEl(data)));
-        heroCommentsList.classList.toggle('scrollable', docs.length >= 5);
-        if (docs.length >= 5) heroCommentsList.scrollTop = heroCommentsList.scrollHeight;
+        renderCommentsPreview(heroCommentsList, docs, heroCommentsThread);
       },
       err => {
         console.error('Matchup comments listener failed', err);
@@ -2790,14 +2897,12 @@ Contact: fictionclash.app@gmail.com</div>
     );
   }
 
-  heroCommentForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    const text = heroCommentInput.value.trim();
-    if (!text) return;
+  // Shared by the hero card's own form and the "see all" sheet when it's
+  // open on this matchup's thread.
+  async function postHeroComment(text){
     const user = auth.currentUser;
     if (!user) { requireSignIn('Sign in to comment'); return; }
     const matchupId = heroCommentsMatchupId;
-    heroCommentInput.value = '';
     try {
       const idToken = await user.getIdToken();
       const res = await fetch('/api/comment', {
@@ -2813,9 +2918,17 @@ Contact: fictionclash.app@gmail.com</div>
       showXpToast(data.xpAwarded, data.rank);
     } catch (err) {
       console.error('Matchup comment post failed', err);
-      heroCommentInput.value = text;
       showToast('Could not post comment — try again');
+      throw err;
     }
+  }
+
+  heroCommentForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const text = heroCommentInput.value.trim();
+    if (!text) return;
+    heroCommentInput.value = '';
+    postHeroComment(text).catch(() => { heroCommentInput.value = text; });
   });
 
   const heroDeleteBtn = document.getElementById('heroDeleteBtn');
@@ -3738,6 +3851,8 @@ Contact: fictionclash.app@gmail.com</div>
   // Real-time: community matchups submitted from any browser land here,
   // and disappear for everyone the moment anyone deletes them.
   let matchupsSynced = false; // true once the initial replay-everything snapshot has finished
+  const trendLoadingMore = document.getElementById('trendLoadingMore');
+  trendLoadingMore.classList.add('show'); // visible until the first snapshot resolves, however fast that is
   onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
     let listChanged = false;
     let heroNeedsRefresh = false;
@@ -3787,6 +3902,8 @@ Contact: fictionclash.app@gmail.com</div>
       if (matchupsSynced) pushNotification('matchup', 'New matchup', `${data.a.name} vs ${data.b.name}`, docSnap.id);
     });
     matchupsSynced = true;
+    trendLoadingMore.classList.remove('show');
+    if (!listChanged && matchups.length === 0) renderTrendScroll(); // clears the skeleton cards even with nothing to show
     if (listChanged) { renderTrendScroll(); refreshCharacterSuggestions(); }
     // wasEmpty case covers going from zero matchups (no hardcoded seed
     // data anymore) to the first one ever streaming in — heroNeedsRefresh
@@ -3816,7 +3933,29 @@ Contact: fictionclash.app@gmail.com</div>
 
   // ---------- trending clashes (dynamic, includes user-submitted matchups) ----------
   const trendScroll = document.getElementById('trendScroll');
+  // 3 shimmering placeholder cards shown until the first matchup streams
+  // in — there's no hardcoded seed data anymore, so without this the
+  // strip would just be blank on a fresh load.
+  const TREND_SKELETON_HTML = Array.from({ length: 3 }).map(() => `
+      <div class="trend-card skeleton">
+        <div class="trend-vs">
+          <div class="mini-avatar hi skeleton-block"></div>
+          <div class="mini-vs">VS</div>
+          <div class="mini-avatar lo skeleton-block"></div>
+        </div>
+        <div class="skel-line skeleton-block" style="width:90%;height:9px;margin:0;"></div>
+        <div class="skel-line skeleton-block" style="width:60%;height:8px;margin-top:6px;"></div>
+      </div>`).join('');
   function renderTrendScroll(){
+    if (matchups.length === 0) {
+      // Still nothing at all: while the listener is still doing its first
+      // sync, show shimmering placeholders; once synced and truly empty,
+      // drop the shimmer for a plain empty state instead of animating forever.
+      trendScroll.innerHTML = matchupsSynced
+        ? '<div class="comments-modal-empty" style="padding:18px 20px;">No matchups yet — be the first to submit one.</div>'
+        : TREND_SKELETON_HTML;
+      return;
+    }
     trendScroll.innerHTML = matchups.map((m, idx) => {
       const sameBase = m.a.name.toLowerCase() === m.b.name.toLowerCase();
       const labelA = (sameBase && m.a.version) ? `${m.a.name.split(' ')[0]} (${m.a.version})` : m.a.name.split(' ')[0];
@@ -4281,6 +4420,93 @@ Contact: fictionclash.app@gmail.com</div>
     return el;
   }
 
+  // ---------- comments: 2-visible preview + shared "see all" sheet ----------
+  // Every comment thread on the board (the hero matchup card, and each
+  // clip card) only ever shows its most recent 2 comments inline — full
+  // history lives one tap away in #commentsModalOverlay instead of pushing
+  // the whole feed down as a thread grows, which is what was making long
+  // posts feel heavy to scroll past.
+  const COMMENTS_PREVIEW_LIMIT = 2;
+  const commentsModalOverlay = document.getElementById('commentsModalOverlay');
+  const commentsModalList = document.getElementById('commentsModalList');
+  const commentsModalSub = document.getElementById('commentsModalSub');
+  const commentsModalForm = document.getElementById('commentsModalForm');
+  const commentsModalInput = document.getElementById('commentsModalInput');
+  const commentsModalClose = document.getElementById('commentsModalClose');
+  let openCommentsThread = null; // the thread object currently shown in the sheet, if any
+
+  // `thread` is a small { type, commentsFor, label, docs } object owned by
+  // whoever's watching this comment collection (hero card or a clip card).
+  // Renders the capped preview into `listEl` and keeps `thread.docs`
+  // current so the sheet has the full list ready the moment it's opened.
+  function renderCommentsPreview(listEl, docs, thread){
+    thread.docs = docs;
+    listEl.innerHTML = '';
+    docs.slice(-COMMENTS_PREVIEW_LIMIT).forEach(data => listEl.appendChild(renderCommentEl(data)));
+    listEl.classList.remove('scrollable'); // capped at 2 — never tall enough to need its own scroll now
+    let moreBtn = listEl.nextElementSibling;
+    if (!moreBtn || !moreBtn.classList.contains('see-more-comments')) {
+      moreBtn = document.createElement('button');
+      moreBtn.type = 'button';
+      moreBtn.className = 'see-more-comments';
+      moreBtn.addEventListener('click', () => openCommentsModal(thread));
+      listEl.after(moreBtn);
+    }
+    if (docs.length > COMMENTS_PREVIEW_LIMIT) {
+      moreBtn.textContent = `See all ${docs.length} comments`;
+      moreBtn.style.display = '';
+    } else {
+      moreBtn.style.display = 'none';
+    }
+    // Sheet is already open on this exact thread (e.g. a new comment just
+    // streamed in) — keep it live instead of waiting for a re-open.
+    if (openCommentsThread === thread) renderCommentsModalList();
+  }
+
+  function renderCommentsModalList(){
+    commentsModalList.innerHTML = '';
+    const docs = openCommentsThread ? openCommentsThread.docs : [];
+    if (!docs.length) {
+      commentsModalList.innerHTML = '<div class="comments-modal-empty">No comments yet — be the first.</div>';
+      return;
+    }
+    docs.forEach(data => commentsModalList.appendChild(renderCommentEl(data)));
+    commentsModalList.scrollTop = commentsModalList.scrollHeight;
+  }
+
+  function openCommentsModal(thread){
+    openCommentsThread = thread;
+    commentsModalSub.textContent = thread.label || 'All comments on this post.';
+    commentsModalForm.dataset.commentsFor = thread.commentsFor || '';
+    commentsModalForm.dataset.commentsType = thread.type;
+    renderCommentsModalList();
+    commentsModalOverlay.classList.add('show');
+    commentsModalInput.focus();
+  }
+  function closeCommentsModal(){
+    commentsModalOverlay.classList.remove('show');
+    openCommentsThread = null;
+  }
+  commentsModalClose.addEventListener('click', closeCommentsModal);
+  commentsModalOverlay.addEventListener('click', event => {
+    if (event.target === commentsModalOverlay) closeCommentsModal();
+  });
+  commentsModalForm.addEventListener('submit', event => {
+    event.preventDefault();
+    if (commentsModalForm.dataset.commentsType === 'hero') {
+      const text = commentsModalInput.value.trim();
+      if (!text) return;
+      commentsModalInput.value = '';
+      postHeroComment(text).catch(() => { commentsModalInput.value = text; });
+    } else {
+      // Clip threads: addComment() reads dataset.commentsFor plus the
+      // form's own input (reading, clearing, and restoring it on failure
+      // itself), so it works fine on this sheet's form even though it
+      // isn't nested inside a .clip-card.
+      addComment(commentsModalForm);
+    }
+  });
+
   // Live-syncs one clip's comment thread from Firestore. Safe to call more
   // than once for the same clipId/form pair (guarded by a flag on the form).
   const wiredCommentForms = new WeakSet();
@@ -4289,23 +4515,20 @@ Contact: fictionclash.app@gmail.com</div>
     if (!clipId || wiredCommentForms.has(form)) return;
     wiredCommentForms.add(form);
     // Comments live in a wrapper just before the form, not loose in the
-    // card, so the scroll-at-5 cap (see .hero-comments-list CSS) has a
-    // single element to size and scroll — same pattern as the hero card.
+    // card, so the preview-cap logic has a single element to render into —
+    // same pattern as the hero card.
     let list = form.previousElementSibling;
     if (!list || !list.classList.contains('hero-comments-list')) {
       list = document.createElement('div');
       list.className = 'hero-comments-list';
       form.parentNode.insertBefore(list, form);
     }
+    const thread = { type: 'clip', commentsFor: clipId, label: 'All comments on this clip.', docs: [] };
     const unsubscribe = onSnapshot(
       query(collection(db, 'movieClips', clipId, 'comments'), orderBy('createdAt', 'asc')),
       snapshot => {
-        snapshot.docChanges().forEach(change => {
-          if (change.type !== 'added') return;
-          list.appendChild(renderCommentEl(change.doc.data()));
-        });
-        list.classList.toggle('scrollable', list.children.length >= 5);
-        if (list.classList.contains('scrollable')) list.scrollTop = list.scrollHeight;
+        const docs = snapshot.docs.map(d => d.data());
+        renderCommentsPreview(list, docs, thread);
       },
       err => console.error('Comments listener failed', err)
     );
@@ -4436,11 +4659,30 @@ Contact: fictionclash.app@gmail.com</div>
     const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
     if (card) card.remove();
   });
+
+  // 2 shimmering placeholder cards shown until the first clip streams in —
+  // there's no hardcoded seed video anymore, so without this the Movies
+  // Hub would just be blank on a fresh load. Cleared the moment either a
+  // real clip arrives or the listener finishes synced-and-empty.
+  const CLIP_SKELETON_HTML = `<article class="clip-card skeleton" data-skeleton="1">
+      <div class="skel-thumb skeleton-block"></div>
+      <h3 class="skel-h3 skeleton-block"></h3>
+      <div class="skel-p skeleton-block"></div>
+      <div class="skel-p short skeleton-block"></div>
+    </article>`;
+  clipFeed.insertAdjacentHTML('beforeend', CLIP_SKELETON_HTML + CLIP_SKELETON_HTML);
+  function clearClipSkeletons(){
+    clipFeed.querySelectorAll('.clip-card.skeleton').forEach(el => el.remove());
+  }
+
   let clipsSynced = false; // true once the initial replay-everything snapshot has finished
+  const clipFeedLoadingMore = document.getElementById('clipFeedLoadingMore');
+  clipFeedLoadingMore.classList.add('show'); // visible until the first snapshot resolves, however fast that is
   onSnapshot(
     query(collection(db, 'movieClips'), orderBy('createdAt', 'desc')),
     snapshot => {
       const changes = snapshot.docChanges();
+      if (changes.some(c => c.type === 'added')) clearClipSkeletons();
       changes.filter(c => c.type === 'removed').forEach(change => {
         const id = change.doc.id;
         renderedClipIds.delete(id);
@@ -4513,6 +4755,15 @@ Contact: fictionclash.app@gmail.com</div>
         }
       });
       clipsSynced = true;
+      clipFeedLoadingMore.classList.remove('show');
+      if (renderedClipIds.size === 0) {
+        clearClipSkeletons();
+        if (!clipFeed.querySelector('.clips-empty-state')) {
+          clipFeed.insertAdjacentHTML('beforeend', '<div class="comments-modal-empty clips-empty-state">No clips yet — be the first to post one.</div>');
+        }
+      } else {
+        clipFeed.querySelector('.clips-empty-state')?.remove();
+      }
       tryOpenSharedClip();
     },
     err => console.error('Movie clips listener failed', err)
