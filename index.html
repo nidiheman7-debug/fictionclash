@@ -1059,6 +1059,7 @@
    #commentsModalList{ display:flex; flex-direction:column; margin-bottom:14px; }
    #commentsModalList .comment:last-child{ border-bottom:0; }
    .comments-modal-empty{ color:var(--muted); font-size:12px; text-align:center; padding:22px 0; }
+   .comments-modal-loading{ display:flex; align-items:center; justify-content:center; gap:10px; padding:20px 0; color:var(--muted); font-size:12px; font-weight:700; }
    .account-input{
      width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);
      border-radius:9px;padding:11px 12px;margin-bottom:9px;font:11px 'Instrument Sans',sans-serif;outline:none;
@@ -4479,8 +4480,12 @@ Contact: fictionclash.app@gmail.com</div>
     commentsModalSub.textContent = thread.label || 'All comments on this post.';
     commentsModalForm.dataset.commentsFor = thread.commentsFor || '';
     commentsModalForm.dataset.commentsType = thread.type;
-    renderCommentsModalList();
+    // Show a spinner first, then swap in the real list a beat later —
+    // same loading-then-content pattern as the leaderboard sheet — instead
+    // of the list flashing in empty/blank while the sheet is still sliding up.
+    commentsModalList.innerHTML = '<div class="comments-modal-loading"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--ember);"></span>Loading comments…</div>';
     commentsModalOverlay.classList.add('show');
+    requestAnimationFrame(() => requestAnimationFrame(renderCommentsModalList));
     commentsModalInput.focus();
   }
   function closeCommentsModal(){
