@@ -53,7 +53,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         app_id: appId,
         target_channel: 'push',
-        included_segments: ['Subscribed Users'],
+        included_segments: ['Total Subscriptions'],
         headings: { en: String(title).slice(0, 100) },
         contents: { en: String(body).slice(0, 200) }
       })
