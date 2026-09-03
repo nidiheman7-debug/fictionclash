@@ -6679,7 +6679,27 @@ Contact: fictionclash.app@gmail.com</div>
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, body })
-    }).catch(err => console.error('Push send failed', err));
+    })
+      .then(async res => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          console.error('Push send rejected:', res.status, data);
+          alert('Push send failed (' + res.status + '): ' + JSON.stringify(data));
+          return;
+        }
+        console.log('Push send result:', data);
+        if (data.skipped) {
+          alert('Push skipped: ' + data.reason);
+        } else if (data.recipients === 0) {
+          alert('Push accepted by OneSignal but reached 0 recipients. Check your segment / subscription.');
+        } else {
+          alert('Push sent. Recipients: ' + data.recipients);
+        }
+      })
+      .catch(err => {
+        console.error('Push send failed', err);
+        alert('Push send network error: ' + err.message);
+      });
   }
 
   function pushNotification(type, title, body, target){
