@@ -14,6 +14,12 @@
 //                                convenience so it's not duplicated)
 //   ONESIGNAL_REST_API_KEY     (secret — starts with os_v2_app_)
 // Both come from OneSignal dashboard → Settings → Keys & IDs.
+//
+// Auth note: os_v2_app_-prefixed keys are OneSignal's current "App API
+// Key" format, which uses the `Key` auth scheme and the api.onesignal.com
+// host — not the `Basic` scheme + onesignal.com/api/v1 host that older
+// Legacy REST API Keys used. Mixing the two (new key + old scheme) gets
+// rejected with a 401/403.
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -38,11 +44,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const oneSignalRes = await fetch('https://onesignal.com/api/v1/notifications', {
+    const oneSignalRes = await fetch('https://api.onesignal.com/notifications', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
-        'Authorization': `Basic ${restApiKey}`
+        'Authorization': `Key ${restApiKey}`
       },
       body: JSON.stringify({
         app_id: appId,
