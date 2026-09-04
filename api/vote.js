@@ -157,6 +157,7 @@ export default async function handler(req, res) {
       votesB: result.votesB,
       xpAwarded: xpResult ? VOTE_XP : 0,
       rank: xpResult ? xpResult.rank : null,
+      seasonShards: xpResult ? xpResult.newShards : null,
       badgeGranted: xpResult ? xpResult.badgeGranted : false,
       verifiedUntil: xpResult ? xpResult.verifiedUntil : null,
     });

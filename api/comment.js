@@ -99,6 +99,7 @@ export default async function handler(req, res) {
       commentId: commentRef.id,
       xpAwarded: xpResult ? COMMENT_XP : 0,
       rank: xpResult ? xpResult.rank : null,
+      seasonShards: xpResult ? xpResult.newShards : null,
       badgeGranted: xpResult ? xpResult.badgeGranted : false,
       verifiedUntil: xpResult ? xpResult.verifiedUntil : null,
     });
