@@ -1966,11 +1966,11 @@
         <div class="profile-points-pill"><span id="clashPointsDisplay">0</span> pts</div>
       </div>
       <button class="profile-share-btn" id="profileShareBtn" type="button">
-        <span aria-hidden="true">↗</span> SHARE FICTION CLASH · +5 PTS
+        <span aria-hidden="true">↗</span> SHARE FICTION CLASH · +20 PTS
       </button>
       <div class="profile-share-meta">
         <span id="profileShareCount">0 shares</span>
-        <span>5 points per app link</span>
+        <span>20 points per app link</span>
       </div>
       <div class="profile-store-tabs" role="tablist" aria-label="Profile store">
         <button class="profile-store-tab active" type="button" data-store-tab="decorations" role="tab">Avatar decorations</button>
@@ -2113,7 +2113,7 @@
   <div class="modal-overlay" id="verifiedInfoOverlay">
     <div class="modal-sheet">
       <div class="modal-title">Verified Badge</div>
-      <div class="modal-sub">Earn points by voting (+2) and commenting (+5) on matchups. Hit 1,000 points and you'll unlock a verified badge for 1 month. Keep earning to re-unlock it every 1,000 points.</div>
+      <div class="modal-sub">Earn points by voting (+5) and commenting (+10) on matchups. Hit 1,000 points and you'll unlock a verified badge for 1 month. Keep earning to re-unlock it every 1,000 points.</div>
       <button class="modal-close" id="verifiedInfoClose">Got it</button>
     </div>
   </div>
@@ -3000,8 +3000,8 @@ Contact: fictionclash.app@gmail.com</div>
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
-      currentUserXp += 5;
-      currentUserWeeklyXp += 5;
+      currentUserXp += 10;
+      currentUserWeeklyXp += 10;
       renderVerifiedProgress();
       showXpToast(data.xpAwarded, data.rank);
     } catch (err) {
@@ -3524,10 +3524,10 @@ Contact: fictionclash.app@gmail.com</div>
         m.votesA = data.votesA;
         m.votesB = data.votesB;
         // Optimistic local bump so the progress bar feels live — the
-        // server awarded the real +2 XP already; this just avoids
+        // server awarded the real +5 XP already; this just avoids
         // waiting on a full profile reload to reflect it here.
-        currentUserXp += 2;
-        currentUserWeeklyXp += 2;
+        currentUserXp += 5;
+        currentUserWeeklyXp += 5;
         renderVerifiedProgress();
         showXpToast(data.xpAwarded, data.rank);
       } catch (err) {
@@ -4982,9 +4982,9 @@ Contact: fictionclash.app@gmail.com</div>
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
       // Optimistic local bump so the progress bar feels live — the server
-      // already awarded the real +5 XP.
-      currentUserXp += 5;
-      currentUserWeeklyXp += 5;
+      // already awarded the real +10 XP.
+      currentUserXp += 10;
+      currentUserWeeklyXp += 10;
       renderVerifiedProgress();
       showXpToast(data.xpAwarded, data.rank);
     } catch (err) {
@@ -6678,19 +6678,19 @@ Contact: fictionclash.app@gmail.com</div>
         const data = snap.exists() ? snap.data() : {};
         transaction.set(creditRef, {
           type: 'appShare',
-          points: 5,
+          points: 20,
           creditedAt: serverTimestamp()
         });
         transaction.set(userRef, {
-          clashPoints: Number(data.clashPoints || 0) + 5,
+          clashPoints: Number(data.clashPoints || 0) + 20,
           shareCount: Number(data.shareCount || 0) + 1,
           lastShareCreditId: creditId
         }, { merge: true });
       });
-      clashPoints += 5;
+      clashPoints += 20;
       shareCount += 1;
       renderCustomizationStore();
-      showToast('App shared · +5 Clash Points');
+      showToast('App shared · +20 Clash Points');
     } catch (err) {
       console.error('Share reward failed', err);
       showToast('Shared, but points could not be saved');
