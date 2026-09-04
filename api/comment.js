@@ -18,7 +18,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-const COMMENT_XP = 5;
+const COMMENT_XP = 10;
 const MAX_COMMENT_LENGTH = 500;
 
 export default async function handler(req, res) {
@@ -99,6 +99,8 @@ export default async function handler(req, res) {
       commentId: commentRef.id,
       xpAwarded: xpResult ? COMMENT_XP : 0,
       rank: xpResult ? xpResult.rank : null,
+      badgeGranted: xpResult ? xpResult.badgeGranted : false,
+      verifiedUntil: xpResult ? xpResult.verifiedUntil : null,
     });
   } catch (err) {
     console.error('Comment post failed:', err);

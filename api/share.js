@@ -7,6 +7,16 @@
 import admin from 'firebase-admin';
 import { awardXp } from './lib/xp.js';
 
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(
+      JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
+    ),
+  });
+}
+
+const db = admin.firestore();
+
 const SHARE_XP = 20;
 
 export default async function handler(req, res) {
@@ -28,7 +38,6 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid auth token' });
   }
 
-  const db = admin.firestore();
   // Deterministic doc id — a transaction .get()/.set() on it is all that's
   // needed to make the credit idempotent per user per target. Custom
   // team-builder matchups pass a composed id (e.g. "Goku+Darkseid-vs-...")
@@ -50,12 +59,32 @@ export default async function handler(req, res) {
     });
 
     // Already shared this exact matchup/clip before — no repeat XP farming.
-    if (alreadyCredited) return res.status(200).json({ xpAwarded: 0 });
+    if (alreadyCredited) return res.status(200).json({ success: true, xpAwarded: 0 });
 
-    const { newXp, rank } = await awardXp(db, uid, SHARE_XP);
-    return res.status(200).json({ xpAwarded: SHARE_XP, xp: newXp, rank });
+    // Credit is already committed above, so from here on a failure must
+    // never turn into a 500 — that would make the client think the share
+    // failed while the creditRef doc says otherwise, and a retry would
+    // then hit alreadyCredited and silently lose the XP for good. This is
+    // awaited (not fire-and-forget) because Vercel can freeze the function
+    // the instant the response is sent, killing any dangling promise
+    // before it finishes writing to Firestore.
+    let xpResult = null;
+    try {
+      xpResult = await awardXp(db, uid, SHARE_XP);
+    } catch (err) {
+      console.error('XP award failed:', err);
+    }
+
+    return res.status(200).json({
+      success: true,
+      xpAwarded: xpResult ? SHARE_XP : 0,
+      xp: xpResult ? xpResult.newXp : null,
+      rank: xpResult ? xpResult.rank : null,
+      badgeGranted: xpResult ? xpResult.badgeGranted : false,
+      verifiedUntil: xpResult ? xpResult.verifiedUntil : null,
+    });
   } catch (err) {
-    console.error('Share XP award failed:', err);
-    return res.status(500).json({ error: 'Could not award share XP' });
+    console.error('Share credit transaction failed:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }

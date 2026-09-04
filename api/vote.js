@@ -18,7 +18,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const MILESTONES = [10, 50, 100, 500, 1000, 5000, 10000];
-const VOTE_XP = 2;
+const VOTE_XP = 5;
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
 const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY;
 
@@ -157,6 +157,8 @@ export default async function handler(req, res) {
       votesB: result.votesB,
       xpAwarded: xpResult ? VOTE_XP : 0,
       rank: xpResult ? xpResult.rank : null,
+      badgeGranted: xpResult ? xpResult.badgeGranted : false,
+      verifiedUntil: xpResult ? xpResult.verifiedUntil : null,
     });
   } catch (err) {
     if (err && err.status) {
