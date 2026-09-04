@@ -52,6 +52,7 @@
 
   :root{
     --bg:#1c1d23;
+    --bg-rgb:28,29,35;
     --surface:#232429;
     --surface2:#2b2c33;
     --line:#3a3b42;
@@ -106,7 +107,7 @@
      position:sticky; top:0; z-index:10;
     display:flex; justify-content:space-between; align-items:center;
      padding:14px 20px 34px;
-      background:linear-gradient(180deg,var(--bg) 0%,var(--bg) 55%,rgba(0,0,0,0) 100%);
+      background:linear-gradient(180deg,var(--bg) 0%,var(--bg) 55%,rgba(var(--bg-rgb),0) 100%);
       margin-bottom:-24px;
       isolation:isolate;
   }
@@ -164,7 +165,7 @@
     overflow:hidden;
      background-image:linear-gradient(180deg,rgba(43,44,51,.95) 0%,rgba(28,29,35,.95) 100%), url('/icons/intro-collage.webp');
      background-size:cover; background-position:center; background-repeat:no-repeat;
-     border:1px solid rgba(255,255,255,.24);
+     border:1px solid var(--line);
   }
   .hero-vs{
     position:relative;
@@ -225,13 +226,13 @@
     font-size:8px; font-weight:800; letter-spacing:.6px;
     padding:5px 10px; border-radius:20px;
     display:flex; align-items:center; gap:6px;
-     border:1px solid rgba(255,255,255,.18);
+     border:1px solid var(--line);
     z-index:3;
   }
    .live-dot{width:6px;height:6px;border-radius:50%;background:var(--ember);}
   .hero-delete-btn{
     position:absolute; top:8px; right:8px; z-index:3;
-    width:26px; height:26px; border-radius:50%; border:1px solid rgba(255,255,255,.18);
+    width:26px; height:26px; border-radius:50%; border:1px solid var(--line);
     background:var(--surface2); color:var(--muted);
     display:flex; align-items:center; justify-content:center; cursor:pointer;
     -webkit-tap-highlight-color:transparent;
@@ -241,7 +242,7 @@
   body.light .hero-delete-btn{border-color:var(--line);}
   .hero-decorate-btn{
     position:absolute; top:8px; right:40px; z-index:3;
-    width:26px; height:26px; border-radius:50%; border:1px solid rgba(255,255,255,.18);
+    width:26px; height:26px; border-radius:50%; border:1px solid var(--line);
     background:var(--surface2); color:var(--muted);
     display:flex; align-items:center; justify-content:center; cursor:pointer;
     -webkit-tap-highlight-color:transparent;
@@ -1078,7 +1079,7 @@
    .bottomnav{
      position:sticky; bottom:0; z-index:10;
     display:flex;
-      background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(28,29,35,.92) 28%,var(--bg) 56%);
+      background:linear-gradient(180deg,rgba(var(--bg-rgb),0) 0%,rgba(var(--bg-rgb),.92) 28%,var(--bg) 56%);
      border-top:0;
      padding:28px 0 18px;
      margin-top:-24px;
@@ -1179,6 +1180,7 @@
 
    body.light{
       --bg:#f1f1ef;
+      --bg-rgb:241,241,239;
       --surface:#ffffff;
       --surface2:#e4e4e2;
       --line:#d6d6d3;
