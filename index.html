@@ -637,6 +637,8 @@
      display:flex;align-items:center;justify-content:center;gap:6px;
    }
    .team-actions .assemble-btn{border:0;background:var(--ember);color:#0A0806;}
+   .share-card-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;}
+   .share-card-btn svg{flex-shrink:0;}
    .team-actions .clear-btn{border:1px solid var(--line);background:transparent;color:var(--muted);}
    .team-result{
      margin-top:14px;padding:13px;border:1px solid var(--ember);border-radius:12px;
@@ -1844,7 +1846,10 @@
         <button class="clear-btn" id="clearTeams">CLEAR</button>
       </div>
       <div class="team-result" id="teamResult" hidden></div>
-      <button class="assemble-btn" id="shareTeamCard" type="button" hidden style="margin-top:10px;">↗ SHARE BATTLE CARD</button>
+      <button class="assemble-btn share-card-btn" id="shareTeamCard" type="button" hidden style="margin-top:10px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+        <span>SHARE BATTLE CARD</span>
+      </button>
       <div class="ai-feats">
         <div class="team-builder-label">AI POWER SCOUT</div>
         <h3>Check character feats</h3>
@@ -1855,7 +1860,10 @@
         </form>
         <p class="ai-feats-credits" id="aiFeatsCredits">3 of 3 AI checks left for this team build</p>
         <div class="ai-feats-result" id="aiFeatsResult" hidden></div>
-        <button class="assemble-btn" id="shareAiFeatsCard" type="button" hidden style="margin-top:10px;">↗ SHARE AI VERDICT CARD</button>
+        <button class="assemble-btn share-card-btn" id="shareAiFeatsCard" type="button" hidden style="margin-top:10px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+          <span>SHARE AI VERDICT CARD</span>
+        </button>
       </div>
     </div>
   </section>
@@ -5559,8 +5567,9 @@ Contact: fictionclash.app@gmail.com</div>
   shareTeamCardBtn.addEventListener('click', async () => {
     if (!teams.alpha.length || !teams.omega.length || teamCardBusy) return;
     teamCardBusy = true;
-    const original = shareTeamCardBtn.textContent;
-    shareTeamCardBtn.textContent = 'BUILDING CARD…';
+    const shareTeamCardLabel = shareTeamCardBtn.querySelector('span');
+    const original = shareTeamCardLabel.textContent;
+    shareTeamCardLabel.textContent = 'BUILDING CARD…';
     try {
       // Custom team builds aren't saved matchups, so there's no deep-link
       // for them — the card links back to the app itself, which is the
@@ -5581,7 +5590,7 @@ Contact: fictionclash.app@gmail.com</div>
       console.error('Team battle card failed', err);
       showToast('Could not build the battle card — try again');
     } finally {
-      shareTeamCardBtn.textContent = original;
+      shareTeamCardLabel.textContent = original;
       teamCardBusy = false;
     }
   });
@@ -5639,8 +5648,9 @@ Contact: fictionclash.app@gmail.com</div>
   shareAiFeatsCardBtn.addEventListener('click', async () => {
     if (!lastAiFeatsReport || aiFeatsCardBusy) return;
     aiFeatsCardBusy = true;
-    const original = shareAiFeatsCardBtn.textContent;
-    shareAiFeatsCardBtn.textContent = 'BUILDING CARD…';
+    const shareAiFeatsCardLabel = shareAiFeatsCardBtn.querySelector('span');
+    const original = shareAiFeatsCardLabel.textContent;
+    shareAiFeatsCardLabel.textContent = 'BUILDING CARD…';
     try {
       const url = new URL(location.href);
       url.search = '';
@@ -5661,7 +5671,7 @@ Contact: fictionclash.app@gmail.com</div>
       console.error('AI verdict card failed', err);
       showToast('Could not build the battle card — try again');
     } finally {
-      shareAiFeatsCardBtn.textContent = original;
+      shareAiFeatsCardLabel.textContent = original;
       aiFeatsCardBusy = false;
     }
   });
