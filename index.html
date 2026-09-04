@@ -2857,7 +2857,7 @@ Contact: fictionclash.app@gmail.com</div>
     voteBtnB.textContent = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
     aiStatsResult.innerHTML = 'Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.';
     updatePercentages();
-    const voted = votedState[matchupPairKey(m)];
+    const voted = votedState[votedStateKey(m)];
     voteRow.classList.toggle('voted', !!voted);
     voteBtnA.classList.toggle('picked', voted === 'a');
     voteBtnB.classList.toggle('picked', voted === 'b');
@@ -3485,7 +3485,7 @@ Contact: fictionclash.app@gmail.com</div>
 
   async function castVote(side){
     const m = matchups[activeIdx];
-    const key = matchupPairKey(m);
+    const key = votedStateKey(m);
     if (votedState[key]) return; // already voted on this matchup
 
     if (m.docId) {
@@ -3936,6 +3936,20 @@ Contact: fictionclash.app@gmail.com</div>
     const keyA = `${m.a.name.toLowerCase()}|${(m.a.version || '').toLowerCase()}`;
     const keyB = `${m.b.name.toLowerCase()}|${(m.b.version || '').toLowerCase()}`;
     return [keyA, keyB].sort().join('~');
+  }
+
+  // Voting is remembered per matchup DOCUMENT, not per character pairing.
+  // A built-in matchup has no docId, so it still falls back to the
+  // pairKey — but any community matchup uses its docId instead. This
+  // matters because an admin can delete a community matchup and later
+  // get a fresh one approved with the exact same character pairing;
+  // without this, every browser that had already voted on the deleted
+  // matchup would find its old pairKey-keyed "already voted" entry still
+  // sitting in localStorage and be silently locked out of voting on the
+  // brand-new doc forever — castVote() returns before ever calling
+  // /api/vote, so no error shows, it just looks like voting is broken.
+  function votedStateKey(m){
+    return m.docId ? `id:${m.docId}` : `key:${matchupPairKey(m)}`;
   }
 
   // Real-time: community matchups submitted from any browser land here,
