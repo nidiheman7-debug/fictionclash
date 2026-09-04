@@ -82,6 +82,29 @@
     --accent-bg:linear-gradient(135deg,var(--ember) 0%,var(--ember) 38%,var(--cyan) 62%,var(--cyan) 100%);
     --accent:color-mix(in srgb,var(--ember),var(--cyan));
   }
+  /* Season reskins layer on top of everything above — same indirection
+     trick as theme-fireice, but also swaps --bg (deeper base color) and
+     layers hero art behind the phone frame's content. Only one
+     body.season-* class is ever active at a time (applySeason() removes
+     the others), driven by appConfig/activeSeason in Firestore so it's
+     live for every user without a redeploy. Un-set (no active season) ==
+     none of these classes present == app looks exactly as it does today. */
+  body.season-anime{
+    --bg:#12081F;
+    --bg-rgb:18,8,31;
+    --accent-bg:linear-gradient(135deg,#FF3D7A 0%,#FF3D7A 45%,#00E5FF 55%,#00E5FF 100%);
+    --accent:color-mix(in srgb,#FF3D7A,#00E5FF);
+  }
+  body.season-anime .phone{
+    background-image:linear-gradient(180deg,rgba(18,8,31,.55) 0%,rgba(18,8,31,.85) 40%,var(--bg) 75%),url('/seasons/anime/hero-bg.png');
+    background-size:cover;
+    background-position:top center;
+    background-repeat:no-repeat;
+  }
+  body.season-anime .wordmark,
+  body.season-anime .brand-small{
+    font-family:'Russo One',sans-serif;
+  }
   *{box-sizing:border-box; margin:0; padding:0;}
    body{
      background:var(--bg);
@@ -2565,6 +2588,43 @@ Contact: fictionclash.app@gmail.com</div>
     (data.clipIds || []).forEach(id => globallyHiddenClipIds.add(id));
     applyGlobalHiddenBuiltins();
   }, err => console.error('Hidden-builtins listener failed', err));
+
+  // ---------- Seasons: full app reskins (colors/art/font), rotated by an
+  // admin flag in appConfig/activeSeason. Each entry here is pure data —
+  // adding season #2 later is a config addition, not new code. The CSS
+  // side (body.season-<id> rules) lives in the <style> block above and
+  // must exist for any id added here, or applySeason() just adds a class
+  // that does nothing.
+  const SEASONS = {
+    anime: {
+      id: 'anime',
+      label: 'Anime Season',
+      bodyClass: 'season-anime',
+      // Decoration ids from PROFILE_DECORATIONS that count as this
+      // season's exclusives in the Season store tab. Filled in once the
+      // final keep/cut list is decided — empty for now so the Season tab
+      // simply shows nothing extra yet rather than guessing wrong.
+      decorationIds: [],
+    },
+  };
+
+  let activeSeasonId = null;
+
+  function applySeason(seasonId){
+    // Strip every season body-class before applying the new one, so
+    // switching (or clearing) the active season never leaves a stale
+    // reskin layered underneath the new one.
+    Object.values(SEASONS).forEach(s => document.body.classList.remove(s.bodyClass));
+    const season = seasonId ? SEASONS[seasonId] : null;
+    if (season) document.body.classList.add(season.bodyClass);
+    activeSeasonId = season ? season.id : null;
+    if (typeof renderCustomizationStore === 'function') renderCustomizationStore();
+  }
+
+  onSnapshot(doc(db, 'appConfig', 'activeSeason'), snap => {
+    const data = snap.exists() ? snap.data() : {};
+    applySeason(data.seasonId || null);
+  }, err => console.error('Active-season listener failed', err));
 
   // No hardcoded seed matchups anymore — every matchup shown comes from
   // the 'matchups' Firestore collection via the onSnapshot listener below.
@@ -6305,29 +6365,7 @@ Contact: fictionclash.app@gmail.com</div>
     { id:'neon-pop', name:'Neon Pop', category:'Comic', rarity:'Rare', cost:85 },
     { id:'ink-crown', name:'Ink Crown', category:'Artistic', rarity:'Rare', cost:85 },
     { id:'prism-orbit', name:'Prism Orbit', category:'Artistic', rarity:'Epic', cost:95 },
-    { id:'cosmic-mosaic', name:'Cosmic Mosaic', category:'Artistic', rarity:'Legendary', cost:100 },
-    { id:'hellflame', name:'Hellflame', category:'Anime', rarity:'Legendary', cost:100, fx:true },
-    { id:'web-trap', name:'Web Trap', category:'Gothic', rarity:'Epic', cost:90, fx:true },
-    { id:'voltage', name:'Voltage', category:'Mecha', rarity:'Epic', cost:90, fx:true },
-    { id:'frostbite', name:'Frostbite', category:'Elemental', rarity:'Epic', cost:90, fx:true },
-    { id:'bloodfang', name:'Bloodfang', category:'Gothic', rarity:'Legendary', cost:100, fx:true },
-    { id:'solar-orbit', name:'Solar Orbit', category:'Cosmic', rarity:'Legendary', cost:100, fx:true },
-    { id:'web-slinger', name:'Web-Slinger', category:'Heroes', rarity:'Epic', cost:90, fx:true },
-    { id:'kryptonian-flight', name:'Kryptonian Flight', category:'Heroes', rarity:'Legendary', cost:100, fx:true },
-    { id:'dark-knight', name:'Dark Knight', category:'Heroes', rarity:'Legendary', cost:100, fx:true },
-    { id:'thunderstrike', name:'Thunderstrike', category:'Elemental', rarity:'Epic', cost:90, fx:true },
-    // Canvas-particle effects (fx:'canvas') — rendered by AvatarEffect rather
-    // than static/animated SVG. canvasType is the literal AvatarEffect type
-    // string; fxParticles mirrors the maxParticles override each effect used
-    // in the source preview (avatar-effects-canvas-preview.html).
-    { id:'real-flame', name:'Real Flame', category:'Elemental', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', fxParticles:60 },
-    { id:'air-elemental', name:'Air Elemental', category:'Elemental', rarity:'Rare', cost:80, fx:'canvas', canvasType:'air' },
-    { id:'overdrive-aura', name:'Overdrive Aura', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'energy' },
-    { id:'toxic-bloom', name:'Toxic Bloom', category:'Mystic', rarity:'Rare', cost:85, fx:'canvas', canvasType:'toxic' },
-    { id:'spirit-portal', name:'Spirit Portal', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal' },
-    { id:'skeletal-reaper', name:'Skeletal Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6 },
-    { id:'dragon-balls', name:'Dragon Balls', category:'Legendary', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'dragonballs', fxParticles:7 },
-    { id:'star-struck', name:'Star Struck', category:'Discord Picks', rarity:'Epic', cost:90, fx:'canvas', canvasType:'star_struck', fxParticles:14 }
+    { id:'cosmic-mosaic', name:'Cosmic Mosaic', category:'Artistic', rarity:'Legendary', cost:100 }
   ];
   const PROFILE_FONTS = [
     { id:'bangers', name:'Bangers', category:'Comic', cls:'profile-font-bangers' },
