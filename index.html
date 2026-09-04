@@ -1966,11 +1966,11 @@
         <div class="profile-points-pill"><span id="clashPointsDisplay">0</span> pts</div>
       </div>
       <button class="profile-share-btn" id="profileShareBtn" type="button">
-        <span aria-hidden="true">↗</span> SHARE FICTION CLASH · +20 PTS
+        <span aria-hidden="true">↗</span> SHARE FICTION CLASH · +5 PTS
       </button>
       <div class="profile-share-meta">
         <span id="profileShareCount">0 shares</span>
-        <span>20 points per app link</span>
+        <span>5 points per app link</span>
       </div>
       <div class="profile-store-tabs" role="tablist" aria-label="Profile store">
         <button class="profile-store-tab active" type="button" data-store-tab="decorations" role="tab">Avatar decorations</button>
@@ -2918,7 +2918,8 @@ Contact: fictionclash.app@gmail.com</div>
         filename: `fictionclash-${m.a.name}-vs-${m.b.name}.png`.toLowerCase().replace(/[^a-z0-9.]+/g, '-'),
         title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
         text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
-        url
+        url,
+        onShared: () => awardShareXp('matchup', matchupPairKey(m))
       });
     } catch (err) {
       console.error('Battle card share failed', err);
@@ -2927,7 +2928,8 @@ Contact: fictionclash.app@gmail.com</div>
       shareLink({
         title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
         text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
-        url: buildShareUrl('matchup', matchupPairKey(m))
+        url: buildShareUrl('matchup', matchupPairKey(m)),
+        onShared: () => awardShareXp('matchup', matchupPairKey(m))
       });
     } finally {
       heroShareBtn.querySelector('span:last-child').textContent = originalLabel;
@@ -4555,13 +4557,14 @@ Contact: fictionclash.app@gmail.com</div>
   // sheet supports files (Reddit and Discord's own apps both accept an
   // image this way); falls back to downloading the PNG + copying the link
   // on browsers that can only share text (mainly desktop).
-  async function shareOrDownloadCard(canvas, { filename, title, text, url }){
+  async function shareOrDownloadCard(canvas, { filename, title, text, url, onShared }){
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
     if (!blob) { showToast('Could not generate the battle card'); return; }
     const file = new File([blob], filename, { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title, text: `${text}\n${url}` });
+        if (onShared) await onShared();
         return;
       } catch (err) { return; /* user cancelled the share sheet */ }
     }
@@ -4576,6 +4579,36 @@ Contact: fictionclash.app@gmail.com</div>
       showToast('Battle card downloaded — link copied too!');
     } catch (err) {
       showToast('Battle card downloaded!');
+    }
+    if (onShared) await onShared();
+  }
+
+  // Server-authoritative XP for sharing a matchup or a clip, via /api/share
+  // — same shape as toggleLike's /api/like call. Awards once per unique
+  // (targetType, targetId) per user; re-sharing the same matchup/clip just
+  // returns xpAwarded: 0. Never blocks or throws into the caller's share
+  // flow — sharing itself should always succeed even if the XP call fails
+  // or the user isn't signed in.
+  async function awardShareXp(targetType, targetId){
+    const user = auth.currentUser;
+    if (!user || !targetId) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ targetType, targetId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Share XP failed');
+      if (data.xpAwarded) {
+        currentUserXp += data.xpAwarded;
+        currentUserWeeklyXp += data.xpAwarded;
+        renderVerifiedProgress();
+        showXpToast(data.xpAwarded, data.rank);
+      }
+    } catch (err) {
+      console.error('Share XP award failed', err);
     }
   }
 
@@ -4599,7 +4632,7 @@ Contact: fictionclash.app@gmail.com</div>
     likeBtn.addEventListener('click', () => toggleLike(key));
     shareBtn.addEventListener('click', () => {
       const title = card.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
-      shareLink({ title, text: title, url: buildShareUrl('clip', id) });
+      shareLink({ title, text: title, url: buildShareUrl('clip', id), onShared: () => awardShareXp('clip', id) });
     });
   }
 
@@ -4726,7 +4759,8 @@ Contact: fictionclash.app@gmail.com</div>
   reelsShareBtn.addEventListener('click', () => {
     if (!reelsClipCard) return;
     const title = reelsClipCard.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
-    shareLink({ title, text: title, url: buildShareUrl('clip', reelsClipCard.dataset.clipId) });
+    const clipId = reelsClipCard.dataset.clipId;
+    shareLink({ title, text: title, url: buildShareUrl('clip', clipId), onShared: () => awardShareXp('clip', clipId) });
   });
   reelsCommentBtn.addEventListener('click', () => {
     if (!reelsClipCard) return;
@@ -5599,11 +5633,13 @@ Contact: fictionclash.app@gmail.com</div>
       url.hash = '';
       const shareUrl = url.toString();
       const canvas = await buildTeamBattleCard(teams, shareUrl);
+      const customId = `${teams.alpha.join('+')}-vs-${teams.omega.join('+')}`;
       await shareOrDownloadCard(canvas, {
         filename: 'fictionclash-custom-matchup.png',
         title: 'My custom matchup — Fiction Clash',
         text: `${teams.alpha.join(' & ')} vs ${teams.omega.join(' & ')} — build your own matchup on Fiction Clash.`,
-        url: shareUrl
+        url: shareUrl,
+        onShared: () => awardShareXp('matchup', customId)
       });
     } catch (err) {
       console.error('Team battle card failed', err);
@@ -5680,11 +5716,13 @@ Contact: fictionclash.app@gmail.com</div>
         shareUrl,
         lastAiFeatsReport
       );
+      const customId = `${lastAiFeatsReport.alpha.join('+')}-vs-${lastAiFeatsReport.omega.join('+')}`;
       await shareOrDownloadCard(canvas, {
         filename: 'fictionclash-ai-verdict.png',
         title: 'AI Power Scout verdict — Fiction Clash',
         text: `${lastAiFeatsReport.alpha.join(' & ')} vs ${lastAiFeatsReport.omega.join(' & ')} — see who the AI picked on Fiction Clash.`,
-        url: shareUrl
+        url: shareUrl,
+        onShared: () => awardShareXp('matchup', customId)
       });
     } catch (err) {
       console.error('AI verdict card failed', err);
@@ -6678,19 +6716,19 @@ Contact: fictionclash.app@gmail.com</div>
         const data = snap.exists() ? snap.data() : {};
         transaction.set(creditRef, {
           type: 'appShare',
-          points: 20,
+          points: 5,
           creditedAt: serverTimestamp()
         });
         transaction.set(userRef, {
-          clashPoints: Number(data.clashPoints || 0) + 20,
+          clashPoints: Number(data.clashPoints || 0) + 5,
           shareCount: Number(data.shareCount || 0) + 1,
           lastShareCreditId: creditId
         }, { merge: true });
       });
-      clashPoints += 20;
+      clashPoints += 5;
       shareCount += 1;
       renderCustomizationStore();
-      showToast('App shared · +20 Clash Points');
+      showToast('App shared · +5 Clash Points');
     } catch (err) {
       console.error('Share reward failed', err);
       showToast('Shared, but points could not be saved');
