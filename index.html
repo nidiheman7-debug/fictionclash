@@ -2046,6 +2046,11 @@
       <p>Fan-submitted clips awaiting review.</p>
       <div id="pendingClipsList"></div>
     </div>
+    <div class="account-card hidden" id="adminSeasonCard">
+      <h3>Season control</h3>
+      <p>Toggle a season reskin live for everyone. Reads/writes appConfig/activeSeason directly.</p>
+      <div id="seasonAdminList"></div>
+    </div>
   </section>
   </div>
 
@@ -2642,7 +2647,58 @@ Contact: fictionclash.app@gmail.com</div>
   onSnapshot(doc(db, 'appConfig', 'activeSeason'), snap => {
     const data = snap.exists() ? snap.data() : {};
     applySeason(data.seasonId || null);
+    renderSeasonAdminControls();
   }, err => console.error('Active-season listener failed', err));
+
+  // ---------- admin: turn seasons on/off ----------
+  // Writes straight to appConfig/activeSeason — the same doc every client's
+  // onSnapshot listener above is already watching, so a toggle here goes
+  // live for everyone the moment the write lands. No Cloud Function needed.
+  const adminSeasonCard = document.getElementById('adminSeasonCard');
+  const seasonAdminList = document.getElementById('seasonAdminList');
+  function updateSeasonCardVisibility(){
+    if (adminSeasonCard) adminSeasonCard.classList.toggle('hidden', !isAdmin());
+  }
+  function renderSeasonAdminControls(){
+    updateSeasonCardVisibility();
+    if (!seasonAdminList || !isAdmin()) return;
+    seasonAdminList.innerHTML = Object.values(SEASONS).map(season => {
+      const isLive = activeSeasonId === season.id;
+      return `
+        <div class="admin-report-row" data-season-id="${season.id}">
+          <div class="admin-report-info">
+            <b>${escapeHtml(season.label)}</b>
+            <span>${isLive ? 'Live now — visible to everyone' : 'Not live'}</span>
+          </div>
+          <div class="admin-report-actions">
+            <button type="button" class="${isLive ? 'danger' : ''}" data-season-action="${isLive ? 'deactivate' : 'activate'}">${isLive ? 'Turn off' : 'Turn on'}</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+  if (seasonAdminList) {
+    seasonAdminList.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-season-action]');
+      if (!btn) return;
+      const row = btn.closest('[data-season-id]');
+      const seasonId = row?.dataset.seasonId;
+      const season = seasonId ? SEASONS[seasonId] : null;
+      if (!season) return;
+      const activating = btn.dataset.seasonAction === 'activate';
+      btn.disabled = true;
+      setDoc(doc(db, 'appConfig', 'activeSeason'), { seasonId: activating ? seasonId : null })
+        .then(() => showToast(activating ? `${season.label} is now live` : `${season.label} turned off`))
+        .catch(err => {
+          console.error('Season toggle failed', err);
+          showToast('Could not update season — try again');
+          btn.disabled = false;
+        });
+      // No need to manually re-enable/re-render on success — the
+      // onSnapshot listener above fires from our own write and calls
+      // renderSeasonAdminControls(), which redraws this row.
+    });
+  }
 
   // No hardcoded seed matchups anymore — every matchup shown comes from
   // the 'matchups' Firestore collection via the onSnapshot listener below.
@@ -7297,6 +7353,7 @@ Contact: fictionclash.app@gmail.com</div>
       renderAllLikeButtons(); // this account's like state may differ from the previous one's
       getDocs(collection(db, 'characterAvatars')).then(renderAdminReports).catch(() => {}); // admin card may now apply
       refreshModerationListeners(); // admin's pending queues, if this is the admin account
+      renderSeasonAdminControls(); // season toggle card, if this is the admin account
       refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
     } else {
       lastSignedInUid = null;
@@ -7327,6 +7384,7 @@ Contact: fictionclash.app@gmail.com</div>
       renderAllLikeButtons(); // signed out — nothing should show as "liked" now
       refreshAiFeatsCreditsDisplay(); // back to "sign in to use AI feat checks"
       refreshModerationListeners(); // detaches the admin queue listeners (isAdmin() is now false)
+      updateSeasonCardVisibility(); // hides the season toggle card (isAdmin() is now false)
     }
   });
 
