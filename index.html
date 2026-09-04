@@ -6353,19 +6353,28 @@ Contact: fictionclash.app@gmail.com</div>
   // item IDs are also mirrored in firestore_rules so a browser cannot redeem
   // arbitrary values or bypass the point prices.
   const PROFILE_DECORATIONS = [
-    { id:'golden-aura', name:'Golden Aura', category:'Anime', rarity:'Common', cost:70 },
-    { id:'magic-circle', name:'Magic Circle', category:'Anime', rarity:'Rare', cost:80 },
-    { id:'halftone', name:'Halftone Ink', category:'Comic', rarity:'Common', cost:70 },
-    { id:'chrome', name:'Chrome Scan', category:'Anime', rarity:'Rare', cost:85 },
-    { id:'fire', name:'Fire Ring', category:'Anime', rarity:'Epic', cost:90 },
-    { id:'frost', name:'Frost Ring', category:'Anime', rarity:'Epic', cost:90 },
-    { id:'sakura-bloom', name:'Sakura Bloom', category:'Anime', rarity:'Rare', cost:80 },
-    { id:'chakra-flame', name:'Chakra Flame', category:'Anime', rarity:'Legendary', cost:100 },
-    { id:'comic-burst', name:'Comic Burst', category:'Comic', rarity:'Common', cost:70 },
-    { id:'neon-pop', name:'Neon Pop', category:'Comic', rarity:'Rare', cost:85 },
-    { id:'ink-crown', name:'Ink Crown', category:'Artistic', rarity:'Rare', cost:85 },
-    { id:'prism-orbit', name:'Prism Orbit', category:'Artistic', rarity:'Epic', cost:95 },
-    { id:'cosmic-mosaic', name:'Cosmic Mosaic', category:'Artistic', rarity:'Legendary', cost:100 }
+    { id:'hellflame', name:'Hellflame', category:'Anime', rarity:'Legendary', cost:100, fx:true },
+    { id:'web-trap', name:'Web Trap', category:'Gothic', rarity:'Epic', cost:90, fx:true },
+    { id:'voltage', name:'Voltage', category:'Mecha', rarity:'Epic', cost:90, fx:true },
+    { id:'frostbite', name:'Frostbite', category:'Elemental', rarity:'Epic', cost:90, fx:true },
+    { id:'bloodfang', name:'Bloodfang', category:'Gothic', rarity:'Legendary', cost:100, fx:true },
+    { id:'solar-orbit', name:'Solar Orbit', category:'Cosmic', rarity:'Legendary', cost:100, fx:true },
+    { id:'web-slinger', name:'Web-Slinger', category:'Heroes', rarity:'Epic', cost:90, fx:true },
+    { id:'kryptonian-flight', name:'Kryptonian Flight', category:'Heroes', rarity:'Legendary', cost:100, fx:true },
+    { id:'dark-knight', name:'Dark Knight', category:'Heroes', rarity:'Legendary', cost:100, fx:true },
+    { id:'thunderstrike', name:'Thunderstrike', category:'Elemental', rarity:'Epic', cost:90, fx:true },
+    // Canvas-particle effects (fx:'canvas') — rendered by AvatarEffect rather
+    // than static/animated SVG. canvasType is the literal AvatarEffect type
+    // string; fxParticles mirrors the maxParticles override each effect used
+    // in the source preview (avatar-effects-canvas-preview.html).
+    { id:'real-flame', name:'Real Flame', category:'Elemental', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', fxParticles:60 },
+    { id:'air-elemental', name:'Air Elemental', category:'Elemental', rarity:'Rare', cost:80, fx:'canvas', canvasType:'air' },
+    { id:'overdrive-aura', name:'Overdrive Aura', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'energy' },
+    { id:'toxic-bloom', name:'Toxic Bloom', category:'Mystic', rarity:'Rare', cost:85, fx:'canvas', canvasType:'toxic' },
+    { id:'spirit-portal', name:'Spirit Portal', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal' },
+    { id:'skeletal-reaper', name:'Skeletal Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6 },
+    { id:'dragon-balls', name:'Dragon Balls', category:'Legendary', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'dragonballs', fxParticles:7 },
+    { id:'star-struck', name:'Star Struck', category:'Discord Picks', rarity:'Epic', cost:90, fx:'canvas', canvasType:'star_struck', fxParticles:14 }
   ];
   const PROFILE_FONTS = [
     { id:'bangers', name:'Bangers', category:'Comic', cls:'profile-font-bangers' },
