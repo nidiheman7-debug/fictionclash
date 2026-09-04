@@ -898,6 +898,26 @@
    .profile-store-tab.active{border-color:var(--accent);color:var(--accent);background:rgba(228,169,41,.1);}
    .profile-store-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
    .profile-store-grid[hidden]{display:none;}
+   /* Season section: a distinct, bannered block above the evergreen grid,
+      shown only while its season is active (see renderCustomizationStore).
+      Deliberately visually louder than the plain grid below it — it's the
+      limited-time stuff, so it should read that way at a glance. */
+   .profile-store-season{
+     position:relative;border-radius:16px;overflow:hidden;margin-bottom:16px;
+     border:1px solid rgba(255,61,122,.4);
+   }
+   .profile-store-season-banner{
+     position:relative;padding:16px 14px 12px;
+     background-image:linear-gradient(180deg,rgba(18,8,31,.35) 0%,rgba(18,8,31,.85) 100%),url('/seasons/anime/store-banner.png');
+     background-size:cover;background-position:center;
+   }
+   .profile-store-season-label{
+     display:inline-block;font:800 10px 'Russo One',sans-serif;letter-spacing:1px;
+     color:#fff;text-transform:uppercase;
+     text-shadow:0 2px 6px rgba(0,0,0,.6);
+   }
+   .profile-store-season-sub{font:600 9px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.75);margin-top:2px;}
+   .profile-store-season-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px;background:var(--surface);}
    .profile-store-item{
      position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;
      padding:14px 8px 10px;border:1px solid var(--line);border-radius:13px;background:var(--surface);
@@ -1999,6 +2019,7 @@
         <button class="profile-store-tab active" type="button" data-store-tab="decorations" role="tab">Avatar decorations</button>
         <button class="profile-store-tab" type="button" data-store-tab="fonts" role="tab">Name fonts</button>
       </div>
+      <div id="decorationSeasonSection"></div>
       <div class="profile-store-grid" id="decorationStoreGrid"></div>
       <div class="profile-store-grid" id="fontStoreGrid" hidden></div>
     </div>
@@ -2600,11 +2621,8 @@ Contact: fictionclash.app@gmail.com</div>
       id: 'anime',
       label: 'Anime Season',
       bodyClass: 'season-anime',
-      // Decoration ids from PROFILE_DECORATIONS that count as this
-      // season's exclusives in the Season store tab. Filled in once the
-      // final keep/cut list is decided — empty for now so the Season tab
-      // simply shows nothing extra yet rather than guessing wrong.
-      decorationIds: [],
+      bannerAsset: '/seasons/anime/store-banner.png',
+      currencyLabel: 'Shards',
     },
   };
 
@@ -5891,6 +5909,7 @@ Contact: fictionclash.app@gmail.com</div>
   const removeAvatarBtn = document.getElementById('removeAvatarBtn');
   let avatarDataUrl = '';
   let clashPoints = 0;
+  let seasonShards = 0; // standalone currency for the active season's exclusive decorations — see SEASONS
   let shareCount = 0;
   let unlockedDecorations = [];
   let unlockedFonts = [];
@@ -6368,13 +6387,13 @@ Contact: fictionclash.app@gmail.com</div>
     // string; fxParticles mirrors the maxParticles override each effect used
     // in the source preview (avatar-effects-canvas-preview.html).
     { id:'real-flame', name:'Real Flame', category:'Elemental', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', fxParticles:60 },
-    { id:'air-elemental', name:'Air Elemental', category:'Elemental', rarity:'Rare', cost:80, fx:'canvas', canvasType:'air' },
+    { id:'air-elemental', name:'Air Elemental', category:'Elemental', rarity:'Rare', cost:80, fx:'canvas', canvasType:'air', season:'anime' },
     { id:'overdrive-aura', name:'Overdrive Aura', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'energy' },
-    { id:'toxic-bloom', name:'Toxic Bloom', category:'Mystic', rarity:'Rare', cost:85, fx:'canvas', canvasType:'toxic' },
-    { id:'spirit-portal', name:'Spirit Portal', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal' },
+    { id:'toxic-bloom', name:'Toxic Bloom', category:'Mystic', rarity:'Rare', cost:85, fx:'canvas', canvasType:'toxic', season:'anime' },
+    { id:'spirit-portal', name:'Spirit Portal', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', season:'anime' },
     { id:'skeletal-reaper', name:'Skeletal Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6 },
-    { id:'dragon-balls', name:'Dragon Balls', category:'Legendary', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'dragonballs', fxParticles:7 },
-    { id:'star-struck', name:'Star Struck', category:'Discord Picks', rarity:'Epic', cost:90, fx:'canvas', canvasType:'star_struck', fxParticles:14 }
+    { id:'dragon-balls', name:'Dragon Balls', category:'Legendary', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'dragonballs', fxParticles:7, season:'anime' },
+    { id:'star-struck', name:'Star Struck', category:'Discord Picks', rarity:'Epic', cost:90, fx:'canvas', canvasType:'star_struck', fxParticles:14, season:'anime' }
   ];
   const PROFILE_FONTS = [
     { id:'bangers', name:'Bangers', category:'Comic', cls:'profile-font-bangers' },
@@ -6667,11 +6686,22 @@ Contact: fictionclash.app@gmail.com</div>
     if (shareEl) shareEl.textContent = `${shareCount} share${shareCount === 1 ? '' : 's'}`;
 
     const decorationGrid = document.getElementById('decorationStoreGrid');
+    const seasonSection = document.getElementById('decorationSeasonSection');
     const fontGrid = document.getElementById('fontStoreGrid');
-    if (!decorationGrid || !fontGrid) return;
+    if (!decorationGrid || !fontGrid || !seasonSection) return;
 
     deactivateCanvasFx(decorationGrid);
-    decorationGrid.innerHTML = PROFILE_DECORATIONS.map(item => {
+    deactivateCanvasFx(seasonSection);
+
+    // Season items only ever show while their own season is the active
+    // one — that's the "one active season at a time" behavior. Anything
+    // already owned keeps working via decorationById() everywhere else
+    // (equip/render), this just controls what's purchasable right now.
+    const activeSeason = activeSeasonId ? SEASONS[activeSeasonId] : null;
+    const seasonItems = activeSeason ? PROFILE_DECORATIONS.filter(item => item.season === activeSeasonId) : [];
+    const evergreenItems = PROFILE_DECORATIONS.filter(item => !item.season);
+
+    function decorationCardHtml(item, currency, balance){
       const owned = unlockedDecorations.includes(item.id);
       const equipped = equippedDecoration === item.id;
       const buttonLabel = equipped ? 'Equipped' : owned ? 'Equip' : 'Redeem';
@@ -6681,10 +6711,23 @@ Contact: fictionclash.app@gmail.com</div>
         <h4>${item.name}</h4>
         <p class="profile-store-cat">${item.category}</p>
         <span class="profile-store-rarity ${item.rarity.toLowerCase()}">${item.rarity}</span>
-        <div class="profile-store-cost">${owned ? '' : `${item.cost} pts`}</div>
-        <button class="profile-store-action${equipped ? ' equipped' : ''}" type="button" data-decoration-action="${item.id}" ${!owned && clashPoints < item.cost ? 'disabled' : ''}>${buttonLabel}</button>
+        <div class="profile-store-cost">${owned ? '' : `${item.cost} ${currency}`}</div>
+        <button class="profile-store-action${equipped ? ' equipped' : ''}" type="button" data-decoration-action="${item.id}" ${!owned && balance < item.cost ? 'disabled' : ''}>${buttonLabel}</button>
       </div>`;
-    }).join('');
+    }
+
+    seasonSection.innerHTML = (activeSeason && seasonItems.length) ? `
+      <div class="profile-store-season">
+        <div class="profile-store-season-banner">
+          <span class="profile-store-season-label">${activeSeason.label}</span>
+          <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${seasonShards} available)</div>
+        </div>
+        <div class="profile-store-season-grid">
+          ${seasonItems.map(item => decorationCardHtml(item, activeSeason.currencyLabel.toLowerCase(), seasonShards)).join('')}
+        </div>
+      </div>` : '';
+
+    decorationGrid.innerHTML = evergreenItems.map(item => decorationCardHtml(item, 'pts', clashPoints)).join('');
 
     fontGrid.innerHTML = PROFILE_FONTS.map(item => {
       const owned = unlockedFonts.includes(item.id);
@@ -6701,8 +6744,11 @@ Contact: fictionclash.app@gmail.com</div>
     }).join('');
 
     activateCanvasFx(decorationGrid);
-    decorationGrid.querySelectorAll('[data-decoration-action]').forEach(button => {
-      button.addEventListener('click', () => handleCustomizationAction('decoration', button.dataset.decorationAction));
+    activateCanvasFx(seasonSection);
+    [decorationGrid, seasonSection].forEach(grid => {
+      grid.querySelectorAll('[data-decoration-action]').forEach(button => {
+        button.addEventListener('click', () => handleCustomizationAction('decoration', button.dataset.decorationAction));
+      });
     });
     fontGrid.querySelectorAll('[data-font-action]').forEach(button => {
       button.addEventListener('click', () => handleCustomizationAction('font', button.dataset.fontAction));
@@ -6716,6 +6762,12 @@ Contact: fictionclash.app@gmail.com</div>
     if (!item) return;
     const ownedList = type === 'decoration' ? unlockedDecorations : unlockedFonts;
     const cost = type === 'decoration' ? item.cost : 70;
+    // Season-tagged decorations spend seasonShards instead of clashPoints —
+    // a completely separate balance/field, never mixed with the evergreen
+    // currency (see awardXp in api/lib/xp.js for where shards come from).
+    const usesShards = type === 'decoration' && !!item.season;
+    const currencyField = usesShards ? 'seasonShards' : 'clashPoints';
+    const currencyLabel = usesShards ? (SEASONS[item.season]?.currencyLabel || 'Shards') : 'Clash Points';
     const userRef = doc(db, 'users', user.uid);
 
     try {
@@ -6730,31 +6782,32 @@ Contact: fictionclash.app@gmail.com</div>
         return;
       }
 
-      if (clashPoints < cost) {
-        showToast(`You need ${cost - clashPoints} more points`);
+      const localBalance = usesShards ? seasonShards : clashPoints;
+      if (localBalance < cost) {
+        showToast(`You need ${cost - localBalance} more ${currencyLabel}`);
         return;
       }
       await runTransaction(db, async transaction => {
         const snap = await transaction.get(userRef);
         const data = snap.exists() ? snap.data() : {};
-        const remotePoints = Number(data.clashPoints || 0);
+        const remoteBalance = Number(data[currencyField] || 0);
         const remoteOwned = type === 'decoration'
           ? (Array.isArray(data.unlockedDecorations) ? data.unlockedDecorations : [])
           : (Array.isArray(data.unlockedFonts) ? data.unlockedFonts : []);
         if (remoteOwned.includes(id)) throw new Error('already-owned');
-        if (remotePoints < cost) throw new Error('not-enough-points');
+        if (remoteBalance < cost) throw new Error('not-enough-points');
         transaction.set(userRef, {
-          clashPoints: remotePoints - cost,
+          [currencyField]: remoteBalance - cost,
           [type === 'decoration' ? 'unlockedDecorations' : 'unlockedFonts']: arrayUnion(id),
           [type === 'decoration' ? 'lastRedeemedDecoration' : 'lastRedeemedFont']: id
         }, { merge: true });
       });
-      clashPoints -= cost;
+      if (usesShards) seasonShards -= cost; else clashPoints -= cost;
       ownedList.push(id);
       renderCustomizationStore();
       showToast(`${item.name} redeemed`);
     } catch (err) {
-      if (err.message === 'not-enough-points') showToast('Not enough Clash Points');
+      if (err.message === 'not-enough-points') showToast(`Not enough ${currencyLabel}`);
       else if (err.message === 'already-owned') showToast('Already in your collection');
       else {
         console.error('Avatar Store action failed', err);
@@ -7061,6 +7114,7 @@ Contact: fictionclash.app@gmail.com</div>
       if (data.bio) profileBio.value = data.bio;
       if (data.avatarUrl) avatarDataUrl = data.avatarUrl;
       clashPoints = Number(data.clashPoints || 0);
+      seasonShards = Number(data.seasonShards || 0);
       shareCount = Number(data.shareCount || 0);
       unlockedDecorations = Array.isArray(data.unlockedDecorations) ? [...data.unlockedDecorations] : [];
       unlockedFonts = Array.isArray(data.unlockedFonts) ? [...data.unlockedFonts] : [];
@@ -7229,6 +7283,7 @@ Contact: fictionclash.app@gmail.com</div>
         profileBio.value = '';
         avatarDataUrl = user.photoURL || '';
          clashPoints = 0;
+         seasonShards = 0;
          shareCount = 0;
          unlockedDecorations = [];
          unlockedFonts = [];
@@ -7256,6 +7311,7 @@ Contact: fictionclash.app@gmail.com</div>
       profileBio.value = '';
       avatarDataUrl = '';
        clashPoints = 0;
+       seasonShards = 0;
        shareCount = 0;
        unlockedDecorations = [];
        unlockedFonts = [];

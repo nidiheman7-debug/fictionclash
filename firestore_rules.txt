@@ -20,6 +20,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Which season is currently reskinning the app (index.html's SEASONS
+    // config + applySeason()). Public read so every client's live
+    // onSnapshot listener can react instantly; write restricted to admin,
+    // same treatment as hiddenBuiltins above.
+    match /appConfig/activeSeason {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     match /matchups/{id} {
       allow read: if true;
       // No longer directly client-writable. Fan submissions land in
@@ -151,6 +160,10 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.type == 'appShare'
           && getAfter(/databases/$(database)/documents/users/$(uid)/shareCredits/$(request.resource.data.lastShareCreditId)).data.points == 5;
       }
+      // Evergreen decorations, bought with clashPoints. These 13 were
+      // originally part of the "effects" tier but were NOT picked as
+      // anime-season exclusives — see isSeasonDecorationRedemption() below
+      // for the 5 that were.
       function isDecorationRedemption() {
         return request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['clashPoints', 'unlockedDecorations', 'lastRedeemedDecoration'])
@@ -160,33 +173,7 @@ service cloud.firestore {
           && request.resource.data.unlockedDecorations.hasAll([request.resource.data.lastRedeemedDecoration])
           && request.resource.data.unlockedDecorations.size() == resource.data.get('unlockedDecorations', []).size() + 1
           && (
-               request.resource.data.lastRedeemedDecoration == 'golden-aura'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70
-            || request.resource.data.lastRedeemedDecoration == 'magic-circle'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 80
-            || request.resource.data.lastRedeemedDecoration == 'halftone'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70
-            || request.resource.data.lastRedeemedDecoration == 'chrome'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
-            || request.resource.data.lastRedeemedDecoration == 'fire'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
-            || request.resource.data.lastRedeemedDecoration == 'frost'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
-            || request.resource.data.lastRedeemedDecoration == 'sakura-bloom'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 80
-            || request.resource.data.lastRedeemedDecoration == 'chakra-flame'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
-            || request.resource.data.lastRedeemedDecoration == 'comic-burst'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 70
-            || request.resource.data.lastRedeemedDecoration == 'neon-pop'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
-            || request.resource.data.lastRedeemedDecoration == 'ink-crown'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
-            || request.resource.data.lastRedeemedDecoration == 'prism-orbit'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 95
-            || request.resource.data.lastRedeemedDecoration == 'cosmic-mosaic'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
-            || request.resource.data.lastRedeemedDecoration == 'hellflame'
+               request.resource.data.lastRedeemedDecoration == 'hellflame'
                && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
             || request.resource.data.lastRedeemedDecoration == 'web-trap'
                && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
@@ -198,22 +185,6 @@ service cloud.firestore {
                && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
             || request.resource.data.lastRedeemedDecoration == 'solar-orbit'
                && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
-            || request.resource.data.lastRedeemedDecoration == 'real-flame'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
-            || request.resource.data.lastRedeemedDecoration == 'air-elemental'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 80
-            || request.resource.data.lastRedeemedDecoration == 'overdrive-aura'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
-            || request.resource.data.lastRedeemedDecoration == 'toxic-bloom'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 85
-            || request.resource.data.lastRedeemedDecoration == 'spirit-portal'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
-            || request.resource.data.lastRedeemedDecoration == 'skeletal-reaper'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
-            || request.resource.data.lastRedeemedDecoration == 'dragon-balls'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
-            || request.resource.data.lastRedeemedDecoration == 'star-struck'
-               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
             || request.resource.data.lastRedeemedDecoration == 'web-slinger'
                && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
             || request.resource.data.lastRedeemedDecoration == 'kryptonian-flight'
@@ -222,6 +193,40 @@ service cloud.firestore {
                && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
             || request.resource.data.lastRedeemedDecoration == 'thunderstrike'
                && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'real-flame'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'overdrive-aura'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'skeletal-reaper'
+               && request.resource.data.clashPoints == resource.data.get('clashPoints', 0) - 100
+          );
+      }
+      // Season-exclusive decorations, bought with seasonShards instead of
+      // clashPoints — a completely separate field/balance (see awardXp in
+      // api/lib/xp.js). Ids/costs here must mirror PROFILE_DECORATIONS
+      // entries that carry a `season` tag exactly, or a legitimate
+      // purchase gets rejected client-side with nothing to show why.
+      // Anime season's 5 picks: Dragon Balls, Toxic Bloom, Spirit Portal,
+      // Air Elemental, Star Struck.
+      function isSeasonDecorationRedemption() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['seasonShards', 'unlockedDecorations', 'lastRedeemedDecoration'])
+          && request.resource.data.lastRedeemedDecoration is string
+          && request.resource.data.unlockedDecorations is list
+          && request.resource.data.unlockedDecorations.hasAll(resource.data.get('unlockedDecorations', []))
+          && request.resource.data.unlockedDecorations.hasAll([request.resource.data.lastRedeemedDecoration])
+          && request.resource.data.unlockedDecorations.size() == resource.data.get('unlockedDecorations', []).size() + 1
+          && (
+               request.resource.data.lastRedeemedDecoration == 'air-elemental'
+               && request.resource.data.seasonShards == resource.data.get('seasonShards', 0) - 80
+            || request.resource.data.lastRedeemedDecoration == 'toxic-bloom'
+               && request.resource.data.seasonShards == resource.data.get('seasonShards', 0) - 85
+            || request.resource.data.lastRedeemedDecoration == 'spirit-portal'
+               && request.resource.data.seasonShards == resource.data.get('seasonShards', 0) - 90
+            || request.resource.data.lastRedeemedDecoration == 'dragon-balls'
+               && request.resource.data.seasonShards == resource.data.get('seasonShards', 0) - 100
+            || request.resource.data.lastRedeemedDecoration == 'star-struck'
+               && request.resource.data.seasonShards == resource.data.get('seasonShards', 0) - 90
           );
       }
       function isFontRedemption() {
@@ -262,11 +267,13 @@ service cloud.firestore {
         return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['characterDecorations'])
           && request.resource.data.characterDecorations is map;
       }
-      // actionCount/verifiedUntil are no longer client-writable — the
-      // verified badge is now driven entirely by `xp` (also not
-      // client-writable), awarded server-side via /api/vote and
-      // /api/comment (see /api/lib/xp.js). Neither field appears in any
-      // allowed update branch below, so both are denied by default.
+      // actionCount/verifiedUntil/xp/weeklyXp/seasonShards are no longer
+      // client-writable in bulk — xp/weeklyXp/seasonShards are driven
+      // entirely by awardXp() server-side (see api/lib/xp.js, called from
+      // /api/vote, /api/comment, /api/share). seasonShards' only
+      // client-writable path is spending it via
+      // isSeasonDecorationRedemption() above, which only ever decreases
+      // it by an exact, hardcoded amount — never sets or increases it.
       allow create: if isOwner()
         && (
           request.resource.data.keys().hasOnly(['name', 'handle', 'bio', 'avatarUrl', 'updatedAt'])
@@ -286,6 +293,7 @@ service cloud.firestore {
           hasProfileFieldsOnly()
           || isShareCreditGrant()
           || isDecorationRedemption()
+          || isSeasonDecorationRedemption()
           || isFontRedemption()
           || isValidEquipmentChange()
           || isCharacterDecorationChange()
