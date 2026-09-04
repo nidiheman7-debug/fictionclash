@@ -1844,6 +1844,7 @@
         <button class="clear-btn" id="clearTeams">CLEAR</button>
       </div>
       <div class="team-result" id="teamResult" hidden></div>
+      <button class="assemble-btn" id="shareTeamCard" type="button" hidden style="margin-top:10px;">↗ SHARE BATTLE CARD</button>
       <div class="ai-feats">
         <div class="team-builder-label">AI POWER SCOUT</div>
         <h3>Check character feats</h3>
@@ -2875,14 +2876,35 @@ Contact: fictionclash.app@gmail.com</div>
 
   heroLikeBtn.addEventListener('click', () => toggleLike(heroLikeKey));
 
-  heroShareBtn.addEventListener('click', () => {
+  let heroCardBusy = false;
+  heroShareBtn.addEventListener('click', async () => {
     const m = matchups[activeIdx];
-    if (!m) return;
-    shareLink({
-      title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
-      text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
-      url: buildShareUrl('matchup', matchupPairKey(m))
-    });
+    if (!m || heroCardBusy) return;
+    heroCardBusy = true;
+    const originalLabel = heroShareBtn.querySelector('span:last-child').textContent;
+    heroShareBtn.querySelector('span:last-child').textContent = '…';
+    try {
+      const url = buildShareUrl('matchup', matchupPairKey(m));
+      const canvas = await buildMatchupBattleCard(m, url);
+      await shareOrDownloadCard(canvas, {
+        filename: `fictionclash-${m.a.name}-vs-${m.b.name}.png`.toLowerCase().replace(/[^a-z0-9.]+/g, '-'),
+        title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
+        text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
+        url
+      });
+    } catch (err) {
+      console.error('Battle card share failed', err);
+      // Never leave the user with nothing to share — fall back to the
+      // plain link if the canvas/image pipeline throws for any reason.
+      shareLink({
+        title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
+        text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
+        url: buildShareUrl('matchup', matchupPairKey(m))
+      });
+    } finally {
+      heroShareBtn.querySelector('span:last-child').textContent = originalLabel;
+      heroCardBusy = false;
+    }
   });
 
   // ---------- hero card comments ----------
@@ -4207,6 +4229,265 @@ Contact: fictionclash.app@gmail.com</div>
     return shared;
   }
 
+  // ---------- shareable "battle card" images ----------
+  // Turns a matchup or a custom team build into a single self-contained
+  // PNG (branded, sized for feeds) instead of a bare link, so a Reddit/
+  // Discord post actually shows something instead of a plain URL preview.
+  // Character art here is always either our own generated placeholder SVG
+  // or a data: URL the user already uploaded through the existing avatar
+  // flow — never a fetched third-party image — so nothing new is pulled
+  // in from off-site, and the canvas is never tainted by cross-origin
+  // pixels (a hard requirement for canvas.toBlob to work at all).
+  const BATTLE_CARD_W = 1080, BATTLE_CARD_H = 1350;
+
+  function loadImageEl(src){
+    return new Promise(resolve => {
+      if (!src) { resolve(null); return; }
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  }
+
+  function roundRectPath(ctx, x, y, w, h, r){
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawCardAvatar(ctx, img, cx, cy, r, initials){
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    if (img) {
+      const scale = Math.max((r * 2) / img.width, (r * 2) / img.height);
+      const w = img.width * scale, h = img.height * scale;
+      ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+    } else {
+      ctx.fillStyle = '#3a3b42';
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `800 ${Math.round(r * 0.55)}px 'Bricolage Grotesque', sans-serif`;
+      ctx.fillText(initials || '?', cx, cy + 2);
+    }
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(255,255,255,.85)';
+    ctx.stroke();
+  }
+
+  function drawBattleCardShell(ctx, w, h, kicker){
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#2b2c33');
+    bg.addColorStop(1, '#17181d');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+    const glow = ctx.createRadialGradient(w / 2, h * 0.22, 10, w / 2, h * 0.22, w * 0.65);
+    glow.addColorStop(0, 'rgba(228,169,41,.28)');
+    glow.addColorStop(1, 'rgba(228,169,41,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#E4A929';
+    ctx.font = `800 34px 'Bricolage Grotesque', sans-serif`;
+    ctx.fillText('FICTION CLASH', w / 2, 96);
+    ctx.fillStyle = '#999';
+    ctx.font = `700 16px 'Instrument Sans', sans-serif`;
+    ctx.letterSpacing = '1px';
+    ctx.fillText(kicker || 'VOTE · COMPARE · SETTLE IT', w / 2, 126);
+    ctx.letterSpacing = '0px';
+  }
+
+  function drawBattleCardFooter(ctx, w, h, url){
+    ctx.fillStyle = 'rgba(255,255,255,.07)';
+    ctx.fillRect(0, h - 110, w, 110);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.font = `800 26px 'Bricolage Grotesque', sans-serif`;
+    ctx.fillText('Cast your vote at Fiction Clash', w / 2, h - 58);
+    ctx.fillStyle = '#999';
+    ctx.font = `600 16px 'Martian Mono', monospace`;
+    ctx.fillText((url || '').replace(/^https?:\/\//, ''), w / 2, h - 26);
+  }
+
+  // Waits for the two brand fonts the card leans on hardest so canvas text
+  // doesn't silently fall back to a system serif on the very first share
+  // of a session (fonts loaded via the @import above can still be mid-flight).
+  async function ensureCardFontsReady(){
+    if (!document.fonts || !document.fonts.load) return;
+    try {
+      await Promise.all([
+        document.fonts.load("800 34px 'Bricolage Grotesque'"),
+        document.fonts.load("700 16px 'Instrument Sans'"),
+        document.fonts.load("600 16px 'Martian Mono'")
+      ]);
+    } catch (err) { /* best-effort — card still renders with fallback fonts */ }
+  }
+
+  async function buildMatchupBattleCard(m, shareUrl){
+    await ensureCardFontsReady();
+    const canvas = document.createElement('canvas');
+    canvas.width = BATTLE_CARD_W;
+    canvas.height = BATTLE_CARD_H;
+    const ctx = canvas.getContext('2d');
+    drawBattleCardShell(ctx, canvas.width, canvas.height, 'TODAY\u2019S MATCHUP');
+
+    const total = (m.votesA || 0) + (m.votesB || 0);
+    const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
+    const pctB = 100 - pctA;
+
+    const [imgA, imgB] = await Promise.all([
+      loadImageEl(getCharacterAvatarOverride(m.a.name, m.a.version) || avatarUrl(m.a.name, m.a.initials)),
+      loadImageEl(getCharacterAvatarOverride(m.b.name, m.b.version) || avatarUrl(m.b.name, m.b.initials))
+    ]);
+
+    const cy = 430, r = 195;
+    drawCardAvatar(ctx, imgA, canvas.width * 0.28, cy, r, m.a.initials);
+    drawCardAvatar(ctx, imgB, canvas.width * 0.72, cy, r, m.b.initials);
+
+    ctx.fillStyle = '#E4A929';
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, cy, 58, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0A0806';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 36px 'Bricolage Grotesque', sans-serif`;
+    ctx.fillText('VS', canvas.width / 2, cy + 3);
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.fillStyle = '#fff';
+    ctx.font = `800 30px 'Bricolage Grotesque', sans-serif`;
+    wrapCenteredText(ctx, m.a.name.toUpperCase(), canvas.width * 0.28, cy + r + 52, canvas.width * 0.42, 34);
+    wrapCenteredText(ctx, m.b.name.toUpperCase(), canvas.width * 0.72, cy + r + 52, canvas.width * 0.42, 34);
+
+    const barY = cy + r + 150, barW = canvas.width - 160, barX = 80, barH = 28;
+    ctx.fillStyle = '#3a3b42';
+    roundRectPath(ctx, barX, barY, barW, barH, 14);
+    ctx.fill();
+    ctx.fillStyle = '#E4A929';
+    roundRectPath(ctx, barX, barY, Math.max(barH, barW * (pctA / 100)), barH, 14);
+    ctx.fill();
+
+    ctx.font = `800 22px 'Bricolage Grotesque', sans-serif`;
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${pctA}%`, barX, barY - 14);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${pctB}%`, barX + barW, barY - 14);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#999';
+    ctx.font = `600 16px 'Martian Mono', monospace`;
+    ctx.fillText(`${total.toLocaleString()} vote${total === 1 ? '' : 's'} so far`, canvas.width / 2, barY + 54);
+
+    drawBattleCardFooter(ctx, canvas.width, canvas.height, shareUrl);
+    return canvas;
+  }
+
+  async function buildTeamBattleCard(teamsState, shareUrl){
+    await ensureCardFontsReady();
+    const canvas = document.createElement('canvas');
+    canvas.width = BATTLE_CARD_W;
+    canvas.height = BATTLE_CARD_H;
+    const ctx = canvas.getContext('2d');
+    drawBattleCardShell(ctx, canvas.width, canvas.height, 'CUSTOM TEAM MATCHUP');
+
+    async function drawColumn(names, cx, label){
+      ctx.fillStyle = '#E4A929';
+      ctx.font = `800 22px 'Bricolage Grotesque', sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(label, cx, 205);
+      const r = names.length > 2 ? 62 : 78;
+      let y = 205 + r + 55;
+      for (const name of names) {
+        const initials = name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
+        const img = await loadImageEl(getCharacterAvatarOverride(name) || avatarUrl(name, initials));
+        drawCardAvatar(ctx, img, cx, y, r, initials);
+        ctx.fillStyle = '#fff';
+        ctx.font = `700 19px 'Instrument Sans', sans-serif`;
+        wrapCenteredText(ctx, name, cx, y + r + 32, canvas.width * 0.4, 22);
+        y += r * 2 + 90;
+      }
+    }
+    await drawColumn(teamsState.alpha, canvas.width * 0.27, 'TEAM ALPHA');
+    await drawColumn(teamsState.omega, canvas.width * 0.73, 'TEAM OMEGA');
+
+    const vsY = 205 + (Math.max(teamsState.alpha.length, teamsState.omega.length) > 2 ? 62 : 78) + 55;
+    ctx.fillStyle = '#E4A929';
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, vsY, 58, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0A0806';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 36px 'Bricolage Grotesque', sans-serif`;
+    ctx.fillText('VS', canvas.width / 2, vsY + 3);
+    ctx.textBaseline = 'alphabetic';
+
+    drawBattleCardFooter(ctx, canvas.width, canvas.height, shareUrl);
+    return canvas;
+  }
+
+  // Simple 1-2 line word-wrap for the centered labels under each avatar,
+  // so a long character name doesn't run off the edge of the card.
+  function wrapCenteredText(ctx, text, cx, startY, maxWidth, lineHeight){
+    ctx.textAlign = 'center';
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+    words.forEach(word => {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    });
+    if (line) lines.push(line);
+    lines.slice(0, 2).forEach((l, i) => ctx.fillText(l, cx, startY + i * lineHeight));
+  }
+
+  // Shares the rendered card as an actual image file wherever the OS share
+  // sheet supports files (Reddit and Discord's own apps both accept an
+  // image this way); falls back to downloading the PNG + copying the link
+  // on browsers that can only share text (mainly desktop).
+  async function shareOrDownloadCard(canvas, { filename, title, text, url }){
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+    if (!blob) { showToast('Could not generate the battle card'); return; }
+    const file = new File([blob], filename, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title, text: `${text}\n${url}` });
+        return;
+      } catch (err) { return; /* user cancelled the share sheet */ }
+    }
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Battle card downloaded — link copied too!');
+    } catch (err) {
+      showToast('Battle card downloaded!');
+    }
+  }
+
   // Wires a clip card's like + share buttons. Safe to call more than once
   // per card id — it just re-registers the renderer + listeners.
   function wireClipSocial(id, card, baseLikeCount){
@@ -5181,6 +5462,7 @@ Contact: fictionclash.app@gmail.com</div>
     renderTeams();
   });
 
+  const shareTeamCardBtn = document.getElementById('shareTeamCard');
   document.getElementById('assembleTeams').addEventListener('click', () => {
     if (!teams.alpha.length || !teams.omega.length) {
       showToast('Choose fighters for both teams');
@@ -5188,12 +5470,45 @@ Contact: fictionclash.app@gmail.com</div>
     }
     teamResult.hidden = false;
     teamResult.innerHTML = `<strong>${teams.alpha.join(' · ')} vs ${teams.omega.join(' · ')}</strong>Matchup assembled. Tap the cards above to keep editing your lineups.`;
+    shareTeamCardBtn.hidden = false;
   });
   document.getElementById('clearTeams').addEventListener('click', () => {
     teams.alpha.length = 0;
     teams.omega.length = 0;
     teamResult.hidden = true;
+    shareTeamCardBtn.hidden = true;
     renderTeams(); // also refreshes the credits line for the now-empty roster
+  });
+
+  let teamCardBusy = false;
+  shareTeamCardBtn.addEventListener('click', async () => {
+    if (!teams.alpha.length || !teams.omega.length || teamCardBusy) return;
+    teamCardBusy = true;
+    const original = shareTeamCardBtn.textContent;
+    shareTeamCardBtn.textContent = 'BUILDING CARD…';
+    try {
+      // Custom team builds aren't saved matchups, so there's no deep-link
+      // for them — the card links back to the app itself, which is the
+      // whole point (the image does the promoting, the link brings people
+      // in to build their own).
+      const url = new URL(location.href);
+      url.search = '';
+      url.hash = '';
+      const shareUrl = url.toString();
+      const canvas = await buildTeamBattleCard(teams, shareUrl);
+      await shareOrDownloadCard(canvas, {
+        filename: 'fictionclash-custom-matchup.png',
+        title: 'My custom matchup — Fiction Clash',
+        text: `${teams.alpha.join(' & ')} vs ${teams.omega.join(' & ')} — build your own matchup on Fiction Clash.`,
+        url: shareUrl
+      });
+    } catch (err) {
+      console.error('Team battle card failed', err);
+      showToast('Could not build the battle card — try again');
+    } finally {
+      shareTeamCardBtn.textContent = original;
+      teamCardBusy = false;
+    }
   });
 
   aiFeatsForm.addEventListener('submit', event => {
