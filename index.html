@@ -14,7 +14,7 @@
 
 <!-- PWA -->
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#1c1d23">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -51,21 +51,21 @@
   @import url('https://fonts.googleapis.com/css2?family=Bangers&family=Bricolage+Grotesque:wght@400;600;800&family=Bungee&family=Cinzel+Decorative:wght@700&family=Creepster&family=Instrument+Sans:wght@400;500;600;700&family=Luckiest+Guy&family=Martian+Mono:wght@400;600&family=Permanent+Marker&family=Russo+One&display=swap');
 
   :root{
-    --bg:#000
-    --surface:#111;
-    --surface2:#1b1b1b;
-    --line:#363636;
+    --bg:#1c1d23;
+    --surface:#232429;
+    --surface2:#2b2c33;
+    --line:#3a3b42;
     --ember:#E4A929;
     --ember-dim:#6B4A0E;
     --navy:#141008;
-    --surface-veil:rgba(17,17,17,.95);
+    --surface-veil:rgba(28,29,35,.95);
     --cyan:#22D3D8;
     --text:#fff;
     --muted:#999;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
    body{
-     background:#000;
+     background:var(--bg);
     display:flex;
     justify-content:center;
     padding:32px 12px;
@@ -106,7 +106,7 @@
      position:sticky; top:0; z-index:10;
     display:flex; justify-content:space-between; align-items:center;
      padding:14px 20px 34px;
-      background:linear-gradient(180deg,#000 0%,#000 55%,rgba(0,0,0,0) 100%);
+      background:linear-gradient(180deg,var(--bg) 0%,var(--bg) 55%,rgba(0,0,0,0) 100%);
       margin-bottom:-24px;
       isolation:isolate;
   }
@@ -144,11 +144,9 @@
     display:flex; align-items:center; justify-content:center;
   }
   .qa-icon.filled{
-     background:radial-gradient(circle at 35% 25%,#444,#090909 70%);
+     background:var(--ember);
      border:2px solid var(--ember);
-     box-shadow:0 0 0 1px #777, inset 0 0 16px rgba(255,255,255,.15);
   }
-   .qa-icon.filled{background:var(--ember);}
    .qa-icon.filled svg{ stroke:var(--text); }
   .qa-icon.outline{
      border:2px solid var(--ember);
@@ -164,7 +162,7 @@
      margin:24px 12px 0;
     border-radius:22px;
     overflow:hidden;
-     background-image:linear-gradient(180deg,rgba(41,41,41,.95) 0%,rgba(17,17,17,.95) 100%), url('/icons/intro-collage.webp');
+     background-image:linear-gradient(180deg,rgba(43,44,51,.95) 0%,rgba(28,29,35,.95) 100%), url('/icons/intro-collage.webp');
      background-size:cover; background-position:center; background-repeat:no-repeat;
      border:1px solid rgba(255,255,255,.24);
   }
@@ -172,7 +170,7 @@
     position:relative;
     height:220px;
     display:flex;
-     background-image:radial-gradient(circle at 50% 0%,rgba(48,48,48,.95) 0%,rgba(0,0,0,.95) 68%), url('/icons/intro-collage.webp');
+     background-image:radial-gradient(circle at 50% 0%,rgba(52,53,61,.95) 0%,rgba(28,29,35,.95) 68%), url('/icons/intro-collage.webp');
      background-size:cover; background-position:center; background-repeat:no-repeat;
      height:178px;
   }
@@ -279,11 +277,8 @@
      font-size:24px;
     line-height:1.15;
     margin-bottom:6px;
-     color:var(--ember);
-     -webkit-text-stroke:.6px var(--ember);
-     text-shadow:0 1px 0 rgba(0,0,0,.25);
+     color:var(--text);
   }
-   body.light .hero-title{ color:var(--text); -webkit-text-stroke:.6px var(--text); text-shadow:none; }
   .hero-sub{
      font-size:13px; color:var(--muted); line-height:1.4; margin-bottom:14px;
   }
@@ -1041,7 +1036,7 @@
      animation:spin .8s linear infinite;
    }
    .spinner-ring-lg{ width:58px; height:58px; border-width:4px; }
-   .hero-body-loading{ display:flex; align-items:center; justify-content:center; padding:40px 0; }
+   .hero-vs-loading{ align-items:center; justify-content:center; }
    .trend-card.skeleton{ cursor:default; }
    .trend-card.skeleton .mini-avatar{ background:none; }
    .clip-card.skeleton{ cursor:default; }
@@ -1083,7 +1078,7 @@
    .bottomnav{
      position:sticky; bottom:0; z-index:10;
     display:flex;
-      background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.92) 28%,#000 56%);
+      background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(28,29,35,.92) 28%,var(--bg) 56%);
      border-top:0;
      padding:28px 0 18px;
      margin-top:-24px;
@@ -1507,6 +1502,44 @@
 </script>
 </head>
 <body>
+<script>
+  // Apply the saved (or system) theme synchronously, before anything below
+  // paints. Without this, the page always renders once with the hardcoded
+  // defaults baked into the stylesheet — dark background, gold accent —
+  // and only switches to the real saved theme once the main script runs
+  // further down, which is what caused that brief "gold flash" on load.
+  (function(){
+    try {
+      var accentThemes = {
+        gold:{ember:'#E4A929',emberDim:'#6B4A0E',navy:'#141008'},
+        blue:{ember:'#1E4FE0',emberDim:'#0F1D6B',navy:'#0A1454'},
+        green:{ember:'#2E9E5B',emberDim:'#155C32',navy:'#0A1F12'},
+        red:{ember:'#D6432E',emberDim:'#7A241A',navy:'#1A0A08'},
+        cyan:{ember:'#22D3D8',emberDim:'#0E5C60',navy:'#04191b'},
+        purple:{ember:'#9B4FE0',emberDim:'#4B1F73',navy:'#160A24'},
+        crimson:{ember:'#FF1414',emberDim:'#5C0000',navy:'#180000'},
+        mono:{
+          dark:{ember:'#E5E5E5',emberDim:'#4A4A4A',navy:'#141414'},
+          light:{ember:'#2A2A2A',emberDim:'#8A8A8A',navy:'#1c1c1c'}
+        }
+      };
+      var savedLight = localStorage.getItem('fictionClashLight');
+      // No saved choice yet — default to the device's own light/dark
+      // setting instead of always forcing dark.
+      var isLight = savedLight === null
+        ? window.matchMedia('(prefers-color-scheme: light)').matches
+        : savedLight === '1';
+      if (isLight) document.body.classList.add('light');
+      var name = localStorage.getItem('fictionClashTheme') || 'mono';
+      var entry = accentThemes[name] || accentThemes.mono;
+      var theme = name === 'mono' ? (isLight ? entry.light : entry.dark) : entry;
+      var root = document.documentElement.style;
+      root.setProperty('--ember', theme.ember);
+      root.setProperty('--ember-dim', theme.emberDim);
+      root.setProperty('--navy', theme.navy);
+    } catch(e) {}
+  })();
+</script>
 
 <div class="phone">
   <div class="phone-scroll">
@@ -1651,18 +1684,9 @@
        Firestore (there's no hardcoded seed data anymore). renderHero()
        toggles between this and #heroCard. -->
   <div class="hero skeleton-hero" id="heroSkeleton" hidden>
-    <div class="hero-vs">
+    <div class="hero-vs hero-vs-loading">
       <div class="live-tag"><span class="live-dot"></span>LOADING MATCHUP</div>
-      <div class="side">
-        <div class="spinner-ring spinner-ring-lg"></div>
-      </div>
-      <div class="side">
-        <div class="spinner-ring spinner-ring-lg"></div>
-      </div>
-      <div class="vs-badge">VS</div>
-    </div>
-    <div class="hero-body hero-body-loading">
-      <div class="spinner-ring"></div>
+      <div class="spinner-ring spinner-ring-lg"></div>
     </div>
   </div>
 
@@ -2338,16 +2362,24 @@ Contact: fictionclash.app@gmail.com</div>
   function syncStatusBarColor(){
     if (!themeColorMeta) return;
     const isLight = document.body.classList.contains('light');
-    themeColorMeta.setAttribute('content', isLight ? '#f1f1ef' : '#000000');
+    themeColorMeta.setAttribute('content', isLight ? '#f1f1ef' : '#1c1d23');
   }
   themeToggle.addEventListener('click', () => {
     const isLight = document.body.classList.toggle('light');
     themeToggle.setAttribute('aria-label', isLight ? 'Switch to dark theme' : 'Switch to light theme');
     themeToggle.title = isLight ? 'Switch to dark theme' : 'Switch to light theme';
+    if (nonEssentialStorageAllowed()) localStorage.setItem('fictionClashLight', isLight ? '1' : '0');
     // Re-apply the accent theme so light-sensitive accents (like mono) stay visible.
     applyTheme(currentThemeName);
     syncStatusBarColor();
   });
+  // The inline script at the top of <body> already decided light vs dark
+  // (saved choice, or the device's own setting) before first paint — just
+  // bring this button's label/icon in line with whatever it picked.
+  if (document.body.classList.contains('light')) {
+    themeToggle.setAttribute('aria-label', 'Switch to dark theme');
+    themeToggle.title = 'Switch to dark theme';
+  }
   syncStatusBarColor(); // set it correctly for whatever theme loads by default
 
   // ---------- toast helper ----------
