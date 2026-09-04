@@ -1,19 +1,26 @@
 // /api/lib/xp.js
 // Shared helper for awarding XP server-side. Any endpoint that awards XP
-// (vote.js, comment.js, like.js, clip-comment.js) should go through this
-// instead of writing `xp` directly, so the verified-badge threshold logic
-// and weekly-leaderboard bookkeeping live in exactly one place.
+// (vote.js, comment.js, like.js, clip-comment.js, share.js) should go
+// through this instead of writing `xp` directly, so the verified-badge
+// threshold logic and weekly-leaderboard bookkeeping live in exactly one
+// place.
 
 import admin from 'firebase-admin';
 
 export const VERIFIED_BADGE_POINTS = 1000;
 export const VERIFIED_BADGE_DAYS = 30;
 
-// Awards `delta` XP to users/{uid}, both to the lifetime `xp` total and to
+// Awards `delta` XP to users/{uid}, to the lifetime `xp` total, to
 // `weeklyXp` (zeroed out every Monday by /api/reset-weekly-xp — see that
-// file for the schedule). If this pushes the lifetime total across a new
-// multiple of 1000, grants (or re-grants) a fresh 1-month verified badge.
-// Runs in its own transaction so the pre-award values are read
+// file for the schedule), AND to `seasonShards` — the standalone currency
+// used to buy Season-exclusive avatar decorations (see SEASONS in
+// index.html). seasonShards is deliberately a separate field from xp/
+// weeklyXp, not a view into them: it earns from the same actions at the
+// same rate, but nothing that spends it ever touches the xp total, and
+// nothing that spends xp (there's nothing today, but future-proofing)
+// would touch shards either. If this pushes the lifetime xp total across
+// a new multiple of 1000, grants (or re-grants) a fresh 1-month verified
+// badge. Runs in its own transaction so the pre-award values are read
 // consistently even under concurrent requests.
 export async function awardXp(db, uid, delta) {
   const userRef = db.collection('users').doc(uid);
@@ -21,9 +28,11 @@ export async function awardXp(db, uid, delta) {
     const snap = await tx.get(userRef);
     const currentXp = (snap.exists && snap.data().xp) || 0;
     const currentWeeklyXp = (snap.exists && snap.data().weeklyXp) || 0;
+    const currentShards = (snap.exists && snap.data().seasonShards) || 0;
     const newXp = currentXp + delta;
     const newWeeklyXp = currentWeeklyXp + delta;
-    const updates = { xp: newXp, weeklyXp: newWeeklyXp };
+    const newShards = currentShards + delta;
+    const updates = { xp: newXp, weeklyXp: newWeeklyXp, seasonShards: newShards };
 
     const crossedBadgeThreshold =
       Math.floor(newXp / VERIFIED_BADGE_POINTS) > Math.floor(currentXp / VERIFIED_BADGE_POINTS);
@@ -37,7 +46,7 @@ export async function awardXp(db, uid, delta) {
     }
 
     tx.set(userRef, updates, { merge: true });
-    return { newXp, newWeeklyXp, badgeGranted: crossedBadgeThreshold, verifiedUntil };
+    return { newXp, newWeeklyXp, newShards, badgeGranted: crossedBadgeThreshold, verifiedUntil };
   });
 
   // All-time rank: 1 + however many users have strictly more lifetime XP.
