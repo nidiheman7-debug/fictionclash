@@ -92,8 +92,9 @@
   body.season-anime{
     --bg:#12081F;
     --bg-rgb:18,8,31;
-    --accent-bg:linear-gradient(135deg,#FF3D7A 0%,#FF3D7A 45%,#00E5FF 55%,#00E5FF 100%);
-    --accent:color-mix(in srgb,#FF3D7A,#00E5FF);
+    --season-grad-stops:#6C2BD9,#C6297B,#FF7A3C,#FFC94D,#6C2BD9;
+    --accent-bg:linear-gradient(135deg,#6C2BD9 0%,#C6297B 35%,#FF7A3C 68%,#FFC94D 100%);
+    --accent:#FF7A45;
   }
   body.season-anime .phone{
     background-image:linear-gradient(180deg,rgba(18,8,31,.55) 0%,rgba(18,8,31,.85) 40%,var(--bg) 75%),url('/public/seasons/anime/hero-bg.png');
@@ -104,6 +105,24 @@
   body.season-anime .wordmark,
   body.season-anime .brand-small{
     font-family:'Russo One',sans-serif;
+  }
+  /* Instagram-style gradient ring: two background layers, one clipped to
+     padding-box (the fill) and one to border-box (the ring), with a
+     transparent border in between. No extra markup needed — works on
+     any element that already has border-radius + a solid border to
+     replace. Reused wherever the anime season wants a "story ring" look
+     instead of a flat accent-colored line. */
+  body.season-anime .logo-badge{
+    border:2px solid transparent;
+    background:
+      linear-gradient(var(--bg),var(--bg)) padding-box,
+      conic-gradient(from 180deg,var(--season-grad-stops)) border-box;
+  }
+  body.season-anime .profile-store-season{
+    border:2px solid transparent;
+    background:
+      linear-gradient(var(--surface),var(--surface)) padding-box,
+      conic-gradient(from 180deg,var(--season-grad-stops)) border-box;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
    body{
@@ -941,6 +960,27 @@
    }
    .profile-store-item:active{transform:scale(.97);}
    .profile-store-item.owned{border-color:rgba(58,107,58,.7);background:linear-gradient(180deg,rgba(58,107,58,.08),var(--surface));}
+   /* Season cards get the Instagram-style gradient ring instead of a flat
+      line — scoped to .profile-store-season-grid so the evergreen
+      decorations/fonts grids stay untouched. Owned cards keep their own
+      green "owned" treatment rather than the ring, so status is still
+      readable at a glance. */
+   body.season-anime .profile-store-season-grid .profile-store-item{
+     border:2px solid transparent;
+     background:
+       linear-gradient(var(--surface),var(--surface)) padding-box,
+       conic-gradient(from 180deg,var(--season-grad-stops)) border-box;
+   }
+   body.season-anime .profile-store-season-grid .profile-store-item.owned{
+     border:1px solid rgba(58,107,58,.7);
+     background:linear-gradient(180deg,rgba(58,107,58,.08),var(--surface));
+   }
+   body.season-anime .profile-store-season-grid .profile-store-preview{
+     border:2px solid transparent;
+     background:
+       linear-gradient(155deg,#2a2a2a,#111) padding-box,
+       conic-gradient(from 180deg,var(--season-grad-stops)) border-box;
+   }
    .profile-store-item h4{font-size:11px;font-weight:800;line-height:1.2;margin-top:9px;}
    .profile-store-item p.profile-store-cat{font-size:9px;color:var(--muted);margin-top:2px;}
    .profile-store-preview{
