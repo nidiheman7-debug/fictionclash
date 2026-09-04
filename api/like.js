@@ -15,7 +15,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-const LIKE_XP = 1;
+const LIKE_XP = 5;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
