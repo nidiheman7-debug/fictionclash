@@ -1687,21 +1687,6 @@
   <span id="appLoadingText">Fiction Clash</span>
 </div>
 
-<!-- Shared gradient def for the Shards "spirit portal" currency icon (see
-     shardsIconHtml() below) — defined once here so every icon instance can
-     reference #shardsPortalGrad without duplicating the same <defs> (and
-     without the invalid-duplicate-id issue that would come from repeating
-     the gradient inline in every card). -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <linearGradient id="shardsPortalGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#FF3D7A"/>
-      <stop offset="50%" stop-color="#C93DA8"/>
-      <stop offset="100%" stop-color="#00E5FF"/>
-    </linearGradient>
-  </defs>
-</svg>
-
 <div class="phone">
   <div class="phone-scroll">
 
@@ -6886,16 +6871,10 @@ Contact: fictionclash.app@gmail.com</div>
     const seasonItems = activeSeason ? PROFILE_DECORATIONS.filter(item => item.season === activeSeasonId) : [];
     const evergreenItems = PROFILE_DECORATIONS.filter(item => !item.season);
 
-    // The Spirit Portal decoration is also the visual identity of the
-    // Shards currency itself — this small swirl (not the full particle
-    // effect, just a static glyph) stands in for "Shards" wherever its
-    // balance or cost is shown. Only used for the anime season's own
-    // currency, never for the evergreen Clash Points.
+    // The glowing sakura petal (their supplied artwork) is the Shards
+    // currency icon — shown wherever a Shards cost or balance appears.
     function shardsIconHtml(){
-      return `<svg class="shards-currency-icon" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" style="vertical-align:-2px;margin-right:3px;">
-        <ellipse cx="12" cy="12" rx="9" ry="5.5" fill="none" stroke="url(#shardsPortalGrad)" stroke-width="2"/>
-        <ellipse cx="12" cy="12" rx="4" ry="2.4" fill="url(#shardsPortalGrad)" opacity=".85"/>
-      </svg>`;
+      return `<img src="/public/seasons/anime/shard-icon.png" alt="" class="shards-currency-icon" style="width:16px;height:16px;object-fit:contain;vertical-align:-3px;margin-right:3px;">`;
     }
 
     function decorationCardHtml(item, currency, balance){
