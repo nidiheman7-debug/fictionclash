@@ -636,11 +636,40 @@
      width:32px; height:32px; border-radius:50%; flex-shrink:0; display:flex;
      align-items:center; justify-content:center; background:var(--accent-bg);
      color:#0A0806; font-size:12px; font-weight:800; overflow:hidden;
-     margin-left:6px;
+     margin-left:6px; cursor:pointer; -webkit-tap-highlight-color:transparent;
    }
+   .comment-avatar:active{ transform:scale(.92); }
    .comment-avatar.has-decoration{position:relative;overflow:visible;}
    .comment-avatar .profile-deco{inset:-2px;}
    .comment-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }
+   /* Discord-style profile card, opened by tapping a comment (or
+      leaderboard) avatar — see #userProfileOverlay + openUserProfileCard(). */
+   .user-profile-card{ display:flex; flex-direction:column; align-items:center; text-align:center; padding:4px 4px 6px; }
+   .user-profile-avatar{
+     position:relative; width:72px; height:72px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+     background:var(--accent-bg); color:#0A0806; font:26px 'Instrument Sans',sans-serif; overflow:hidden;
+     border:3px solid var(--surface); box-shadow:0 0 0 1px var(--line); margin-bottom:10px;
+   }
+   .user-profile-avatar.has-decoration{ overflow:visible; }
+   .user-profile-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; position:relative; z-index:2; }
+   .user-profile-avatar .profile-deco{ inset:-3px; }
+   .user-profile-name{
+     display:flex; align-items:center; justify-content:center; gap:5px;
+     font-family:'Rajdhani',sans-serif; font-weight:700; font-size:18px;
+   }
+   .user-profile-name .verified-badge{ width:15px; height:15px; }
+   .user-profile-handle{ color:var(--muted); font-size:11.5px; margin-top:2px; }
+   .user-profile-bio{
+     margin-top:14px; padding-top:14px; border-top:1px solid var(--line);
+     width:100%; font-size:12px; line-height:1.5; color:var(--text); text-align:left;
+     white-space:pre-wrap; word-break:break-word;
+   }
+   .user-profile-bio-label{
+     display:block; color:var(--muted); font:700 9px 'Martian Mono',monospace;
+     letter-spacing:1.5px; margin-bottom:6px; text-align:left;
+   }
+   .user-profile-bio-empty{ color:var(--muted); font-style:italic; }
+   .user-profile-loading{ color:var(--muted); font-size:11.5px; padding:14px 0; }
    .comment-body{ font-size:12.5px; line-height:1.4; }
    .comment-body b{ display:block; font-size:11.5px; margin-bottom:3px; }
    .comment-body span{ color:var(--muted); }
@@ -1371,7 +1400,7 @@
        --ember-dim:#8A6A1E;
       --text:#1c1c1a;
       --muted:#6e6e6b;
-      --surface-veil:rgba(255,255,255,.72);
+      --surface-veil:rgba(255,255,255,.88);
       --nav-pitch:color-mix(in srgb, var(--bg) 18%, black);
    }
     body.light .phone{box-shadow:0 30px 70px rgba(0,0,0,.18);}
@@ -1392,11 +1421,11 @@
    body.light .vote-btn.hi{color:#ffffff;}
    body.light .trend-card{}
    body.light .bottomnav{
-      background:linear-gradient(180deg,color-mix(in srgb, var(--nav-pitch) 0%, transparent) 0%,color-mix(in srgb, var(--nav-pitch) 94%, transparent) 28%,var(--nav-pitch) 56%);
+      background:linear-gradient(180deg,rgba(var(--bg-rgb),0) 0%,rgba(var(--bg-rgb),.92) 28%,var(--bg) 56%);
    }
-   body.light .nav-item{ color:rgba(255,255,255,.55); }
-   body.light .nav-item.active{ color:#fff; }
-   body.light .nav-item svg{ stroke:rgba(255,255,255,.55); }
+   body.light .nav-item{ color:var(--muted); }
+   body.light .nav-item.active{ color:var(--text); }
+   body.light .nav-item svg{ stroke:var(--muted); }
    body.light .nav-item.active svg{ stroke:var(--accent); }
 
     /* full-screen reels-style clip player — the ONLY place a clip's video
@@ -1598,7 +1627,9 @@
       width:36px; height:36px; border-radius:50%; flex-shrink:0; border:1.5px solid var(--line);
       display:flex; align-items:center; justify-content:center; background:var(--accent-bg);
       color:#0A0806; font-size:12px; font-weight:800; overflow:hidden;
+      cursor:pointer; -webkit-tap-highlight-color:transparent;
     }
+    .leaderboard-avatar:active{ transform:scale(.92); }
     .leaderboard-avatar.has-decoration{position:relative;overflow:visible;}
     .leaderboard-avatar .profile-deco{inset:-2px;}
     .leaderboard-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }
@@ -2353,6 +2384,27 @@
         <button type="submit">POST</button>
       </form>
       <button class="modal-close" id="commentsModalClose">Close</button>
+    </div>
+  </div>
+
+  <!-- Discord-style profile card — opened by tapping a comment or
+       leaderboard avatar. See openUserProfileCard(uid, fallback). -->
+  <div class="modal-overlay" id="userProfileOverlay">
+    <div class="modal-sheet">
+      <div class="user-profile-card">
+        <div class="user-profile-avatar" id="userProfileAvatar"></div>
+        <div class="user-profile-name">
+          <span id="userProfileNameText">User</span>
+          <span class="verified-badge" id="userProfileVerified" title="Verified" style="display:none;"></span>
+        </div>
+        <div class="user-profile-handle" id="userProfileHandle"></div>
+        <div class="user-profile-loading" id="userProfileLoading">Loading profile…</div>
+        <div class="user-profile-bio" id="userProfileBio" hidden>
+          <span class="user-profile-bio-label">About</span>
+          <span id="userProfileBioText"></span>
+        </div>
+      </div>
+      <button class="modal-close" id="userProfileClose">Close</button>
     </div>
   </div>
 
@@ -4007,7 +4059,7 @@ Contact: fictionclash.app@gmail.com</div>
     leaderboardList.innerHTML = ranked.map((entry, index) => `
       <div class="leaderboard-row ${index < 3 ? 'top' + (index + 1) : ''}">
         <div class="leaderboard-rank">${medals[index] || (index + 1)}</div>
-        <div class="leaderboard-avatar" data-uid="${escapeHtml(entry.uid)}">${commentAvatarHtml(entry.name || 'User', entry.avatarUrl)}</div>
+        <div class="leaderboard-avatar" data-uid="${escapeHtml(entry.uid)}" data-name="${escapeHtml(entry.name || '')}" data-avatar="${escapeHtml(entry.avatarUrl || '')}">${commentAvatarHtml(entry.name || 'User', entry.avatarUrl)}</div>
         <div class="leaderboard-info">
           <div class="leaderboard-name">${escapeHtml(entry.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></div>
         </div>
@@ -5172,7 +5224,7 @@ Contact: fictionclash.app@gmail.com</div>
   function renderCommentEl(data){
     const el = document.createElement('div');
     el.className = 'comment';
-    el.innerHTML = `<div class="comment-avatar">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span></div>`;
+    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span></div>`;
     attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
     attachDecoration(el.querySelector('.comment-avatar'), data.uid);
     attachFont(el.querySelector('.comment-body b'), data.uid);
@@ -5264,6 +5316,78 @@ Contact: fictionclash.app@gmail.com</div>
   commentsModalClose.addEventListener('click', closeCommentsModal);
   commentsModalOverlay.addEventListener('click', event => {
     if (event.target === commentsModalOverlay) closeCommentsModal();
+  });
+
+  // ---------- profile card (Discord-style) ----------
+  // Opened by tapping any comment or leaderboard avatar — shows that
+  // account's current picture, name, decoration, verified badge, and bio.
+  // Everything except the bio is already cached by the helpers above; the
+  // bio itself is fetched fresh each time the card opens since it's not
+  // otherwise kept in memory anywhere.
+  const userProfileOverlay = document.getElementById('userProfileOverlay');
+  const userProfileAvatar = document.getElementById('userProfileAvatar');
+  const userProfileNameText = document.getElementById('userProfileNameText');
+  const userProfileVerified = document.getElementById('userProfileVerified');
+  const userProfileHandle = document.getElementById('userProfileHandle');
+  const userProfileLoading = document.getElementById('userProfileLoading');
+  const userProfileBio = document.getElementById('userProfileBio');
+  const userProfileBioText = document.getElementById('userProfileBioText');
+  userProfileVerified.innerHTML = VERIFIED_BADGE_SVG;
+
+  function closeUserProfileCard(){
+    userProfileOverlay.classList.remove('show');
+  }
+  document.getElementById('userProfileClose').addEventListener('click', closeUserProfileCard);
+  userProfileOverlay.addEventListener('click', event => {
+    if (event.target === userProfileOverlay) closeUserProfileCard();
+  });
+
+  // `fallback` carries whatever the triggering avatar already had on hand
+  // (name/avatarUrl from the comment or leaderboard row) so the card has
+  // something to show instantly, before the Firestore doc comes back.
+  function openUserProfileCard(uid, fallback){
+    if (!uid) return;
+    fallback = fallback || {};
+    userProfileAvatar.className = 'user-profile-avatar';
+    userProfileAvatar.innerHTML = commentAvatarHtml(fallback.name, fallback.avatarUrl);
+    userProfileNameText.textContent = fallback.name || 'User';
+    userProfileHandle.textContent = '';
+    userProfileVerified.style.display = 'none';
+    userProfileBio.hidden = true;
+    userProfileBioText.textContent = '';
+    userProfileLoading.style.display = 'block';
+    attachDecoration(userProfileAvatar, uid);
+    attachVerifiedBadge(userProfileVerified, uid);
+    userProfileOverlay.classList.add('show');
+    getDoc(doc(db, 'users', uid)).then(snap => {
+      if (!snap.exists()) { userProfileLoading.textContent = 'This account no longer exists.'; return; }
+      const data = snap.data();
+      userProfileLoading.style.display = 'none';
+      if (data.name) userProfileNameText.textContent = data.name;
+      if (data.handle) userProfileHandle.textContent = data.handle;
+      if (data.avatarUrl) userProfileAvatar.innerHTML = commentAvatarHtml(data.name, data.avatarUrl);
+      // Re-apply the decoration on top of the freshly-set avatar markup
+      // above, since setting .innerHTML just now would have wiped it out.
+      attachDecoration(userProfileAvatar, uid);
+      const bio = (data.bio || '').trim();
+      userProfileBio.hidden = false;
+      userProfileBioText.textContent = bio;
+      userProfileBioText.className = bio ? '' : 'user-profile-bio-empty';
+      if (!bio) userProfileBioText.textContent = 'No bio yet.';
+    }).catch(err => {
+      console.error('Profile card load failed', err);
+      userProfileLoading.textContent = 'Could not load this profile.';
+    });
+  }
+
+  // Event delegation — comments and leaderboard rows are re-rendered
+  // constantly (new comments streaming in, leaderboard refreshes), so
+  // binding once on a stable ancestor beats re-attaching a listener to
+  // every avatar every time the list redraws.
+  document.addEventListener('click', event => {
+    const avatar = event.target.closest('.comment-avatar[data-uid], .leaderboard-avatar[data-uid]');
+    if (!avatar || !avatar.dataset.uid) return;
+    openUserProfileCard(avatar.dataset.uid, { name: avatar.dataset.name, avatarUrl: avatar.dataset.avatar });
   });
   commentsModalForm.addEventListener('submit', event => {
     event.preventDefault();
