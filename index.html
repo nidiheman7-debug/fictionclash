@@ -4629,6 +4629,7 @@ Contact: fictionclash.app@gmail.com</div>
     if (!card) return;
     activeIdx = parseInt(card.dataset.matchup, 10);
     heroAnalyzing = false; // picking a different matchup means they're done with the old one's analysis
+    heroCommentsActive = false; // ...and with its comments, too
     renderTrendScroll();
     renderHero();
     document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
@@ -4652,10 +4653,19 @@ Contact: fictionclash.app@gmail.com</div>
   // they pick a different matchup themselves, so it can't switch out from
   // under them mid-read no matter how long they take.
   let heroAnalyzing = false;
+  // Same idea, but for reading or writing comments on the current matchup:
+  // the full "see all comments" sheet (paused for as long as it's open on
+  // this matchup) and the quick inline reply box on the hero card itself.
+  // Resumes once they close the sheet, step away from the inline box, or
+  // switch matchups themselves — it shouldn't switch out from under someone
+  // mid-conversation any more than it should mid AI-stats-read.
+  let heroCommentsActive = false;
+  heroCommentInput.addEventListener('focus', () => { heroCommentsActive = true; scheduleHeroRotate(); });
+  heroCommentInput.addEventListener('blur', () => { heroCommentsActive = false; scheduleHeroRotate(); });
 
   function scheduleHeroRotate(){
     clearTimeout(heroRotateTimer);
-    if (heroAnalyzing) return; // paused for AI analysis — resumes on manual matchup switch
+    if (heroAnalyzing || heroCommentsActive) return; // paused for AI analysis or comments — resumes on manual matchup switch / closing the sheet / leaving the reply box
     if (matchups.length < 2) return; // nothing to flex between
     heroRotateTimer = setTimeout(() => {
       if (document.hidden) { scheduleHeroRotate(); return; } // tab not visible — just reschedule, don't burn a cycle
@@ -5578,6 +5588,10 @@ Contact: fictionclash.app@gmail.com</div>
     commentsModalSub.textContent = thread.label || 'All comments on this post.';
     commentsModalForm.dataset.commentsFor = thread.commentsFor || '';
     commentsModalForm.dataset.commentsType = thread.type;
+    // Reading/replying in the full sheet shouldn't have the hero card
+    // switch to a different matchup underneath them — same pause as
+    // checking AI stats, for as long as the sheet is open on this thread.
+    if (thread.type === 'hero') { heroCommentsActive = true; scheduleHeroRotate(); }
     // Show a spinner first, then swap in the real list a beat later —
     // same loading-then-content pattern as the leaderboard sheet — instead
     // of the list flashing in empty/blank while the sheet is still sliding up.
@@ -5601,6 +5615,10 @@ Contact: fictionclash.app@gmail.com</div>
     openCommentsThread = null;
     setReplyTarget(commentsModalForm, null);
     document.querySelector('.phone-scroll').style.overflow = '';
+    // Done reading/replying — safe for the hero card to resume rotating
+    // again (no-op if this was a clip thread, since it was never paused).
+    heroCommentsActive = false;
+    scheduleHeroRotate();
   }
   commentsModalClose.addEventListener('click', closeCommentsModal);
   commentsModalOverlay.addEventListener('click', event => {
