@@ -96,7 +96,7 @@
     --accent:color-mix(in srgb,#FF3D7A,#00E5FF);
   }
   body.season-anime .phone{
-    background-image:linear-gradient(180deg,rgba(18,8,31,.55) 0%,rgba(18,8,31,.85) 40%,var(--bg) 75%),url('/seasons/anime/hero-bg.png');
+    background-image:linear-gradient(180deg,rgba(18,8,31,.55) 0%,rgba(18,8,31,.85) 40%,var(--bg) 75%),url('/public/seasons/anime/hero-bg.png?v=2');
     background-size:cover;
     background-position:top center;
     background-repeat:no-repeat;
@@ -110,7 +110,7 @@
      in sooner and ties the overlay tint to --bg itself (via color-mix)
      so it always matches whatever light looks like, not a hardcoded hex. */
   body.season-anime.light .phone{
-    background-image:linear-gradient(180deg,color-mix(in srgb,var(--bg) 20%,transparent) 0%,color-mix(in srgb,var(--bg) 75%,transparent) 32%,var(--bg) 62%),url('/seasons/anime/hero-bg.png');
+    background-image:linear-gradient(180deg,color-mix(in srgb,var(--bg) 20%,transparent) 0%,color-mix(in srgb,var(--bg) 75%,transparent) 32%,var(--bg) 62%),url('/public/seasons/anime/hero-bg.png?v=2');
   }
   /* The hero image is always colorful/dark regardless of theme, so the
      header text sitting on it needs to stay light in both themes rather
@@ -947,7 +947,7 @@
    }
    .profile-store-season-banner{
      position:relative;padding:16px 14px 12px;
-     background-image:linear-gradient(180deg,rgba(18,8,31,.35) 0%,rgba(18,8,31,.85) 100%),url('/seasons/anime/store-banner.png');
+     background-image:linear-gradient(180deg,rgba(18,8,31,.35) 0%,rgba(18,8,31,.85) 100%),url('/public/seasons/anime/store-banner.png?v=2');
      background-size:cover;background-position:center;
    }
    .profile-store-season-label{
@@ -1646,7 +1646,7 @@
 </script>
 
 <div id="appLoadingScreen" aria-hidden="true">
-  <img src="/seasons/anime/loading-flourish.png" alt="" id="appLoadingFlourish">
+  <img src="/public/seasons/anime/loading-flourish.png?v=2" alt="" id="appLoadingFlourish">
 </div>
 
 <div class="phone">
@@ -2685,7 +2685,7 @@ Contact: fictionclash.app@gmail.com</div>
       id: 'anime',
       label: 'Anime Season',
       bodyClass: 'season-anime',
-      bannerAsset: '/seasons/anime/store-banner.png',
+      bannerAsset: '/public/seasons/anime/store-banner.png?v=2',
       currencyLabel: 'Shards',
     },
   };
