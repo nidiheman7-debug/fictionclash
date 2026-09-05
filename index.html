@@ -92,9 +92,8 @@
   body.season-anime{
     --bg:#12081F;
     --bg-rgb:18,8,31;
-    --season-grad-stops:#6C2BD9,#C6297B,#FF7A3C,#FFC94D,#6C2BD9;
-    --accent-bg:linear-gradient(135deg,#6C2BD9 0%,#C6297B 35%,#FF7A3C 68%,#FFC94D 100%);
-    --accent:#FF7A45;
+    --accent-bg:linear-gradient(135deg,#FF3D7A 0%,#C93DA8 50%,#00E5FF 100%);
+    --accent:color-mix(in srgb,#FF3D7A,#00E5FF);
   }
   body.season-anime .phone{
     background-image:linear-gradient(180deg,rgba(18,8,31,.55) 0%,rgba(18,8,31,.85) 40%,var(--bg) 75%),url('/public/seasons/anime/hero-bg.png');
@@ -102,27 +101,29 @@
     background-position:top center;
     background-repeat:no-repeat;
   }
+  /* Light theme swaps --bg to a near-white color (see body.light below),
+     but this rule's higher specificity (two classes) always wins over
+     both single-class rules regardless of source order — so the dark
+     purple overlay above never survives into light mode. Without this,
+     a dark, busy hero image sat directly under near-black body text with
+     no transition, which read as broken rather than styled. This fades
+     in sooner and ties the overlay tint to --bg itself (via color-mix)
+     so it always matches whatever light looks like, not a hardcoded hex. */
+  body.season-anime.light .phone{
+    background-image:linear-gradient(180deg,color-mix(in srgb,var(--bg) 20%,transparent) 0%,color-mix(in srgb,var(--bg) 75%,transparent) 32%,var(--bg) 62%),url('/public/seasons/anime/hero-bg.png');
+  }
+  /* The hero image is always colorful/dark regardless of theme, so the
+     header text sitting on it needs to stay light in both themes rather
+     than switching to near-black in light mode along with the rest of
+     the app's text. */
+  body.season-anime .movies-kicker,
+  body.season-anime .movies-title{
+    color:#fff;
+    text-shadow:0 2px 10px rgba(0,0,0,.55);
+  }
   body.season-anime .wordmark,
   body.season-anime .brand-small{
     font-family:'Russo One',sans-serif;
-  }
-  /* Instagram-style gradient ring: two background layers, one clipped to
-     padding-box (the fill) and one to border-box (the ring), with a
-     transparent border in between. No extra markup needed — works on
-     any element that already has border-radius + a solid border to
-     replace. Reused wherever the anime season wants a "story ring" look
-     instead of a flat accent-colored line. */
-  body.season-anime .logo-badge{
-    border:2px solid transparent;
-    background:
-      linear-gradient(var(--bg),var(--bg)) padding-box,
-      conic-gradient(from 180deg,var(--season-grad-stops)) border-box;
-  }
-  body.season-anime .profile-store-season{
-    border:2px solid transparent;
-    background:
-      linear-gradient(var(--surface),var(--surface)) padding-box,
-      conic-gradient(from 180deg,var(--season-grad-stops)) border-box;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
    body{
@@ -142,37 +143,15 @@
     background:var(--bg);
     display:flex; align-items:center; justify-content:center;
     transition:opacity .5s ease;
-    overflow:hidden;
   }
   #appLoadingScreen.is-hidden{ opacity:0; pointer-events:none; }
-  /* Spinning gradient ring behind the icon — a pseudo-element on the
-     screen wrapper so no HTML changes are needed. Reuses
-     --season-grad-stops (defined by body.season-anime) so it
-     automatically matches whichever season is active; falls back to a
-     plain amber duotone when no season is set. */
-  #appLoadingScreen::before{
-    content:'';
-    position:absolute;
-    width:min(260px,64vw); height:min(260px,64vw);
-    border-radius:50%;
-    background:conic-gradient(from 0deg,var(--season-grad-stops,#E4A929,#6B4A0E,#E4A929));
-    -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 3px));
-    mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 3px));
-    animation:appLoadingSpin 2.4s linear infinite;
-    opacity:.85;
-  }
   #appLoadingFlourish{
-    position:relative; z-index:1;
     width:min(220px,55vw); height:auto;
     animation:appLoadingPulse 1.6s ease-in-out infinite;
-    filter:drop-shadow(0 0 16px rgba(255,122,60,.4));
   }
   @keyframes appLoadingPulse{
     0%,100%{ transform:scale(.92); opacity:.75; }
     50%{ transform:scale(1); opacity:1; }
-  }
-  @keyframes appLoadingSpin{
-    to{ transform:rotate(360deg); }
   }
 
   .phone{
@@ -961,7 +940,10 @@
       limited-time stuff, so it should read that way at a glance. */
    .profile-store-season{
      position:relative;border-radius:16px;overflow:hidden;margin-bottom:16px;
-     border:1px solid rgba(255,61,122,.4);
+     border:1px solid transparent;
+     background-image:linear-gradient(var(--surface),var(--surface)),var(--accent-bg);
+     background-origin:border-box;
+     background-clip:padding-box,border-box;
    }
    .profile-store-season-banner{
      position:relative;padding:16px 14px 12px;
@@ -982,27 +964,6 @@
    }
    .profile-store-item:active{transform:scale(.97);}
    .profile-store-item.owned{border-color:rgba(58,107,58,.7);background:linear-gradient(180deg,rgba(58,107,58,.08),var(--surface));}
-   /* Season cards get the Instagram-style gradient ring instead of a flat
-      line — scoped to .profile-store-season-grid so the evergreen
-      decorations/fonts grids stay untouched. Owned cards keep their own
-      green "owned" treatment rather than the ring, so status is still
-      readable at a glance. */
-   body.season-anime .profile-store-season-grid .profile-store-item{
-     border:2px solid transparent;
-     background:
-       linear-gradient(var(--surface),var(--surface)) padding-box,
-       conic-gradient(from 180deg,var(--season-grad-stops)) border-box;
-   }
-   body.season-anime .profile-store-season-grid .profile-store-item.owned{
-     border:1px solid rgba(58,107,58,.7);
-     background:linear-gradient(180deg,rgba(58,107,58,.08),var(--surface));
-   }
-   body.season-anime .profile-store-season-grid .profile-store-preview{
-     border:2px solid transparent;
-     background:
-       linear-gradient(155deg,#2a2a2a,#111) padding-box,
-       conic-gradient(from 180deg,var(--season-grad-stops)) border-box;
-   }
    .profile-store-item h4{font-size:11px;font-weight:800;line-height:1.2;margin-top:9px;}
    .profile-store-item p.profile-store-cat{font-size:9px;color:var(--muted);margin-top:2px;}
    .profile-store-preview{
