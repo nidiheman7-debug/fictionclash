@@ -142,15 +142,37 @@
     background:var(--bg);
     display:flex; align-items:center; justify-content:center;
     transition:opacity .5s ease;
+    overflow:hidden;
   }
   #appLoadingScreen.is-hidden{ opacity:0; pointer-events:none; }
+  /* Spinning gradient ring behind the icon — a pseudo-element on the
+     screen wrapper so no HTML changes are needed. Reuses
+     --season-grad-stops (defined by body.season-anime) so it
+     automatically matches whichever season is active; falls back to a
+     plain amber duotone when no season is set. */
+  #appLoadingScreen::before{
+    content:'';
+    position:absolute;
+    width:min(260px,64vw); height:min(260px,64vw);
+    border-radius:50%;
+    background:conic-gradient(from 0deg,var(--season-grad-stops,#E4A929,#6B4A0E,#E4A929));
+    -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 3px));
+    mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 3px));
+    animation:appLoadingSpin 2.4s linear infinite;
+    opacity:.85;
+  }
   #appLoadingFlourish{
+    position:relative; z-index:1;
     width:min(220px,55vw); height:auto;
     animation:appLoadingPulse 1.6s ease-in-out infinite;
+    filter:drop-shadow(0 0 16px rgba(255,122,60,.4));
   }
   @keyframes appLoadingPulse{
     0%,100%{ transform:scale(.92); opacity:.75; }
     50%{ transform:scale(1); opacity:1; }
+  }
+  @keyframes appLoadingSpin{
+    to{ transform:rotate(360deg); }
   }
 
   .phone{
