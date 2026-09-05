@@ -2272,7 +2272,21 @@
       <button class="cookie-banner-btn primary" id="cookieAcceptBtn" type="button">Accept all</button>
     </div>
   </div>
+  </div>
 
+  <!-- #bottomNav MUST live here — as a direct sibling of .phone-scroll,
+       outside it — and not inside .phone-scroll (where it used to sit).
+       position:absolute only fixes an element's coordinates against its
+       nearest *positioned* ancestor (.phone here); it does NOT exempt the
+       element from being carried along by an ancestor's own scrolling the
+       way position:fixed does. .phone-scroll is the thing with
+       overflow-y:auto, so as long as the nav was still a descendant of it,
+       scrolling any tab's content (e.g. a few clips down in Movies Hub)
+       dragged the "pinned" nav right along with it, leaving it floating
+       mid-screen instead of glued to the bottom — exactly the glitch this
+       comment is here to prevent regressing. Keeping it here, past
+       .phone-scroll's closing tag, means .phone-scroll's scroll offset
+       never touches it again. -->
   <div class="bottomnav" id="bottomNav">
     <div class="nav-item active" data-nav="Matchups">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L20 4"/><path d="M2 18L6 22"/><path d="M20 20L4 4"/><path d="M18 22L22 18"/></svg>
@@ -2294,7 +2308,6 @@
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       Account
     </div>
-  </div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -2869,7 +2882,7 @@ Contact: fictionclash.app@gmail.com</div>
     renderTrendScroll();
     globallyHiddenClipIds.forEach(clipId => {
       const card = clipFeed?.querySelector(`.clip-card[data-clip-id="${clipId}"]`);
-      if (card) card.remove();
+      if (card) { deactivateCanvasFx(card); card.remove(); }
     });
   }
   onSnapshot(doc(db, 'appConfig', 'hiddenBuiltins'), snap => {
@@ -3426,7 +3439,16 @@ Contact: fictionclash.app@gmail.com</div>
     if (heroCommentsUnsubscribe) { heroCommentsUnsubscribe(); heroCommentsUnsubscribe = null; }
     heroCommentsMatchupId = matchupId;
     heroCommentsThread.commentsFor = matchupId;
+    // Genuinely a different thread (new matchup) — a full teardown is
+    // correct here, unlike the snapshot-driven re-renders further down
+    // (see reconcileKeyedList), but still needs to stop any running
+    // particle-effect canvases before their elements go, and drop the
+    // stale keyed-element map so the next renderCommentsPreview() call
+    // for this list starts from a clean slate instead of holding
+    // references to elements that no longer exist.
+    deactivateCanvasFx(heroCommentsList);
     heroCommentsList.innerHTML = '';
+    heroCommentsList._keyedEls = null;
     heroCommentsList.classList.remove('scrollable');
     if (!matchupId) return;
     // Deliberately NOT combining where() + orderBy() in the same query —
@@ -3440,7 +3462,7 @@ Contact: fictionclash.app@gmail.com</div>
       query(collection(db, 'matchupComments'), where('matchupId', '==', matchupId)),
       snapshot => {
         const docs = snapshot.docs
-          .map(d => d.data())
+          .map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
         renderCommentsPreview(heroCommentsList, docs, heroCommentsThread);
       },
@@ -5466,6 +5488,52 @@ Contact: fictionclash.app@gmail.com</div>
     form.querySelector('input')?.focus();
   }
 
+  // Reconciles listEl's children against `items` in place — reusing any
+  // element already rendered for a key instead of tearing the whole list
+  // down and rebuilding it from scratch on every Firestore snapshot.
+  // Before this, renderCommentsPreview/renderCommentsModalList did
+  // `listEl.innerHTML = ''` on every single update (including ones caused
+  // by someone ELSE'S comment landing elsewhere in the same thread), which
+  // meant every visible comment avatar re-ran its decoration/font lookups,
+  // and — worse — any equipped particle-effect decoration
+  // (attachDecoration → applyDecorationToContainer → activateCanvasFx)
+  // started a brand-new canvas + requestAnimationFrame loop while the OLD
+  // canvas, still referenced by AvatarEffect.instances, never got a
+  // matching deactivateCanvasFx() call because it was destroyed via
+  // innerHTML wipe rather than being removed element-by-element. Those
+  // orphaned rAF loops just kept accumulating for the rest of the session,
+  // each one costing a tick + a draw every frame — which is exactly the
+  // kind of thing that would make the app measurably less smooth the more
+  // it's used (and adding threaded replies made comments update more
+  // often, so it got worse, not "just yesterday's imagination"). Reusing
+  // untouched comment elements avoids all of that: their canvases, cached
+  // decoration/font lookups, and reply click-handlers all stay exactly as
+  // they were, and only genuinely new/removed comments touch the DOM.
+  function reconcileKeyedList(listEl, items, getKey, createEl){
+    let keyedEls = listEl._keyedEls;
+    if (!keyedEls) { keyedEls = new Map(); listEl._keyedEls = keyedEls; }
+    const seen = new Set();
+    let prevNode = null;
+    items.forEach(item => {
+      const key = getKey(item);
+      seen.add(key);
+      let el = keyedEls.get(key);
+      if (!el) {
+        el = createEl(item);
+        keyedEls.set(key, el);
+      }
+      const afterNode = prevNode ? prevNode.nextSibling : listEl.firstChild;
+      if (afterNode !== el) listEl.insertBefore(el, afterNode);
+      prevNode = el;
+    });
+    keyedEls.forEach((el, key) => {
+      if (seen.has(key)) return;
+      deactivateCanvasFx(el); // stop any running particle-effect canvas before it's torn out
+      el.remove();
+      keyedEls.delete(key);
+    });
+  }
+
   function renderCommentEl(data, onReply){
     const el = document.createElement('div');
     el.className = 'comment';
@@ -5521,9 +5589,17 @@ Contact: fictionclash.app@gmail.com</div>
   // whoever's watching this comment collection (hero card or a clip card).
   // Renders the capped preview into `listEl` and keeps `thread.docs`
   // current so the sheet has the full list ready the moment it's opened.
+  // Stable identity for a comment doc, used to decide whether a snapshot
+  // update touches a given comment at all. Firestore's own doc id is used
+  // when present; the fallback only fires for stray callers that haven't
+  // been updated to carry `id` through (kept so a missing id degrades to
+  // "always re-render this one" instead of throwing).
+  function commentKey(data){
+    return data.id || `${data.uid || ''}:${data.createdAt?.toMillis?.() || ''}:${data.text || ''}`;
+  }
+
   function renderCommentsPreview(listEl, docs, thread){
     thread.docs = docs;
-    listEl.innerHTML = '';
     // Replying from the compact 2-comment preview opens the full sheet
     // instead of composing right there — that tiny inline box is meant
     // for a quick top-level comment, not for holding a quoted reply bar
@@ -5535,11 +5611,12 @@ Contact: fictionclash.app@gmail.com</div>
     // items happened to be posted most recently could easily be replies,
     // making them show up inline here even though they belong in their own
     // tab — filter them out before slicing to the last two.
-    docs.filter(data => !data.replyToName).slice(-COMMENTS_PREVIEW_LIMIT).forEach(data => listEl.appendChild(renderCommentEl(data, (name, text, avatarUrl) => {
+    const preview = docs.filter(data => !data.replyToName).slice(-COMMENTS_PREVIEW_LIMIT);
+    reconcileKeyedList(listEl, preview, commentKey, data => renderCommentEl(data, (name, text, avatarUrl) => {
       openCommentsModal(thread);
       switchCommentsTab('replies');
       setReplyTarget(commentsModalForm, { name, text, avatarUrl });
-    })));
+    }));
     listEl.classList.remove('scrollable'); // capped at 2 — never tall enough to need its own scroll now
     let moreBtn = listEl.nextElementSibling;
     if (!moreBtn || !moreBtn.classList.contains('see-more-comments')) {
@@ -5561,23 +5638,34 @@ Contact: fictionclash.app@gmail.com</div>
   }
 
   function renderCommentsModalList(){
-    commentsModalList.innerHTML = '';
     const allDocs = openCommentsThread ? openCommentsThread.docs : [];
     const docs = allDocs.filter(data => commentsModalTab === 'replies' ? !!data.replyToName : !data.replyToName);
     if (!docs.length) {
+      // Empty state replaces the list wholesale — nothing here to preserve
+      // a diff against, and it also drops any stale keyed-element map from
+      // a previous non-empty render of this same list/tab.
+      commentsModalList._keyedEls?.forEach(el => deactivateCanvasFx(el));
+      commentsModalList._keyedEls = null;
       commentsModalList.innerHTML = commentsModalTab === 'replies'
         ? '<div class="comments-modal-empty">No replies yet.</div>'
         : '<div class="comments-modal-empty">No comments yet — be the first.</div>';
       return;
     }
-    docs.forEach(data => commentsModalList.appendChild(renderCommentEl(data, (name, text, avatarUrl) => {
+    if (commentsModalList.querySelector('.comments-modal-empty')) commentsModalList.innerHTML = '';
+    // Only auto-stick to the bottom if the person was already reading the
+    // latest message (or the list just opened) — otherwise a comment
+    // landing elsewhere in a long thread would yank them away from
+    // whatever they were reading, on top of previously re-rendering the
+    // whole list every time.
+    const wasNearBottom = commentsModalList.scrollHeight - commentsModalList.scrollTop - commentsModalList.clientHeight < 60;
+    reconcileKeyedList(commentsModalList, docs, commentKey, data => renderCommentEl(data, (name, text, avatarUrl) => {
       // Replying jumps to the Replies tab — that's where the composed
       // reply will land once posted, and where the quote thread lives,
       // instead of nesting it back into the comments list it was opened from.
       switchCommentsTab('replies');
       setReplyTarget(commentsModalForm, { name, text, avatarUrl });
-    })));
-    commentsModalList.scrollTop = commentsModalList.scrollHeight;
+    }));
+    if (wasNearBottom) commentsModalList.scrollTop = commentsModalList.scrollHeight;
   }
 
   function openCommentsModal(thread){
@@ -5735,7 +5823,7 @@ Contact: fictionclash.app@gmail.com</div>
     const unsubscribe = onSnapshot(
       query(collection(db, 'movieClips', clipId, 'comments'), orderBy('createdAt', 'asc')),
       snapshot => {
-        const docs = snapshot.docs.map(d => d.data());
+        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         renderCommentsPreview(list, docs, thread);
       },
       err => console.error('Comments listener failed', err)
@@ -5897,7 +5985,7 @@ Contact: fictionclash.app@gmail.com</div>
         const id = change.doc.id;
         renderedClipIds.delete(id);
         const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
-        if (card) card.remove();
+        if (card) { deactivateCanvasFx(card); card.remove(); } // stop any comment avatar's particle-effect canvas before the card goes
         const unsubscribe = commentUnsubscribes.get(id);
         if (unsubscribe) { unsubscribe(); commentUnsubscribes.delete(id); }
       });
@@ -6019,7 +6107,7 @@ Contact: fictionclash.app@gmail.com</div>
     hiddenClipIds.add(clipId);
     localStorage.setItem(HIDDEN_CLIPS_KEY, JSON.stringify([...hiddenClipIds]));
     const card = clipFeed.querySelector(`.clip-card[data-clip-id="${clipId}"]`);
-    if (card) card.remove();
+    if (card) { deactivateCanvasFx(card); card.remove(); }
     renderedClipIds.delete(clipId);
     // Stop listening to this clip's comments on this browser too, since we
     // don't need live updates for something we're not showing anymore.
@@ -7631,7 +7719,19 @@ Contact: fictionclash.app@gmail.com</div>
   // already-cached expiry — no extra Firestore reads, just a clock
   // comparison, so a badge disappears from old comments right on
   // schedule even if the page has been open the whole month.
-  setInterval(() => liveVerifiedBadges.forEach(recomputeVerifiedBadge), 60000);
+  // liveVerifiedBadges only ever grew before — nothing removed an entry
+  // when its comment/leaderboard row scrolled out of the preview cap or
+  // its list got torn down (switching matchups, closing a sheet, etc.), so
+  // a long session would build up thousands of stale entries pointing at
+  // detached elements, each one still getting a style write every sweep.
+  // Pruning disconnected elements here (rather than at every removal call
+  // site) self-heals regardless of which code path removed the element.
+  setInterval(() => {
+    for (let i = liveVerifiedBadges.length - 1; i >= 0; i--) {
+      if (!liveVerifiedBadges[i].el.isConnected) { liveVerifiedBadges.splice(i, 1); continue; }
+      recomputeVerifiedBadge(liveVerifiedBadges[i]);
+    }
+  }, 60000);
   setInterval(renderVerifiedBadge, 60000);
 
   // ---------- equipped decoration (shown on OTHER accounts' comments) ----------
