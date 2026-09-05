@@ -79,7 +79,7 @@
      fills, plus a fully-fused solid (true color-mix) for text, borders,
      icons, and shadows where a gradient can't render. */
   body.theme-fireice{
-    --accent-bg:linear-gradient(135deg,var(--ember) 0%,var(--ember) 38%,var(--cyan) 62%,var(--cyan) 100%);
+    --accent-bg:linear-gradient(135deg,var(--ember) 0%,color-mix(in srgb,var(--ember),var(--cyan)) 50%,var(--cyan) 100%);
     --accent:color-mix(in srgb,var(--ember),var(--cyan));
   }
   /* Season reskins layer on top of everything above — same indirection
@@ -109,6 +109,15 @@
      no transition, which read as broken rather than styled. This fades
      in sooner and ties the overlay tint to --bg itself (via color-mix)
      so it always matches whatever light looks like, not a hardcoded hex. */
+  /* Only the anime season's light mode gets this override — its --bg
+     becomes a warm pale pink/lavender lifted from the hero art's cherry
+     blossoms and moonlit stone, instead of the app-wide neutral gray-white,
+     so the light theme actually reads as "this season" instead of a
+     generic light background. */
+  body.season-anime.light{
+    --bg:#f7edf1;
+    --bg-rgb:247,237,241;
+  }
   body.season-anime.light .phone{
     background-image:linear-gradient(180deg,color-mix(in srgb,var(--bg) 20%,transparent) 0%,color-mix(in srgb,var(--bg) 75%,transparent) 32%,var(--bg) 62%),url('/public/seasons/anime/hero-bg.png?v=2');
   }
@@ -124,6 +133,33 @@
   body.season-anime .wordmark,
   body.season-anime .brand-small{
     font-family:'Russo One',sans-serif;
+  }
+  /* Season-anime gradient borders — traces the season's signature
+     pink→purple→cyan gradient around the app's main card containers
+     (matchup cards, clip cards, avatar-store cards) instead of the flat
+     --line color. Uses the layered-background trick (an inner solid/art
+     layer clipped to padding-box, plus --accent-bg clipped to border-box)
+     rather than border-image, since border-image ignores border-radius
+     and would square off these cards' rounded corners. */
+  body.season-anime .trend-card,
+  body.season-anime .clip-card,
+  body.season-anime .clip-uploader{
+    border:1px solid transparent;
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/icons/intro-collage.webp'),
+      var(--accent-bg);
+    background-origin:padding-box, padding-box, border-box;
+    background-clip:padding-box, padding-box, border-box;
+    background-size:auto, cover, auto;
+    background-position:left top, center, left top;
+    background-repeat:no-repeat, no-repeat, no-repeat;
+  }
+  body.season-anime .profile-store-item{
+    border:1px solid transparent;
+    background-image:linear-gradient(var(--surface),var(--surface)), var(--accent-bg);
+    background-origin:padding-box, border-box;
+    background-clip:padding-box, border-box;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
    body{
@@ -145,13 +181,15 @@
     transition:opacity .5s ease;
   }
   #appLoadingScreen.is-hidden{ opacity:0; pointer-events:none; }
-  #appLoadingFlourish{
-    width:min(220px,55vw); height:auto;
-    animation:appLoadingPulse 1.6s ease-in-out infinite;
-  }
-  @keyframes appLoadingPulse{
-    0%,100%{ transform:scale(.92); opacity:.75; }
-    50%{ transform:scale(1); opacity:1; }
+  #appLoadingText{
+    font-family:'Russo One',sans-serif;
+    font-size:22px;
+    letter-spacing:2px;
+    text-transform:uppercase;
+    background:var(--accent-bg);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
   }
 
   .phone{
@@ -1646,8 +1684,23 @@
 </script>
 
 <div id="appLoadingScreen" aria-hidden="true">
-  <img src="/public/seasons/anime/loading-flourish.png?v=2" alt="" id="appLoadingFlourish">
+  <span id="appLoadingText">Fiction Clash</span>
 </div>
+
+<!-- Shared gradient def for the Shards "spirit portal" currency icon (see
+     shardsIconHtml() below) — defined once here so every icon instance can
+     reference #shardsPortalGrad without duplicating the same <defs> (and
+     without the invalid-duplicate-id issue that would come from repeating
+     the gradient inline in every card). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="shardsPortalGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FF3D7A"/>
+      <stop offset="50%" stop-color="#C93DA8"/>
+      <stop offset="100%" stop-color="#00E5FF"/>
+    </linearGradient>
+  </defs>
+</svg>
 
 <div class="phone">
   <div class="phone-scroll">
@@ -4524,20 +4577,37 @@ Contact: fictionclash.app@gmail.com</div>
     ctx.stroke();
   }
 
-  function drawBattleCardShell(ctx, w, h, kicker){
-    const bg = ctx.createLinearGradient(0, 0, 0, h);
-    bg.addColorStop(0, '#2b2c33');
-    bg.addColorStop(1, '#17181d');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
+  // Async because the anime-season path has to await the hero art before
+  // it can draw anything — callers must `await` this now (both do).
+  async function drawBattleCardShell(ctx, w, h, kicker){
+    const isAnime = document.body.classList.contains('season-anime');
+    const heroImg = isAnime ? await loadImageEl('/public/seasons/anime/battle-card-bg.jpg') : null;
+
+    if (heroImg) {
+      // Cover-fit crop, same math as the CSS `background-size:cover` used
+      // for the phone frame itself, so the art reads consistently.
+      const scale = Math.max(w / heroImg.width, h / heroImg.height);
+      const iw = heroImg.width * scale, ih = heroImg.height * scale;
+      ctx.drawImage(heroImg, (w - iw) / 2, (h - ih) / 2, iw, ih);
+      ctx.fillStyle = 'rgba(18,8,31,.55)'; // matches --bg under season-anime, for text legibility
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      const bg = ctx.createLinearGradient(0, 0, 0, h);
+      bg.addColorStop(0, '#2b2c33');
+      bg.addColorStop(1, '#17181d');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    const glowRgb = isAnime ? '201,61,168' : '228,169,41';
     const glow = ctx.createRadialGradient(w / 2, h * 0.22, 10, w / 2, h * 0.22, w * 0.65);
-    glow.addColorStop(0, 'rgba(228,169,41,.28)');
-    glow.addColorStop(1, 'rgba(228,169,41,0)');
+    glow.addColorStop(0, `rgba(${glowRgb},.28)`);
+    glow.addColorStop(1, `rgba(${glowRgb},0)`);
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
 
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#E4A929';
+    ctx.fillStyle = isAnime ? '#FF3D7A' : '#E4A929';
     ctx.font = `800 34px 'Bricolage Grotesque', sans-serif`;
     ctx.fillText('FICTION CLASH', w / 2, 96);
     ctx.fillStyle = '#999';
@@ -4579,7 +4649,7 @@ Contact: fictionclash.app@gmail.com</div>
     canvas.width = BATTLE_CARD_W;
     canvas.height = BATTLE_CARD_H;
     const ctx = canvas.getContext('2d');
-    drawBattleCardShell(ctx, canvas.width, canvas.height, 'TODAY\u2019S MATCHUP');
+    await drawBattleCardShell(ctx, canvas.width, canvas.height, 'TODAY\u2019S MATCHUP');
 
     const total = (m.votesA || 0) + (m.votesB || 0);
     const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
@@ -4711,7 +4781,7 @@ Contact: fictionclash.app@gmail.com</div>
     canvas.width = BATTLE_CARD_W;
     canvas.height = canvasHeight;
     const ctx = canvas.getContext('2d');
-    drawBattleCardShell(ctx, canvas.width, canvas.height, report ? 'AI POWER SCOUT VERDICT' : 'CUSTOM TEAM MATCHUP');
+    await drawBattleCardShell(ctx, canvas.width, canvas.height, report ? 'AI POWER SCOUT VERDICT' : 'CUSTOM TEAM MATCHUP');
 
     const alphaCx = canvas.width * 0.26, omegaCx = canvas.width * 0.74;
     await drawAvatarCluster(ctx, teamsState.alpha, alphaCx, clusterY, r);
@@ -6816,6 +6886,18 @@ Contact: fictionclash.app@gmail.com</div>
     const seasonItems = activeSeason ? PROFILE_DECORATIONS.filter(item => item.season === activeSeasonId) : [];
     const evergreenItems = PROFILE_DECORATIONS.filter(item => !item.season);
 
+    // The Spirit Portal decoration is also the visual identity of the
+    // Shards currency itself — this small swirl (not the full particle
+    // effect, just a static glyph) stands in for "Shards" wherever its
+    // balance or cost is shown. Only used for the anime season's own
+    // currency, never for the evergreen Clash Points.
+    function shardsIconHtml(){
+      return `<svg class="shards-currency-icon" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" style="vertical-align:-2px;margin-right:3px;">
+        <ellipse cx="12" cy="12" rx="9" ry="5.5" fill="none" stroke="url(#shardsPortalGrad)" stroke-width="2"/>
+        <ellipse cx="12" cy="12" rx="4" ry="2.4" fill="url(#shardsPortalGrad)" opacity=".85"/>
+      </svg>`;
+    }
+
     function decorationCardHtml(item, currency, balance){
       const owned = unlockedDecorations.includes(item.id);
       const equipped = equippedDecoration === item.id;
@@ -6826,7 +6908,7 @@ Contact: fictionclash.app@gmail.com</div>
         <h4>${item.name}</h4>
         <p class="profile-store-cat">${item.category}</p>
         <span class="profile-store-rarity ${item.rarity.toLowerCase()}">${item.rarity}</span>
-        <div class="profile-store-cost">${owned ? '' : `${item.cost} ${currency}`}</div>
+        <div class="profile-store-cost">${owned ? '' : `${currency === 'shards' ? shardsIconHtml() : ''}${item.cost} ${currency}`}</div>
         <button class="profile-store-action${equipped ? ' equipped' : ''}" type="button" data-decoration-action="${item.id}" ${!owned && balance < item.cost ? 'disabled' : ''}>${buttonLabel}</button>
       </div>`;
     }
@@ -6835,7 +6917,7 @@ Contact: fictionclash.app@gmail.com</div>
       <div class="profile-store-season">
         <div class="profile-store-season-banner">
           <span class="profile-store-season-label">${activeSeason.label}</span>
-          <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${seasonShards} available)</div>
+          <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${shardsIconHtml()}${seasonShards} available)</div>
         </div>
         <div class="profile-store-season-grid">
           ${seasonItems.map(item => decorationCardHtml(item, activeSeason.currencyLabel.toLowerCase(), seasonShards)).join('')}
