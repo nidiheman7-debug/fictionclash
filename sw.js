@@ -16,7 +16,7 @@ importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDKWorker.js');
 // Bump CACHE_NAME whenever you want to force everyone onto a fresh cache
 // after a deploy (e.g. 'fiction-clash-v5').
 
-const CACHE_NAME = 'fiction-clash-v5';
+const CACHE_NAME = 'fiction-clash-v6';
 
 const SHELL_FILES = [
   '/',
@@ -29,12 +29,16 @@ const SHELL_FILES = [
 // Requests where the newest version of the site should always be preferred.
 // The HTML document and manifest define what the app even is - serving a
 // stale cached copy of these after a deploy is what caused "I fixed it but
-// it's still broken" symptoms before.
+// it's still broken" symptoms before. Season assets (hero art, banners,
+// loading screen) get the same treatment - they get swapped out in place
+// with the same filename fairly often, and a stale cached copy there
+// causes the exact same "I fixed it but it's still broken" confusion.
 function isAlwaysFreshRequest(request, url) {
   return (
     request.mode === 'navigate' ||
     url.pathname === '/index.html' ||
-    url.pathname === '/manifest.json'
+    url.pathname === '/manifest.json' ||
+    url.pathname.startsWith('/public/seasons/')
   );
 }
 
