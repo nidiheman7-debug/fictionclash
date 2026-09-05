@@ -730,12 +730,37 @@
    }
    .hero-comments-list.scrollable::-webkit-scrollbar{ display:none; }
    .hero-comments-list.scrollable .comment:last-child{ border-bottom:0; }
-   .comment-form{ display:flex; flex-wrap:wrap; gap:7px; margin-top:11px; }
+   .comment-form{ display:flex; flex-wrap:nowrap; align-items:center; gap:7px; margin-top:11px; }
    .comment-form .clip-field{ margin:0; min-width:0; }
    .comment-form button{
-     border:1px solid var(--accent); background:transparent; color:var(--accent);
-     border-radius:9px; padding:0 11px; font-size:11px; font-weight:800; cursor:pointer;
+     flex:0 0 auto; width:32px; height:32px; padding:0;
+     border:none; background:transparent; color:var(--accent);
+     border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;
    }
+   .comment-form button svg{ width:17px; height:17px; margin-left:1px; } /* nudge to visually center the plane */
+   .comment-form button:active{ transform:scale(.88); }
+   /* Facebook-style docked composer: while a comment field (hero card,
+      clip card, or the full comments sheet) is focused, its form detaches
+      from wherever it sits in the scroll flow and pins to the very bottom
+      of the phone, right above the keyboard, instead of just scrolling
+      into view in place. .phone (or, for the comments sheet, its
+      .modal-overlay ancestor which sits inset:0 over .phone) is the
+      containing block, so bottom:0 here always means "bottom of the
+      phone" regardless of which form this is. JS sets the inline
+      `bottom` px value to clear the on-screen keyboard (see the docking
+      script near the end of the file). */
+   .comment-form.docked{
+     position:absolute; left:0; right:0; bottom:0; z-index:60;
+     margin:0; background:var(--bg);
+     padding:9px 14px calc(9px + env(safe-area-inset-bottom));
+     border-top:1px solid var(--line);
+     box-shadow:0 -8px 18px rgba(0,0,0,.28);
+   }
+   body.light .comment-form.docked{ box-shadow:0 -8px 18px rgba(0,0,0,.10); }
+   /* Close button sits right after the form in the comments sheet — once
+      the form docks, hide it instead of letting it jump up into the gap
+      the form left behind (it's inaccessible under the keyboard anyway). */
+   .comment-form.docked + .modal-close{ opacity:0; pointer-events:none; }
    body.light .file-drop{background:rgba(255,255,255,.35);}
    body.light .comment{border-bottom-color:rgba(33,26,16,.12);}
 
@@ -1991,7 +2016,7 @@
        <div class="hero-comments-list" id="heroCommentsList"></div>
        <form class="comment-form" id="heroCommentForm">
          <input class="clip-field" type="text" id="heroCommentInput" placeholder="Add your comment..." aria-label="Add your comment">
-         <button type="submit">POST</button>
+         <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
        </form>
     </div>
   </div>
@@ -2487,7 +2512,7 @@
       <div id="commentsModalList"></div>
       <form class="comment-form" id="commentsModalForm">
         <input class="clip-field" type="text" id="commentsModalInput" placeholder="Add your comment..." aria-label="Add your comment">
-        <button type="submit">POST</button>
+        <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
       </form>
       <button class="modal-close" id="commentsModalClose">Close</button>
     </div>
@@ -6043,7 +6068,7 @@ Contact: fictionclash.app@gmail.com</div>
             <div class="hero-comments-list"></div>
             <form class="comment-form" data-comments-for="${id}">
               <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
-              <button type="submit">POST</button>
+              <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
             </form>`;
           clipFeed.prepend(card);
           wireClipComments(id, card.querySelector('.comment-form'));
@@ -8613,48 +8638,71 @@ Contact: fictionclash.app@gmail.com</div>
 </script>
 
 <script>
-  // Keep the inline "Add your comment..." fields (hero card + clip cards)
-  // visible above the on-screen keyboard. The full comments sheet already
-  // handles this itself (locks .phone-scroll and focuses on its own timer),
-  // so it's excluded here — this only covers the plain, non-modal comment
-  // inputs that had nothing protecting them.
-  function isInlineCommentField(el){
-    return !!(el && el.matches && el.matches('.comment-form .clip-field') && !el.closest('#commentsModalOverlay'));
+  // Facebook-style docked composer: tapping ANY comment field (hero card,
+  // a clip card, or the full comments sheet) pins its comment-form to the
+  // bottom of the phone, right above the on-screen keyboard, instead of
+  // just scrolling it into view where it sat in the page. See the
+  // .comment-form.docked rule for why .phone/.modal-overlay being the
+  // containing block is what makes a plain `bottom:0` work for every case.
+  function isCommentField(el){
+    return !!(el && el.matches && el.matches('.comment-form .clip-field'));
   }
 
-  function scrollFieldAboveKeyboard(el){
-    const scrollEl = document.querySelector('.phone-scroll');
-    if (!scrollEl) return;
-    const reposition = () => {
-      const visibleBottom = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-      const rect = el.getBoundingClientRect();
-      const overflow = rect.bottom - visibleBottom + 16; // 16px breathing room above the keyboard
-      if (overflow > 0) scrollEl.scrollBy({ top: overflow, behavior: 'smooth' });
-    };
-    requestAnimationFrame(reposition);
+  // How far the phone's own bottom edge currently sits below the space
+  // actually visible above the keyboard — 0 once there's no keyboard (or
+  // it hasn't finished animating in), positive while it's covering part
+  // of the phone. That's exactly the `bottom` offset the docked form
+  // needs so it clears the keyboard instead of hiding under it.
+  function keyboardOverlapPx(){
+    const phone = document.querySelector('.phone');
+    if (!phone) return 0;
+    const phoneBottom = phone.getBoundingClientRect().bottom;
+    const visibleBottom = window.visualViewport
+      ? window.visualViewport.height + window.visualViewport.offsetTop
+      : window.innerHeight;
+    return Math.max(0, phoneBottom - visibleBottom);
+  }
+
+  function dockCommentField(el){
+    const form = el.closest('.comment-form');
+    if (!form) return;
+    form.classList.add('docked');
+    document.body.classList.add('keyboard-open');
+    const reposition = () => { form.style.bottom = keyboardOverlapPx() + 'px'; };
+    reposition();
     // The keyboard animates in over the next couple hundred ms, firing
     // several visualViewport resize events as it does — react to those
-    // instead of a single fixed-delay guess, so this lands correctly
-    // regardless of device/keyboard animation speed.
+    // instead of a single fixed-delay guess, so the bar lands right above
+    // the keyboard regardless of device/animation speed.
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', reposition);
-      setTimeout(() => window.visualViewport.removeEventListener('resize', reposition), 600);
+      form._undock = () => window.visualViewport.removeEventListener('resize', reposition);
     }
   }
 
+  function undockCommentField(form){
+    if (!form) return;
+    form.classList.remove('docked');
+    form.style.bottom = '';
+    if (form._undock) { form._undock(); form._undock = null; }
+  }
+
   document.addEventListener('focusin', event => {
-    if (!isInlineCommentField(event.target)) return;
-    document.body.classList.add('keyboard-open');
-    scrollFieldAboveKeyboard(event.target);
+    if (!isCommentField(event.target)) return;
+    dockCommentField(event.target);
   });
   document.addEventListener('focusout', event => {
-    if (!isInlineCommentField(event.target)) return;
-    // A tap on "POST" blurs the input a beat before its own click handler
-    // runs — the short delay (and re-check) stops the nav from flashing
-    // back on in between, and still restores it once focus genuinely
-    // leaves every inline comment field.
+    if (!isCommentField(event.target)) return;
+    const form = event.target.closest('.comment-form');
+    // A tap on the send icon blurs the input a beat before its own click
+    // handler runs — the short delay (and re-check) stops the bar from
+    // undocking in between, and still undocks once focus genuinely
+    // leaves every comment field.
     setTimeout(() => {
-      if (!isInlineCommentField(document.activeElement)) document.body.classList.remove('keyboard-open');
+      if (!isCommentField(document.activeElement)) {
+        document.body.classList.remove('keyboard-open');
+        undockCommentField(form);
+      }
     }, 50);
   });
 </script>
