@@ -119,7 +119,7 @@
     --bg-rgb:247,237,241;
   }
   body.season-anime.light .phone{
-    background-image:linear-gradient(180deg,color-mix(in srgb,var(--bg) 20%,transparent) 0%,color-mix(in srgb,var(--bg) 75%,transparent) 32%,var(--bg) 62%),url('/public/seasons/anime/hero-bg.png?v=2');
+    background-image:linear-gradient(180deg,color-mix(in srgb,var(--bg) 12%,transparent) 0%,color-mix(in srgb,var(--bg) 45%,transparent) 38%,color-mix(in srgb,var(--bg) 78%,transparent) 65%,var(--bg) 88%),url('/public/seasons/anime/hero-bg.png?v=2');
   }
   /* The hero image is always colorful/dark regardless of theme, so the
      header text sitting on it needs to stay light in both themes rather
@@ -1327,7 +1327,7 @@
        --ember-dim:#8A6A1E;
       --text:#1c1c1a;
       --muted:#6e6e6b;
-      --surface-veil:rgba(255,255,255,.90);
+      --surface-veil:rgba(255,255,255,.72);
    }
     body.light .phone{box-shadow:0 30px 70px rgba(0,0,0,.18);}
    body.light .topbar{
@@ -1347,8 +1347,12 @@
    body.light .vote-btn.hi{color:#ffffff;}
    body.light .trend-card{}
    body.light .bottomnav{
-      background:linear-gradient(180deg,rgba(241,241,239,0) 0%,rgba(241,241,239,.92) 28%,#f1f1ef 56%);
+      background:linear-gradient(180deg,rgba(8,7,6,0) 0%,rgba(8,7,6,.94) 28%,#080706 56%);
    }
+   body.light .nav-item{ color:rgba(255,255,255,.55); }
+   body.light .nav-item.active{ color:#fff; }
+   body.light .nav-item svg{ stroke:rgba(255,255,255,.55); }
+   body.light .nav-item.active svg{ stroke:var(--accent); }
 
     /* full-screen reels-style clip player — the ONLY place a clip's video
        or YouTube embed ever actually renders/plays. Opening a new clip
@@ -4575,7 +4579,7 @@ Contact: fictionclash.app@gmail.com</div>
       const scale = Math.max(w / heroImg.width, h / heroImg.height);
       const iw = heroImg.width * scale, ih = heroImg.height * scale;
       ctx.drawImage(heroImg, (w - iw) / 2, (h - ih) / 2, iw, ih);
-      ctx.fillStyle = 'rgba(18,8,31,.55)'; // matches --bg under season-anime, for text legibility
+      ctx.fillStyle = 'rgba(8,10,22,.5)'; // deep night-navy, matches the torii art's sky
       ctx.fillRect(0, 0, w, h);
     } else {
       const bg = ctx.createLinearGradient(0, 0, 0, h);
@@ -4585,7 +4589,7 @@ Contact: fictionclash.app@gmail.com</div>
       ctx.fillRect(0, 0, w, h);
     }
 
-    const glowRgb = isAnime ? '201,61,168' : '228,169,41';
+    const glowRgb = isAnime ? '244,185,92' : '228,169,41'; // warm lantern-gold, matches the new art
     const glow = ctx.createRadialGradient(w / 2, h * 0.22, 10, w / 2, h * 0.22, w * 0.65);
     glow.addColorStop(0, `rgba(${glowRgb},.28)`);
     glow.addColorStop(1, `rgba(${glowRgb},0)`);
