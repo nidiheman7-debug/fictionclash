@@ -1437,6 +1437,7 @@
       cursor:pointer;
     }
     .leaderboard-tab.active{ background:var(--accent-bg); border-color:var(--accent); color:#12100e; }
+    .leaderboard-tab.hidden{ display:none; }
 
     /* sign-in modal */
     .modal-overlay{
@@ -2278,6 +2279,7 @@
       <div class="leaderboard-tabs">
         <button class="leaderboard-tab active" id="leaderboardTabWeekly" type="button">WEEKLY</button>
         <button class="leaderboard-tab" id="leaderboardTabAllTime" type="button">ALL TIME</button>
+        <button class="leaderboard-tab hidden" id="leaderboardTabSeason" type="button">SEASON</button>
       </div>
       <div class="leaderboard-list" id="leaderboardList"></div>
       <button class="modal-close" id="leaderboardClose">Close</button>
@@ -2739,6 +2741,7 @@ Contact: fictionclash.app@gmail.com</div>
     if (season) document.body.classList.add(season.bodyClass);
     activeSeasonId = season ? season.id : null;
     if (typeof renderCustomizationStore === 'function') renderCustomizationStore();
+    if (typeof updateLeaderboardSeasonAvailability === 'function') updateLeaderboardSeasonAvailability();
   }
 
   onSnapshot(doc(db, 'appConfig', 'activeSeason'), snap => {
@@ -3898,7 +3901,15 @@ Contact: fictionclash.app@gmail.com</div>
   const yourRankGap = document.getElementById('yourRankGap');
   const leaderboardTabWeekly = document.getElementById('leaderboardTabWeekly');
   const leaderboardTabAllTime = document.getElementById('leaderboardTabAllTime');
-  let activeLeaderboardField = 'weeklyXp'; // 'weeklyXp' (resets every Monday, see /api/reset-weekly-xp) or 'xp' (lifetime)
+  const leaderboardTabSeason = document.getElementById('leaderboardTabSeason');
+  let activeLeaderboardField = 'weeklyXp'; // 'weeklyXp' (resets every Monday, see /api/reset-weekly-xp), 'xp' (lifetime), or 'seasonShards' (active season only)
+
+  // Display unit for a leaderboard field — everything's "XP" except the
+  // season currency, which shows its own season-specific label.
+  function leaderboardUnitLabel(field){
+    if (field === 'seasonShards') return (activeSeasonId && SEASONS[activeSeasonId]?.currencyLabel) || 'Shards';
+    return 'XP';
+  }
 
   // Top players by the given field — `xp` (lifetime, awarded server-side
   // via /api/vote, /api/comment, /api/like, /api/clip-comment) or
@@ -3924,7 +3935,7 @@ Contact: fictionclash.app@gmail.com</div>
     const user = auth.currentUser;
     if (!user) { yourRankCard.classList.add('hidden'); return; }
 
-    const myValue = field === 'xp' ? currentUserXp : currentUserWeeklyXp;
+    const myValue = field === 'xp' ? currentUserXp : field === 'seasonShards' ? seasonShards : currentUserWeeklyXp;
     let rank;
     const idx = ranked.findIndex(u => u.uid === user.uid);
     if (idx !== -1) {
@@ -3948,17 +3959,17 @@ Contact: fictionclash.app@gmail.com</div>
     yourRankCard.classList.remove('hidden');
     yourRankNum.textContent = `#${rank}`;
     yourRankName.textContent = (identity && identity.name) || 'You';
-    yourRankXp.textContent = `${myValue.toLocaleString()} XP`;
+    yourRankXp.textContent = `${myValue.toLocaleString()} ${leaderboardUnitLabel(field)}`;
 
     if (rank <= 1) {
       yourRankGap.textContent = "You're #1!";
     } else if (rank <= 10) {
       const topValue = ranked[0] ? (ranked[0][field] || 0) : myValue;
       const gap = topValue - myValue;
-      yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} XP to reach #1` : '';
+      yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} ${leaderboardUnitLabel(field)} to reach #1` : '';
     } else if (ranked[9]) {
       const gap = (ranked[9][field] || 0) - myValue + 1;
-      yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} XP to reach #10` : '';
+      yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} ${leaderboardUnitLabel(field)} to reach #10` : '';
     } else {
       yourRankGap.textContent = '';
     }
@@ -3991,7 +4002,7 @@ Contact: fictionclash.app@gmail.com</div>
         <div class="leaderboard-info">
           <div class="leaderboard-name">${escapeHtml(entry.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></div>
         </div>
-        <div class="leaderboard-votes">${(entry[field] || 0).toLocaleString()}<br>xp</div>
+        <div class="leaderboard-votes">${(entry[field] || 0).toLocaleString()}<br>${leaderboardUnitLabel(field).toLowerCase()}</div>
       </div>`).join('');
 
     leaderboardList.querySelectorAll('.leaderboard-row').forEach((row, index) => {
@@ -4006,11 +4017,40 @@ Contact: fictionclash.app@gmail.com</div>
     activeLeaderboardField = field;
     leaderboardTabWeekly.classList.toggle('active', field === 'weeklyXp');
     leaderboardTabAllTime.classList.toggle('active', field === 'xp');
+    leaderboardTabSeason.classList.toggle('active', field === 'seasonShards');
     leaderboardList.innerHTML = `<div class="leaderboard-loading"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--accent);"></span>Loading rankings…</div>`;
     renderLeaderboard();
   }
   leaderboardTabWeekly.addEventListener('click', () => switchLeaderboardTab('weeklyXp'));
   leaderboardTabAllTime.addEventListener('click', () => switchLeaderboardTab('xp'));
+  leaderboardTabSeason.addEventListener('click', () => switchLeaderboardTab('seasonShards'));
+
+  // While a season is live, the leaderboard becomes season-only: Weekly/
+  // All Time hide, the Season tab (labeled with the season's own name)
+  // takes over and becomes the active view. When the season ends, it
+  // reverts to the normal Weekly/All Time leaderboard. Called from
+  // applySeason() so this stays in sync with the live admin toggle.
+  function updateLeaderboardSeasonAvailability(){
+    const season = activeSeasonId ? SEASONS[activeSeasonId] : null;
+    leaderboardTabSeason.classList.toggle('hidden', !season);
+    leaderboardTabWeekly.classList.toggle('hidden', !!season);
+    leaderboardTabAllTime.classList.toggle('hidden', !!season);
+    if (season) {
+      leaderboardTabSeason.textContent = season.label.toUpperCase();
+      if (activeLeaderboardField !== 'seasonShards') {
+        activeLeaderboardField = 'seasonShards';
+        leaderboardTabSeason.classList.add('active');
+        leaderboardTabWeekly.classList.remove('active');
+        leaderboardTabAllTime.classList.remove('active');
+        if (leaderboardOverlay.classList.contains('show')) renderLeaderboard();
+      }
+    } else if (activeLeaderboardField === 'seasonShards') {
+      activeLeaderboardField = 'weeklyXp';
+      leaderboardTabWeekly.classList.add('active');
+      leaderboardTabSeason.classList.remove('active');
+      if (leaderboardOverlay.classList.contains('show')) renderLeaderboard();
+    }
+  }
 
   document.getElementById('qaLeaderboard').addEventListener('click', () => {
     leaderboardOverlay.classList.add('show');
@@ -4566,7 +4606,11 @@ Contact: fictionclash.app@gmail.com</div>
   // it can draw anything — callers must `await` this now (both do).
   async function drawBattleCardShell(ctx, w, h, kicker){
     const isAnime = document.body.classList.contains('season-anime');
-    const heroImg = isAnime ? await loadImageEl('/public/seasons/anime/battle-card-bg.jpg') : null;
+    const heroImgPath = '/public/seasons/anime/battle-card-bg.jpg';
+    const heroImg = isAnime ? await loadImageEl(heroImgPath) : null;
+    if (isAnime && !heroImg) {
+      console.warn(`Battle card art failed to load from ${heroImgPath} — falling back to the plain background. Check the file is actually deployed at that path (open the URL directly in a tab to confirm it 200s).`);
+    }
 
     if (heroImg) {
       // Cover-fit crop, same math as the CSS `background-size:cover` used
