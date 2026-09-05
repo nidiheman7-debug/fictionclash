@@ -1374,6 +1374,14 @@
     cursor:pointer;
     -webkit-tap-highlight-color:transparent;
   }
+   /* The inline comment boxes (hero card, clip cards) aren't modals, so
+      nothing was keeping them clear of the on-screen keyboard — the
+      keyboard overlays the page instead of resizing it (see the
+      visualViewport script below), so a field near the bottom of the
+      content can end up hidden underneath it. Hiding the nav while one of
+      these is focused frees up that reserved space, and the matching JS
+      scrolls the field itself up above the keyboard. */
+   body.keyboard-open .bottomnav{ display:none; }
    .nav-item.active{ color:var(--text); }
   .nav-item svg{ stroke:var(--muted); }
    .nav-item.active svg{ stroke:var(--accent); }
@@ -8484,6 +8492,53 @@ Contact: fictionclash.app@gmail.com</div>
   } else {
     window.addEventListener('resize', setVisibleViewportHeight);
   }
+</script>
+
+<script>
+  // Keep the inline "Add your comment..." fields (hero card + clip cards)
+  // visible above the on-screen keyboard. The full comments sheet already
+  // handles this itself (locks .phone-scroll and focuses on its own timer),
+  // so it's excluded here — this only covers the plain, non-modal comment
+  // inputs that had nothing protecting them.
+  function isInlineCommentField(el){
+    return !!(el && el.matches && el.matches('.comment-form .clip-field') && !el.closest('#commentsModalOverlay'));
+  }
+
+  function scrollFieldAboveKeyboard(el){
+    const scrollEl = document.querySelector('.phone-scroll');
+    if (!scrollEl) return;
+    const reposition = () => {
+      const visibleBottom = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      const rect = el.getBoundingClientRect();
+      const overflow = rect.bottom - visibleBottom + 16; // 16px breathing room above the keyboard
+      if (overflow > 0) scrollEl.scrollBy({ top: overflow, behavior: 'smooth' });
+    };
+    requestAnimationFrame(reposition);
+    // The keyboard animates in over the next couple hundred ms, firing
+    // several visualViewport resize events as it does — react to those
+    // instead of a single fixed-delay guess, so this lands correctly
+    // regardless of device/keyboard animation speed.
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', reposition);
+      setTimeout(() => window.visualViewport.removeEventListener('resize', reposition), 600);
+    }
+  }
+
+  document.addEventListener('focusin', event => {
+    if (!isInlineCommentField(event.target)) return;
+    document.body.classList.add('keyboard-open');
+    scrollFieldAboveKeyboard(event.target);
+  });
+  document.addEventListener('focusout', event => {
+    if (!isInlineCommentField(event.target)) return;
+    // A tap on "POST" blurs the input a beat before its own click handler
+    // runs — the short delay (and re-check) stops the nav from flashing
+    // back on in between, and still restores it once focus genuinely
+    // leaves every inline comment field.
+    setTimeout(() => {
+      if (!isInlineCommentField(document.activeElement)) document.body.classList.remove('keyboard-open');
+    }, 50);
+  });
 </script>
 
 <script>
