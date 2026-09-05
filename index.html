@@ -857,9 +857,14 @@
      overflow:hidden;
    }
    .account-banner{
-     height:92px;
+     height:92px;position:relative;
      background-image:linear-gradient(var(--surface-veil),var(--surface-veil)), url('/icons/intro-collage.webp');
      background-size:cover; background-position:center; background-repeat:no-repeat;
+   }
+   .cover-edit-btn{
+     position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:9px;
+     background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.3);color:#fff;
+     display:flex;align-items:center;justify-content:center;cursor:pointer;
    }
    .account-hero-body{
      display:flex;align-items:center;gap:12px;padding:0 15px 15px;
@@ -1166,6 +1171,10 @@
    .admin-report-info b{ font-size:12px;display:block; }
    .admin-report-info span{ font-size:10.5px;color:var(--muted); }
    .admin-report-actions{ display:flex;gap:6px; }
+   .admin-report-actions select{
+     background:var(--bg);border:1px solid var(--line);border-radius:8px;
+     color:var(--text);font:700 10px 'Instrument Sans',sans-serif;padding:6px 8px;
+   }
    .admin-report-actions button{
      font-size:10px;font-weight:700;padding:6px 9px;border-radius:8px;border:1px solid var(--line);
      background:var(--surface2);color:var(--text);cursor:pointer;
@@ -1177,6 +1186,7 @@
    }
    .account-hero h2{font-family:'Rajdhani',sans-serif; font-weight:700;font-size:17px;margin-bottom:3px;}
    .account-hero p{color:var(--muted);font-size:11px;}
+   .account-bio{color:var(--text);font-size:11.5px;line-height:1.4;margin-top:4px;opacity:.9;}
    .account-card{
      border:1px solid var(--line);border-radius:16px;
      padding:14px;margin-bottom:13px;
@@ -1815,7 +1825,7 @@
   <div class="phone-main">
   <div class="quick-actions">
     <div class="qa" id="qaVote">
-      <div class="qa-icon filled">
+      <div class="qa-icon outline">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L20 4"/><path d="M2 18L6 22"/><path d="M20 20L4 4"/><path d="M18 22L22 18"/></svg>
       </div>
        <div class="qa-label">Vote<br>Now</div>
@@ -2052,7 +2062,12 @@
     <div class="movies-kicker">YOUR CLASH PROFILE</div>
     <h1 class="movies-title">Make it<br>your own.</h1>
     <div class="account-hero">
-      <div class="account-banner"></div>
+      <div class="account-banner" id="accountBanner">
+        <button class="cover-edit-btn" id="coverEditBtn" type="button" aria-label="Change cover photo">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </button>
+        <input type="file" id="coverFile" accept="image/png,image/jpeg,image/webp" hidden>
+      </div>
       <div class="account-hero-body">
         <div class="account-avatar-wrap">
           <div class="account-avatar" id="accountAvatar">YU</div>
@@ -2062,7 +2077,7 @@
           <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" hidden>
         </div>
         <button class="theme-store-launcher" id="themeStoreLauncher" type="button" aria-label="Open theme store" title="Open theme store"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5h16l-1.2 11H5.2L4 8.5z"/><path d="M6.5 8.5V7a5.5 5.5 0 0 1 11 0v1.5"/><path d="M9 12.5h.01M15 12.5h.01"/><path d="M19.5 4.5v3M18 6h3"/></svg></button>
-        <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 30 days" style="display:none;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
+        <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 30 days" style="display:none;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="accountDisplayBio" class="account-bio" style="display:none;"></p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
       </div>
     </div>
     <div class="account-card" id="signInCard">
@@ -2093,20 +2108,10 @@
         <button class="remove-avatar-btn" id="signOutBtn" type="button">Sign out</button>
       </div>
     </div>
-    <div class="account-card">
-      <h3>App theme</h3>
+    <div class="account-card theme-store-teaser" id="themeStoreTeaserCard">
+      <h3>Theme Store</h3>
       <p>Pick an accent colour for buttons, highlights, and the news feed.</p>
-      <div class="theme-swatch-row" id="themeSwatchRow">
-        <button class="theme-swatch" data-theme="gold" style="--sw:#E4A929" aria-label="Gold theme" title="Gold"></button>
-        <button class="theme-swatch" data-theme="blue" style="--sw:#1E4FE0" aria-label="Blue theme" title="Blue"></button>
-        <button class="theme-swatch" data-theme="green" style="--sw:#2E9E5B" aria-label="Green theme" title="Green"></button>
-        <button class="theme-swatch" data-theme="red" style="--sw:#D6432E" aria-label="Red theme" title="Red"></button>
-        <button class="theme-swatch" data-theme="cyan" style="--sw:#22D3D8" aria-label="Cyan theme" title="Cyan"></button>
-        <button class="theme-swatch" data-theme="fireice" style="--sw:linear-gradient(135deg,#E4A929 0%,#E4A929 38%,#22D3D8 62%,#22D3D8 100%)" aria-label="Fire and Ice theme" title="Fire &amp; Ice"></button>
-        <button class="theme-swatch" data-theme="purple" style="--sw:#9B4FE0" aria-label="Purple theme" title="Purple"></button>
-        <button class="theme-swatch" data-theme="crimson" style="--sw:#FF1414" aria-label="Aggressive red theme" title="Aggressive Red"></button>
-        <button class="theme-swatch" data-theme="mono" style="--sw:#E5E5E5" aria-label="Black and white theme" title="Black &amp; White"></button>
-      </div>
+      <button class="save-profile" id="themeStoreTeaserBtn" type="button">Browse Themes</button>
     </div>
     <div class="account-card">
       <h3>Push notifications</h3>
@@ -2172,6 +2177,11 @@
       <h3>Season control</h3>
       <p>Toggle a season reskin live for everyone. Reads/writes appConfig/activeSeason directly.</p>
       <div id="seasonAdminList"></div>
+    </div>
+    <div class="account-card hidden" id="adminMatchupCategoryCard">
+      <h3>Matchup categories</h3>
+      <p>Tag which matchups belong to which season. Untagged matchups are hidden while any season is live.</p>
+      <div id="matchupCategoryList"></div>
     </div>
   </section>
   </div>
@@ -2486,7 +2496,20 @@ Contact: fictionclash.app@gmail.com</div>
         <div class="modal-title" id="themeStoreTitle">Theme Store</div>
         <button class="theme-store-close" id="themeStoreClose" type="button" aria-label="Close theme store">×</button>
       </div>
-      <div id="themeStoreModalBody"></div>
+      <div id="themeStoreModalBody">
+        <p class="profile-store-copy">Pick an accent colour for buttons, highlights, and the news feed.</p>
+        <div class="theme-swatch-row" id="themeSwatchRow">
+          <button class="theme-swatch" data-theme="gold" style="--sw:#E4A929" aria-label="Gold theme" title="Gold"></button>
+          <button class="theme-swatch" data-theme="blue" style="--sw:#1E4FE0" aria-label="Blue theme" title="Blue"></button>
+          <button class="theme-swatch" data-theme="green" style="--sw:#2E9E5B" aria-label="Green theme" title="Green"></button>
+          <button class="theme-swatch" data-theme="red" style="--sw:#D6432E" aria-label="Red theme" title="Red"></button>
+          <button class="theme-swatch" data-theme="cyan" style="--sw:#22D3D8" aria-label="Cyan theme" title="Cyan"></button>
+          <button class="theme-swatch" data-theme="fireice" style="--sw:linear-gradient(135deg,#E4A929 0%,#E4A929 38%,#22D3D8 62%,#22D3D8 100%)" aria-label="Fire and Ice theme" title="Fire &amp; Ice"></button>
+          <button class="theme-swatch" data-theme="purple" style="--sw:#9B4FE0" aria-label="Purple theme" title="Purple"></button>
+          <button class="theme-swatch" data-theme="crimson" style="--sw:#FF1414" aria-label="Aggressive red theme" title="Aggressive Red"></button>
+          <button class="theme-swatch" data-theme="mono" style="--sw:#E5E5E5" aria-label="Black and white theme" title="Black &amp; White"></button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2800,9 +2823,17 @@ Contact: fictionclash.app@gmail.com</div>
     Object.values(SEASONS).forEach(s => document.body.classList.remove(s.bodyClass));
     const season = seasonId ? SEASONS[seasonId] : null;
     if (season) document.body.classList.add(season.bodyClass);
+    const seasonChanged = activeSeasonId !== (season ? season.id : null);
     activeSeasonId = season ? season.id : null;
     if (typeof renderCustomizationStore === 'function') renderCustomizationStore();
     if (typeof updateLeaderboardSeasonAvailability === 'function') updateLeaderboardSeasonAvailability();
+    // The matchups onSnapshot listener only filters docs AS THEY ARRIVE —
+    // anything already sitting in the `matchups` array from before the
+    // season changed (or before it was known) needs a fresh, filtered
+    // rebuild, both for someone loading the app for the first time after
+    // a season went live and for an admin flipping it on/off while people
+    // already have the app open.
+    if (seasonChanged && typeof resyncMatchupsForSeason === 'function') resyncMatchupsForSeason();
   }
 
   onSnapshot(doc(db, 'appConfig', 'activeSeason'), snap => {
@@ -2858,6 +2889,61 @@ Contact: fictionclash.app@gmail.com</div>
       // No need to manually re-enable/re-render on success — the
       // onSnapshot listener above fires from our own write and calls
       // renderSeasonAdminControls(), which redraws this row.
+    });
+  }
+
+  // ---------- admin: tag matchups with a season category ----------
+  // Deliberately a SEPARATE, unfiltered listener from the main matchups
+  // one above — that one hides anything not tagged for the active season,
+  // which would make it impossible for an admin to ever find and tag the
+  // very matchups that need tagging. This one always shows everything,
+  // admin-only, regardless of what season (if any) is currently live.
+  const adminMatchupCategoryCard = document.getElementById('adminMatchupCategoryCard');
+  const matchupCategoryList = document.getElementById('matchupCategoryList');
+  let adminAllMatchups = [];
+  function updateMatchupCategoryCardVisibility(){
+    if (adminMatchupCategoryCard) adminMatchupCategoryCard.classList.toggle('hidden', !isAdmin());
+  }
+  function renderMatchupCategoryList(){
+    updateMatchupCategoryCardVisibility();
+    if (!matchupCategoryList || !isAdmin()) return;
+    matchupCategoryList.innerHTML = adminAllMatchups.map(m => `
+      <div class="admin-report-row" data-matchup-id="${m.docId}">
+        <div class="admin-report-info">
+          <b>${escapeHtml(m.a.name)} vs ${escapeHtml(m.b.name)}</b>
+          <span>${m.category ? SEASONS[m.category]?.label || m.category : 'Untagged'}</span>
+        </div>
+        <div class="admin-report-actions">
+          <select data-category-select>
+            <option value="">— Untagged —</option>
+            ${Object.values(SEASONS).map(s => `<option value="${s.id}" ${m.category === s.id ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    `).join('');
+  }
+  onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
+    adminAllMatchups = snapshot.docs
+      .filter(d => d.data().a && d.data().b)
+      .map(d => ({ docId: d.id, a: d.data().a, b: d.data().b, category: d.data().category || null }));
+    renderMatchupCategoryList();
+  }, err => console.error('Admin matchup-category listener failed', err));
+  if (matchupCategoryList) {
+    matchupCategoryList.addEventListener('change', (e) => {
+      const select = e.target.closest('[data-category-select]');
+      if (!select) return;
+      const row = select.closest('[data-matchup-id]');
+      const matchupId = row?.dataset.matchupId;
+      if (!matchupId) return;
+      const newCategory = select.value;
+      select.disabled = true;
+      updateDoc(doc(db, 'matchups', matchupId), newCategory ? { category: newCategory } : { category: deleteField() })
+        .then(() => showToast(newCategory ? `Tagged as ${SEASONS[newCategory]?.label || newCategory}` : 'Untagged'))
+        .catch(err => {
+          console.error('Matchup category update failed', err);
+          showToast('Could not update category — try again');
+        })
+        .finally(() => { select.disabled = false; });
     });
   }
 
@@ -3692,6 +3778,9 @@ Contact: fictionclash.app@gmail.com</div>
   function refreshModerationListeners(){
     if (unsubPendingMatchups) { unsubPendingMatchups(); unsubPendingMatchups = null; }
     if (unsubPendingClips) { unsubPendingClips(); unsubPendingClips = null; }
+    updateSeasonCardVisibility();
+    if (typeof updateMatchupCategoryCardVisibility === 'function') updateMatchupCategoryCardVisibility();
+    if (typeof renderMatchupCategoryList === 'function') renderMatchupCategoryList();
     if (!isAdmin()) { updateModerationCardVisibility(); return; }
     unsubPendingMatchups = onSnapshot(query(collection(db, 'pendingMatchups'), orderBy('createdAt', 'asc')), renderPendingMatchups, err => console.error('Pending matchups listener failed', err));
     unsubPendingClips = onSnapshot(query(collection(db, 'pendingClips'), orderBy('createdAt', 'asc')), renderPendingClips, err => console.error('Pending clips listener failed', err));
@@ -4289,6 +4378,39 @@ Contact: fictionclash.app@gmail.com</div>
   let matchupsSynced = false; // true once the initial replay-everything snapshot has finished
   const trendLoadingMore = document.getElementById('trendLoadingMore');
   trendLoadingMore.classList.add('show'); // visible until the first snapshot resolves, however fast that is
+  // Rebuilds `matchups` from a fresh Firestore read, applying the current
+  // season filter to every doc — not just newly-arrived ones. Called from
+  // applySeason() whenever the active season actually changes, so a live
+  // toggle (or a page load that resolves the season after matchups have
+  // already streamed in) doesn't leave stale out-of-season matchups sitting
+  // in the array, or miss ones that should now be visible.
+  async function resyncMatchupsForSeason(){
+    let snap;
+    try {
+      snap = await getDocs(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')));
+    } catch (err) {
+      console.error('Season matchup resync failed', err);
+      return;
+    }
+    const currentPairKey = matchups[activeIdx] ? matchupPairKey(matchups[activeIdx]) : null;
+    matchups.length = 0;
+    snap.forEach(docSnap => {
+      const data = docSnap.data();
+      if (!data.a || !data.b) return;
+      if (data.expiresAt && data.expiresAt.toMillis() < Date.now()) return;
+      if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
+      if (activeSeasonId && data.category !== activeSeasonId) return;
+      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null });
+    });
+    // Try to keep whatever was on screen still on screen if it survived
+    // the filter; otherwise fall back to the start of the (new) list
+    // rather than an index that may now point at something else entirely.
+    const preservedIdx = currentPairKey ? matchups.findIndex(m => matchupPairKey(m) === currentPairKey) : -1;
+    activeIdx = preservedIdx !== -1 ? preservedIdx : 0;
+    renderTrendScroll();
+    renderHero();
+  }
+
   onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
     let listChanged = false;
     let heroNeedsRefresh = false;
@@ -4318,6 +4440,13 @@ Contact: fictionclash.app@gmail.com</div>
       // This browser chose to hide this exact matchup before — respect
       // that even though the doc is still live in Firestore for everyone else.
       if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
+      // Anime-season-only filtering: while a season is active, only
+      // matchups explicitly tagged with that season's category show up.
+      // Untagged matchups (data.category is unset — true for every
+      // matchup that existed before this feature) are hidden rather than
+      // shown by default, per the "hide until tagged" decision — an admin
+      // tags each one via the Season Control card's matchup list.
+      if (activeSeasonId && data.category !== activeSeasonId) return;
       const existingMatchup = matchups.find(m => matchupPairKey(m) === matchupPairKey(data));
       if (existingMatchup) {
         // Already showing locally (e.g. the one we just optimistically
@@ -4333,7 +4462,7 @@ Contact: fictionclash.app@gmail.com</div>
         }
         return;
       }
-      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id });
+      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null });
       listChanged = true;
       if (matchupsSynced) pushNotification('matchup', 'New matchup', `${data.a.name} vs ${data.b.name}`, docSnap.id);
     });
@@ -6235,6 +6364,7 @@ Contact: fictionclash.app@gmail.com</div>
   const themeStoreClose = document.getElementById('themeStoreClose');
   document.getElementById('themeStoreModalBody').appendChild(profileCustomizationCard);
   themeStoreLauncher.addEventListener('click', () => themeStoreOverlay.classList.add('show'));
+  document.getElementById('themeStoreTeaserBtn')?.addEventListener('click', () => themeStoreOverlay.classList.add('show'));
   themeStoreClose.addEventListener('click', () => themeStoreOverlay.classList.remove('show'));
   themeStoreOverlay.addEventListener('click', event => {
     if (event.target === themeStoreOverlay) themeStoreOverlay.classList.remove('show');
@@ -6258,6 +6388,7 @@ Contact: fictionclash.app@gmail.com</div>
   const avatarFile = document.getElementById('avatarFile');
   const removeAvatarBtn = document.getElementById('removeAvatarBtn');
   let avatarDataUrl = '';
+  let coverPhotoDataUrl = '';
   let clashPoints = 0;
   let seasonShards = 0; // standalone currency for the active season's exclusive decorations — see SEASONS
   let shareCount = 0;
@@ -7432,15 +7563,22 @@ Contact: fictionclash.app@gmail.com</div>
     const handle = profileHandle.value.trim() || 'Sign in to save your clashes';
     accountDisplayName.textContent = name;
     accountDisplayHandle.textContent = handle;
+    const bioEl = document.getElementById('accountDisplayBio');
+    if (bioEl) {
+      const bio = profileBio.value.trim();
+      bioEl.textContent = bio;
+      bioEl.style.display = bio ? 'block' : 'none';
+    }
     applyProfileNameFont();
     renderAvatar();
+    if (typeof renderCoverPhoto === 'function') renderCoverPhoto();
     renderCustomizationStore();
     renderVerifiedBadge();
     renderHeroCharacterCosmetics();
   }
 
   function persistProfile(){
-    const profile = {name:profileName.value.trim(), handle:profileHandle.value.trim(), bio:profileBio.value.trim(), avatar:avatarDataUrl};
+    const profile = {name:profileName.value.trim(), handle:profileHandle.value.trim(), bio:profileBio.value.trim(), avatar:avatarDataUrl, cover:coverPhotoDataUrl};
     localStorage.setItem('fictionClashProfile', JSON.stringify(profile));
     // Also sync to Firestore when signed in, so the name/handle/bio/picture
     // show up the same way on any other browser this account signs into.
@@ -7450,9 +7588,11 @@ Contact: fictionclash.app@gmail.com</div>
     const user = auth.currentUser;
     if (user) {
       const smallEnough = !profile.avatar || profile.avatar.startsWith('http') || profile.avatar.length < 400000;
+      const coverSmallEnough = !profile.cover || profile.cover.startsWith('http') || profile.cover.length < 500000;
       setDoc(doc(db, 'users', user.uid), {
         name: profile.name, handle: profile.handle, bio: profile.bio,
         avatarUrl: smallEnough ? profile.avatar : '',
+        coverPhotoUrl: coverSmallEnough ? profile.cover : '',
         updatedAt: serverTimestamp()
       }, { merge: true }).catch(err => console.error('Profile sync failed', err));
     }
@@ -7469,6 +7609,7 @@ Contact: fictionclash.app@gmail.com</div>
       if (data.handle) profileHandle.value = data.handle;
       if (data.bio) profileBio.value = data.bio;
       if (data.avatarUrl) avatarDataUrl = data.avatarUrl;
+      if (data.coverPhotoUrl) coverPhotoDataUrl = data.coverPhotoUrl;
       clashPoints = Number(data.clashPoints || 0);
       seasonShards = Number(data.seasonShards || 0);
       shareCount = Number(data.shareCount || 0);
@@ -7536,6 +7677,60 @@ Contact: fictionclash.app@gmail.com</div>
     showToast('Profile picture removed');
   });
 
+  const accountBanner = document.getElementById('accountBanner');
+  const coverEditBtn = document.getElementById('coverEditBtn');
+  const coverFile = document.getElementById('coverFile');
+  function renderCoverPhoto(){
+    // Inline style always wins over the .account-banner CSS rule (default
+    // collage art, or a season reskin's background-image) — a user's own
+    // cover photo takes priority over both, same treatment as avatarUrl
+    // already gets versus season/theme art elsewhere.
+    accountBanner.style.backgroundImage = coverPhotoDataUrl
+      ? `linear-gradient(var(--surface-veil),var(--surface-veil)), url('${coverPhotoDataUrl}')`
+      : '';
+  }
+
+  coverEditBtn.addEventListener('click', () => coverFile.click());
+
+  coverFile.addEventListener('change', () => {
+    const file = coverFile.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please choose an image file');
+      coverFile.value = '';
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      showToast('Image must be under 4MB');
+      coverFile.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      // Instant local preview while the compressed copy (below) is
+      // prepared in the background and synced to Firestore.
+      coverPhotoDataUrl = reader.result;
+      renderCoverPhoto();
+      coverFile.value = '';
+      // Wider aspect ratio than the avatar, so a larger max dimension —
+      // still well under Firestore's 1MB document limit at this quality.
+      compressImageToDataUrl(file, 640, 0.7)
+        .then(compressed => {
+          coverPhotoDataUrl = compressed;
+          renderCoverPhoto();
+          persistProfile();
+          showToast(auth.currentUser ? 'Cover photo updated' : 'Cover photo updated (sign in to sync it everywhere)');
+        })
+        .catch(err => {
+          console.error('Cover photo compression failed', err);
+          persistProfile(); // keeps the uncompressed preview at least local-only
+          showToast('Saved here, but sync to other browsers failed');
+        });
+    };
+    reader.onerror = () => showToast('Could not read that image');
+    reader.readAsDataURL(file);
+  });
+
   try {
     const savedProfile = JSON.parse(localStorage.getItem('fictionClashProfile') || 'null');
     if (savedProfile) {
@@ -7543,6 +7738,8 @@ Contact: fictionclash.app@gmail.com</div>
       profileHandle.value = savedProfile.handle || '';
       profileBio.value = savedProfile.bio || '';
       avatarDataUrl = savedProfile.avatar || '';
+      coverPhotoDataUrl = savedProfile.cover || '';
+      renderCoverPhoto();
       updateAccountHeader();
     }
   } catch (error) {}
@@ -7639,6 +7836,7 @@ Contact: fictionclash.app@gmail.com</div>
         profileHandle.value = user.email ? `@${user.email.split('@')[0]}` : '';
         profileBio.value = '';
         avatarDataUrl = user.photoURL || '';
+        coverPhotoDataUrl = '';
          clashPoints = 0;
          seasonShards = 0;
          shareCount = 0;
@@ -7668,6 +7866,7 @@ Contact: fictionclash.app@gmail.com</div>
       profileHandle.value = '';
       profileBio.value = '';
       avatarDataUrl = '';
+      coverPhotoDataUrl = '';
        clashPoints = 0;
        seasonShards = 0;
        shareCount = 0;
