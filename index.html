@@ -143,17 +143,50 @@
      and would square off these cards' rounded corners. */
   body.season-anime .trend-card,
   body.season-anime .clip-card,
+  body.season-anime .clip-uploader,
+  body.season-anime .account-card,
+  body.season-anime .account-banner,
+  body.season-anime .modal-sheet,
+  body.season-anime .hero{
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/anime/battle-card-bg.jpg');
+    background-size:cover;
+    background-position:center;
+    background-repeat:no-repeat;
+  }
+  body.season-anime .trend-card,
+  body.season-anime .clip-card,
   body.season-anime .clip-uploader{
     border:1px solid transparent;
     background-image:
       linear-gradient(var(--surface-veil),var(--surface-veil)),
-      url('/icons/intro-collage.webp'),
+      url('/public/seasons/anime/battle-card-bg.jpg'),
       var(--accent-bg);
     background-origin:padding-box, padding-box, border-box;
     background-clip:padding-box, padding-box, border-box;
     background-size:auto, cover, auto;
     background-position:left top, center, left top;
     background-repeat:no-repeat, no-repeat, no-repeat;
+  }
+  /* .hero-vs sits nested inside .hero and has its own body.light override
+     (see body.light .hero-vs further down) at the same specificity — so a
+     plain body.season-anime rule for it would lose that tie-break whenever
+     light+anime are both active. Chaining both classes on one selector
+     raises specificity just enough to always win, regardless of source
+     order, so the art shows correctly in both anime-season light and dark. */
+  body.season-anime.light .hero,
+  body.season-anime.light .hero-vs{
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/anime/battle-card-bg.jpg');
+    background-size:cover; background-position:center; background-repeat:no-repeat;
+  }
+  body.season-anime .hero-vs{
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/anime/battle-card-bg.jpg');
+    background-size:cover; background-position:center; background-repeat:no-repeat;
   }
   body.season-anime .profile-store-item{
     border:1px solid transparent;
@@ -790,10 +823,20 @@
    .account-section{padding:22px 14px 34px;}
    .account-section.hidden{display:none;}
    .account-hero{
-     display:flex;align-items:center;gap:12px;padding:15px;background:var(--surface);
+     background:var(--surface);
      border:1px solid var(--line);border-radius:16px;margin:13px 0 14px;
+     overflow:hidden;
    }
-   .account-hero-info,.account-hero > div:not(.account-avatar-wrap){order:2;flex:1;min-width:0;}
+   .account-banner{
+     height:92px;
+     background-image:linear-gradient(var(--surface-veil),var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size:cover; background-position:center; background-repeat:no-repeat;
+   }
+   .account-hero-body{
+     display:flex;align-items:center;gap:12px;padding:0 15px 15px;
+   }
+   .account-hero-body .account-avatar-wrap{ margin-top:-34px; }
+   .account-hero-info,.account-hero-body > div:not(.account-avatar-wrap){order:2;flex:1;min-width:0;}
    .theme-store-launcher{
      order:3;flex-shrink:0;width:42px;height:42px;margin-left:auto;border:1px solid var(--accent);border-radius:13px;
      background:rgba(228,169,41,.12);color:var(--accent);display:flex;align-items:center;
@@ -803,8 +846,9 @@
    .theme-store-launcher:active{transform:scale(.94);}
    .theme-store-launcher svg{width:22px;height:22px;stroke:currentColor;}
    .account-avatar{
-      position:relative;width:51px;height:51px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-     background:var(--accent-bg);color:#0A0806;font:20px 'Instrument Sans',sans-serif;overflow:hidden;
+      position:relative;width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+     background:var(--accent-bg);color:#0A0806;font:24px 'Instrument Sans',sans-serif;overflow:hidden;
+     border:3px solid var(--surface);box-shadow:0 0 0 1px var(--line);
    }
    .account-avatar.has-decoration{overflow:visible;}
    .account-avatar img,.account-avatar .avatar-initials{width:100%;height:100%;border-radius:50%;object-fit:cover;display:flex;align-items:center;justify-content:center;position:relative;z-index:2;}
@@ -1328,6 +1372,7 @@
       --text:#1c1c1a;
       --muted:#6e6e6b;
       --surface-veil:rgba(255,255,255,.72);
+      --nav-pitch:color-mix(in srgb, var(--bg) 18%, black);
    }
     body.light .phone{box-shadow:0 30px 70px rgba(0,0,0,.18);}
    body.light .topbar{
@@ -1347,7 +1392,7 @@
    body.light .vote-btn.hi{color:#ffffff;}
    body.light .trend-card{}
    body.light .bottomnav{
-      background:linear-gradient(180deg,rgba(8,7,6,0) 0%,rgba(8,7,6,.94) 28%,#080706 56%);
+      background:linear-gradient(180deg,color-mix(in srgb, var(--nav-pitch) 0%, transparent) 0%,color-mix(in srgb, var(--nav-pitch) 94%, transparent) 28%,var(--nav-pitch) 56%);
    }
    body.light .nav-item{ color:rgba(255,255,255,.55); }
    body.light .nav-item.active{ color:#fff; }
@@ -1976,15 +2021,18 @@
     <div class="movies-kicker">YOUR CLASH PROFILE</div>
     <h1 class="movies-title">Make it<br>your own.</h1>
     <div class="account-hero">
-      <div class="account-avatar-wrap">
-        <div class="account-avatar" id="accountAvatar">YU</div>
-        <button class="avatar-edit-btn" id="avatarEditBtn" type="button" aria-label="Change profile picture">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-        </button>
-        <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" hidden>
+      <div class="account-banner"></div>
+      <div class="account-hero-body">
+        <div class="account-avatar-wrap">
+          <div class="account-avatar" id="accountAvatar">YU</div>
+          <button class="avatar-edit-btn" id="avatarEditBtn" type="button" aria-label="Change profile picture">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </button>
+          <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" hidden>
+        </div>
+        <button class="theme-store-launcher" id="themeStoreLauncher" type="button" aria-label="Open theme store" title="Open theme store"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5h16l-1.2 11H5.2L4 8.5z"/><path d="M6.5 8.5V7a5.5 5.5 0 0 1 11 0v1.5"/><path d="M9 12.5h.01M15 12.5h.01"/><path d="M19.5 4.5v3M18 6h3"/></svg></button>
+        <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 30 days" style="display:none;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
       </div>
-      <button class="theme-store-launcher" id="themeStoreLauncher" type="button" aria-label="Open theme store" title="Open theme store"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5h16l-1.2 11H5.2L4 8.5z"/><path d="M6.5 8.5V7a5.5 5.5 0 0 1 11 0v1.5"/><path d="M9 12.5h.01M15 12.5h.01"/><path d="M19.5 4.5v3M18 6h3"/></svg></button>
-      <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 30 days" style="display:none;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
     </div>
     <div class="account-card" id="signInCard">
       <div id="signedOutView">
