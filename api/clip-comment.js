@@ -42,12 +42,16 @@ export default async function handler(req, res) {
   // preview, same treatment as Discord's own reply UI.
   let replyToName = null;
   let replyToText = null;
+  let replyToAvatarUrl = null;
   if (replyTo && typeof replyTo === 'object') {
     if (typeof replyTo.name === 'string' && replyTo.name.trim()) {
       replyToName = replyTo.name.trim().slice(0, 60);
     }
     if (typeof replyTo.text === 'string' && replyTo.text.trim()) {
       replyToText = replyTo.text.trim().slice(0, 120);
+    }
+    if (typeof replyTo.avatarUrl === 'string' && replyTo.avatarUrl.length < 500000) {
+      replyToAvatarUrl = replyTo.avatarUrl;
     }
   }
   if (!idToken) {
@@ -90,6 +94,7 @@ export default async function handler(req, res) {
       decorationId,
       replyToName,
       replyToText,
+      replyToAvatarUrl,
       uid,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });

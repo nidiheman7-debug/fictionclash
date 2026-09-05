@@ -48,12 +48,20 @@ export default async function handler(req, res) {
   // free-text field here, not treated as an authenticated fact.
   let replyToName = null;
   let replyToText = null;
+  let replyToAvatarUrl = null;
   if (replyTo && typeof replyTo === 'object') {
     if (typeof replyTo.name === 'string' && replyTo.name.trim()) {
       replyToName = replyTo.name.trim().slice(0, 60);
     }
     if (typeof replyTo.text === 'string' && replyTo.text.trim()) {
       replyToText = replyTo.text.trim().slice(0, 120);
+    }
+    // Same size ceiling comments already accept for a poster's own
+    // avatarUrl elsewhere in this file — a data-URL avatar is already
+    // this large sitting on the original comment, so this isn't a new
+    // size class, just carrying the same value one comment further.
+    if (typeof replyTo.avatarUrl === 'string' && replyTo.avatarUrl.length < 500000) {
+      replyToAvatarUrl = replyTo.avatarUrl;
     }
   }
   if (!idToken) {
@@ -97,6 +105,7 @@ export default async function handler(req, res) {
       decorationId,
       replyToName,
       replyToText,
+      replyToAvatarUrl,
       uid,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
