@@ -633,10 +633,21 @@
      display:flex; gap:11px; padding:13px 0; border-bottom:1px solid rgba(255,255,255,.07);
    }
    .comment-reply-quote{
-     font-size:10.5px;color:var(--muted);margin-bottom:3px;
-     padding-left:8px;border-left:2px solid var(--accent);opacity:.85;
+     display:flex;align-items:center;gap:6px;position:relative;
+     font-size:10.5px;color:var(--muted);margin-bottom:3px;padding-left:14px;opacity:.9;
    }
    .comment-reply-quote b{color:var(--text);font-weight:700;}
+   .reply-connector{
+     position:absolute;left:0;top:50%;width:10px;height:12px;
+     border-left:2px solid var(--line);border-top:2px solid var(--line);
+     border-top-left-radius:6px;
+   }
+   .reply-quote-avatar{
+     width:16px;height:16px;border-radius:50%;flex-shrink:0;overflow:hidden;
+     display:flex;align-items:center;justify-content:center;
+     background:var(--accent-bg);color:#0A0806;font-size:7px;font-weight:800;
+   }
+   .reply-quote-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
    .comment-reply-btn{
      display:block;margin-top:3px;background:none;border:0;padding:0;
      color:var(--accent);font:700 10px 'Instrument Sans',sans-serif;cursor:pointer;
@@ -647,6 +658,7 @@
      padding:6px 9px;margin-bottom:7px;font-size:10.5px;color:var(--muted);
      flex-basis:100%;order:-1;
    }
+   .reply-target-info{display:flex;align-items:center;gap:7px;min-width:0;}
    .reply-target-bar b{color:var(--text);}
    .reply-target-clear{
      background:none;border:0;color:var(--muted);font-size:15px;line-height:1;
@@ -5395,7 +5407,7 @@ Contact: fictionclash.app@gmail.com</div>
       bar.className = 'reply-target-bar';
       form.insertBefore(bar, form.firstChild);
     }
-    bar.innerHTML = `<span>Replying to <b>${escapeHtml(target.name)}</b>: ${escapeHtml(target.text)}</span><button type="button" class="reply-target-clear" aria-label="Cancel reply">&times;</button>`;
+    bar.innerHTML = `<span class="reply-target-info"><span class="reply-quote-avatar">${commentAvatarHtml(target.name, target.avatarUrl)}</span><span>Replying to <b>${escapeHtml(target.name)}</b>: ${escapeHtml(target.text)}</span></span><button type="button" class="reply-target-clear" aria-label="Cancel reply">&times;</button>`;
     bar.querySelector('.reply-target-clear').addEventListener('click', () => setReplyTarget(form, null));
     form.querySelector('input')?.focus();
   }
@@ -5404,7 +5416,7 @@ Contact: fictionclash.app@gmail.com</div>
     const el = document.createElement('div');
     el.className = 'comment';
     const replyQuote = data.replyToName
-      ? `<div class="comment-reply-quote">&#8618; Replying to <b>${escapeHtml(data.replyToName)}</b>: ${escapeHtml(data.replyToText || '')}</div>`
+      ? `<div class="comment-reply-quote"><span class="reply-connector"></span><span class="reply-quote-avatar">${commentAvatarHtml(data.replyToName, data.replyToAvatarUrl)}</span><span>Replying to <b>${escapeHtml(data.replyToName)}</b>: ${escapeHtml(data.replyToText || '')}</span></div>`
       : '';
     el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span><button type="button" class="comment-reply-btn">Reply</button></div>`;
     attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
@@ -5415,7 +5427,7 @@ Contact: fictionclash.app@gmail.com</div>
         // Truncated to keep the quoted snippet compact — matches how
         // Discord's own reply preview clips long messages.
         const snippet = (data.text || '').length > 80 ? data.text.slice(0, 80) + '…' : (data.text || '');
-        onReply(data.name || 'User', snippet);
+        onReply(data.name || 'User', snippet, data.avatarUrl || null);
       });
     }
     return el;
@@ -5443,7 +5455,14 @@ Contact: fictionclash.app@gmail.com</div>
   function renderCommentsPreview(listEl, docs, thread){
     thread.docs = docs;
     listEl.innerHTML = '';
-    docs.slice(-COMMENTS_PREVIEW_LIMIT).forEach(data => listEl.appendChild(renderCommentEl(data, (name, text) => setReplyTarget(thread.form, { name, text }))));
+    // Replying from the compact 2-comment preview opens the full sheet
+    // instead of composing right there — that tiny inline box is meant
+    // for a quick top-level comment, not for holding a quoted reply bar
+    // on top of an already-cramped card.
+    docs.slice(-COMMENTS_PREVIEW_LIMIT).forEach(data => listEl.appendChild(renderCommentEl(data, (name, text, avatarUrl) => {
+      openCommentsModal(thread);
+      setReplyTarget(commentsModalForm, { name, text, avatarUrl });
+    })));
     listEl.classList.remove('scrollable'); // capped at 2 — never tall enough to need its own scroll now
     let moreBtn = listEl.nextElementSibling;
     if (!moreBtn || !moreBtn.classList.contains('see-more-comments')) {
@@ -5471,7 +5490,7 @@ Contact: fictionclash.app@gmail.com</div>
       commentsModalList.innerHTML = '<div class="comments-modal-empty">No comments yet — be the first.</div>';
       return;
     }
-    docs.forEach(data => commentsModalList.appendChild(renderCommentEl(data, (name, text) => setReplyTarget(commentsModalForm, { name, text }))));
+    docs.forEach(data => commentsModalList.appendChild(renderCommentEl(data, (name, text, avatarUrl) => setReplyTarget(commentsModalForm, { name, text, avatarUrl }))));
     commentsModalList.scrollTop = commentsModalList.scrollHeight;
   }
 
