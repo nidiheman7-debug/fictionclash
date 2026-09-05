@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { clipId, text } = req.body || {};
+  const { clipId, text, replyTo } = req.body || {};
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ')
     ? authHeader.slice(7)
@@ -36,6 +36,19 @@ export default async function handler(req, res) {
   }
   if (text.trim().length > MAX_COMMENT_LENGTH) {
     return res.status(400).json({ error: `Comment too long (max ${MAX_COMMENT_LENGTH} chars)` });
+  }
+  // See comment.js for why this is trusted-but-sanitized rather than
+  // re-fetched from the original comment — purely a decorative quoted
+  // preview, same treatment as Discord's own reply UI.
+  let replyToName = null;
+  let replyToText = null;
+  if (replyTo && typeof replyTo === 'object') {
+    if (typeof replyTo.name === 'string' && replyTo.name.trim()) {
+      replyToName = replyTo.name.trim().slice(0, 60);
+    }
+    if (typeof replyTo.text === 'string' && replyTo.text.trim()) {
+      replyToText = replyTo.text.trim().slice(0, 120);
+    }
   }
   if (!idToken) {
     return res.status(401).json({ error: 'Missing auth token' });
@@ -75,6 +88,8 @@ export default async function handler(req, res) {
       name,
       avatarUrl,
       decorationId,
+      replyToName,
+      replyToText,
       uid,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
