@@ -5332,7 +5332,6 @@ Contact: fictionclash.app@gmail.com</div>
   const userProfileLoading = document.getElementById('userProfileLoading');
   const userProfileBio = document.getElementById('userProfileBio');
   const userProfileBioText = document.getElementById('userProfileBioText');
-  userProfileVerified.innerHTML = VERIFIED_BADGE_SVG;
 
   function closeUserProfileCard(){
     userProfileOverlay.classList.remove('show');
@@ -5348,6 +5347,10 @@ Contact: fictionclash.app@gmail.com</div>
   function openUserProfileCard(uid, fallback){
     if (!uid) return;
     fallback = fallback || {};
+    // Set once, lazily, on first open — by now the rest of the script
+    // (including the VERIFIED_BADGE_SVG constant, declared further down)
+    // has finished running, so it's safe to read here.
+    if (!userProfileVerified.innerHTML) userProfileVerified.innerHTML = VERIFIED_BADGE_SVG;
     userProfileAvatar.className = 'user-profile-avatar';
     userProfileAvatar.innerHTML = commentAvatarHtml(fallback.name, fallback.avatarUrl);
     userProfileNameText.textContent = fallback.name || 'User';
