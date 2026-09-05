@@ -632,6 +632,26 @@
    .comment{
      display:flex; gap:11px; padding:13px 0; border-bottom:1px solid rgba(255,255,255,.07);
    }
+   .comment-reply-quote{
+     font-size:10.5px;color:var(--muted);margin-bottom:3px;
+     padding-left:8px;border-left:2px solid var(--accent);opacity:.85;
+   }
+   .comment-reply-quote b{color:var(--text);font-weight:700;}
+   .comment-reply-btn{
+     display:block;margin-top:3px;background:none;border:0;padding:0;
+     color:var(--accent);font:700 10px 'Instrument Sans',sans-serif;cursor:pointer;
+   }
+   .reply-target-bar{
+     display:flex;align-items:center;justify-content:space-between;gap:8px;
+     background:var(--surface2);border-left:3px solid var(--accent);border-radius:6px;
+     padding:6px 9px;margin-bottom:7px;font-size:10.5px;color:var(--muted);
+     flex-basis:100%;order:-1;
+   }
+   .reply-target-bar b{color:var(--text);}
+   .reply-target-clear{
+     background:none;border:0;color:var(--muted);font-size:15px;line-height:1;
+     cursor:pointer;flex-shrink:0;padding:0 2px;
+   }
    .comment-avatar{
      width:32px; height:32px; border-radius:50%; flex-shrink:0; display:flex;
      align-items:center; justify-content:center; background:var(--accent-bg);
@@ -688,7 +708,7 @@
    }
    .hero-comments-list.scrollable::-webkit-scrollbar{ display:none; }
    .hero-comments-list.scrollable .comment:last-child{ border-bottom:0; }
-   .comment-form{ display:flex; gap:7px; margin-top:11px; }
+   .comment-form{ display:flex; flex-wrap:wrap; gap:7px; margin-top:11px; }
    .comment-form .clip-field{ margin:0; min-width:0; }
    .comment-form button{
      border:1px solid var(--accent); background:transparent; color:var(--accent);
@@ -814,7 +834,14 @@
      display:flex;align-items:center;justify-content:center;gap:6px;
    }
    .team-actions .assemble-btn{border:0;background:var(--accent-bg);color:#0A0806;}
-   .share-card-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;}
+   .share-card-btn{
+     width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+     border:1.5px solid var(--accent);border-radius:12px;
+     background:transparent;color:var(--accent);
+     font:800 11.5px 'Instrument Sans',sans-serif;letter-spacing:.3px;
+     padding:11px 0;cursor:pointer;transition:transform .12s;
+   }
+   .share-card-btn:active{transform:scale(.97);}
    .share-card-btn svg{flex-shrink:0;}
    .team-actions .clear-btn{border:1px solid var(--line);background:transparent;color:var(--muted);}
    .team-result{
@@ -3336,7 +3363,7 @@ Contact: fictionclash.app@gmail.com</div>
   // is the "thread" handed to the shared see-all sheet (see
   // renderCommentsPreview / openCommentsModal below), which keeps the full
   // list and knows how to post back to /api/comment.
-  const heroCommentsThread = { type: 'hero', commentsFor: '', label: 'All comments on this matchup.', docs: [] };
+  const heroCommentsThread = { type: 'hero', commentsFor: '', label: 'All comments on this matchup.', docs: [], form: heroCommentForm };
 
   function wireHeroComments(matchupId){
     if (matchupId === heroCommentsMatchupId) return; // already watching this matchup — avoid re-subscribing
@@ -3370,19 +3397,21 @@ Contact: fictionclash.app@gmail.com</div>
 
   // Shared by the hero card's own form and the "see all" sheet when it's
   // open on this matchup's thread.
-  async function postHeroComment(text){
+  async function postHeroComment(text, sourceForm){
     const user = auth.currentUser;
     if (!user) { requireSignIn('Sign in to comment'); return; }
     const matchupId = heroCommentsMatchupId;
+    const replyTarget = sourceForm?._replyTarget || null;
     try {
       const idToken = await user.getIdToken();
       const res = await fetch('/api/comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-        body: JSON.stringify({ matchupId, text }),
+        body: JSON.stringify({ matchupId, text, replyTo: replyTarget }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
+      setReplyTarget(sourceForm, null);
       currentUserXp += 10;
       currentUserWeeklyXp += 10;
       renderVerifiedProgress();
@@ -3399,7 +3428,7 @@ Contact: fictionclash.app@gmail.com</div>
     const text = heroCommentInput.value.trim();
     if (!text) return;
     heroCommentInput.value = '';
-    postHeroComment(text).catch(() => { heroCommentInput.value = text; });
+    postHeroComment(text, heroCommentForm).catch(() => { heroCommentInput.value = text; });
   });
 
   const heroDeleteBtn = document.getElementById('heroDeleteBtn');
@@ -5350,13 +5379,45 @@ Contact: fictionclash.app@gmail.com</div>
     return avatarUrl ? `<img src="${avatarUrl}" alt="${escapeHtml(name)}">` : escapeHtml(initials);
   }
 
-  function renderCommentEl(data){
+  // Discord-style reply: a small dismissible bar above whichever form is
+  // actively composing, showing who/what is being replied to. Stored
+  // directly on the form element (form._replyTarget) rather than in a
+  // shared variable, since several forms can exist at once (the hero
+  // card's own box, the "see all" sheet, and one per clip card) and each
+  // needs to track its own in-progress reply independently.
+  function setReplyTarget(form, target){
+    if (!form) return;
+    form._replyTarget = target;
+    let bar = form.querySelector('.reply-target-bar');
+    if (!target) { if (bar) bar.remove(); return; }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'reply-target-bar';
+      form.insertBefore(bar, form.firstChild);
+    }
+    bar.innerHTML = `<span>Replying to <b>${escapeHtml(target.name)}</b>: ${escapeHtml(target.text)}</span><button type="button" class="reply-target-clear" aria-label="Cancel reply">&times;</button>`;
+    bar.querySelector('.reply-target-clear').addEventListener('click', () => setReplyTarget(form, null));
+    form.querySelector('input')?.focus();
+  }
+
+  function renderCommentEl(data, onReply){
     const el = document.createElement('div');
     el.className = 'comment';
-    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span></div>`;
+    const replyQuote = data.replyToName
+      ? `<div class="comment-reply-quote">&#8618; Replying to <b>${escapeHtml(data.replyToName)}</b>: ${escapeHtml(data.replyToText || '')}</div>`
+      : '';
+    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span><button type="button" class="comment-reply-btn">Reply</button></div>`;
     attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
     attachDecoration(el.querySelector('.comment-avatar'), data.uid);
     attachFont(el.querySelector('.comment-body b'), data.uid);
+    if (onReply) {
+      el.querySelector('.comment-reply-btn').addEventListener('click', () => {
+        // Truncated to keep the quoted snippet compact — matches how
+        // Discord's own reply preview clips long messages.
+        const snippet = (data.text || '').length > 80 ? data.text.slice(0, 80) + '…' : (data.text || '');
+        onReply(data.name || 'User', snippet);
+      });
+    }
     return el;
   }
 
@@ -5382,7 +5443,7 @@ Contact: fictionclash.app@gmail.com</div>
   function renderCommentsPreview(listEl, docs, thread){
     thread.docs = docs;
     listEl.innerHTML = '';
-    docs.slice(-COMMENTS_PREVIEW_LIMIT).forEach(data => listEl.appendChild(renderCommentEl(data)));
+    docs.slice(-COMMENTS_PREVIEW_LIMIT).forEach(data => listEl.appendChild(renderCommentEl(data, (name, text) => setReplyTarget(thread.form, { name, text }))));
     listEl.classList.remove('scrollable'); // capped at 2 — never tall enough to need its own scroll now
     let moreBtn = listEl.nextElementSibling;
     if (!moreBtn || !moreBtn.classList.contains('see-more-comments')) {
@@ -5410,7 +5471,7 @@ Contact: fictionclash.app@gmail.com</div>
       commentsModalList.innerHTML = '<div class="comments-modal-empty">No comments yet — be the first.</div>';
       return;
     }
-    docs.forEach(data => commentsModalList.appendChild(renderCommentEl(data)));
+    docs.forEach(data => commentsModalList.appendChild(renderCommentEl(data, (name, text) => setReplyTarget(commentsModalForm, { name, text }))));
     commentsModalList.scrollTop = commentsModalList.scrollHeight;
   }
 
@@ -5440,6 +5501,7 @@ Contact: fictionclash.app@gmail.com</div>
   function closeCommentsModal(){
     commentsModalOverlay.classList.remove('show');
     openCommentsThread = null;
+    setReplyTarget(commentsModalForm, null);
     document.querySelector('.phone-scroll').style.overflow = '';
   }
   commentsModalClose.addEventListener('click', closeCommentsModal);
@@ -5527,7 +5589,7 @@ Contact: fictionclash.app@gmail.com</div>
       const text = commentsModalInput.value.trim();
       if (!text) return;
       commentsModalInput.value = '';
-      postHeroComment(text).catch(() => { commentsModalInput.value = text; });
+      postHeroComment(text, commentsModalForm).catch(() => { commentsModalInput.value = text; });
     } else {
       // Clip threads: addComment() reads dataset.commentsFor plus the
       // form's own input (reading, clearing, and restoring it on failure
@@ -5553,7 +5615,7 @@ Contact: fictionclash.app@gmail.com</div>
       list.className = 'hero-comments-list';
       form.parentNode.insertBefore(list, form);
     }
-    const thread = { type: 'clip', commentsFor: clipId, label: 'All comments on this clip.', docs: [] };
+    const thread = { type: 'clip', commentsFor: clipId, label: 'All comments on this clip.', docs: [], form };
     const unsubscribe = onSnapshot(
       query(collection(db, 'movieClips', clipId, 'comments'), orderBy('createdAt', 'asc')),
       snapshot => {
@@ -5572,6 +5634,7 @@ Contact: fictionclash.app@gmail.com</div>
     if (!text) return;
     const user = auth.currentUser;
     if (!user) { requireSignIn('Sign in to comment'); return; }
+    const replyTarget = form._replyTarget || null;
     input.value = '';
     // Server-authoritative post via /api/clip-comment — verifies identity,
     // pulls the poster's real profile fields server-side, and awards XP.
@@ -5582,10 +5645,11 @@ Contact: fictionclash.app@gmail.com</div>
       const res = await fetch('/api/clip-comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-        body: JSON.stringify({ clipId, text }),
+        body: JSON.stringify({ clipId, text, replyTo: replyTarget }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
+      setReplyTarget(form, null);
       // Optimistic local bump so the progress bar feels live — the server
       // already awarded the real +10 XP.
       currentUserXp += 10;
@@ -7686,7 +7750,7 @@ Contact: fictionclash.app@gmail.com</div>
     // cover photo takes priority over both, same treatment as avatarUrl
     // already gets versus season/theme art elsewhere.
     accountBanner.style.backgroundImage = coverPhotoDataUrl
-      ? `linear-gradient(var(--surface-veil),var(--surface-veil)), url('${coverPhotoDataUrl}')`
+      ? `linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 45%, var(--surface-veil) 100%), url('${coverPhotoDataUrl}')`
       : '';
   }
 
