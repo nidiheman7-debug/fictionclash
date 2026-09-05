@@ -16,7 +16,7 @@ importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDKWorker.js');
 // Bump CACHE_NAME whenever you want to force everyone onto a fresh cache
 // after a deploy (e.g. 'fiction-clash-v5').
 
-const CACHE_NAME = 'fiction-clash-v4';
+const CACHE_NAME = 'fiction-clash-v5';
 
 const SHELL_FILES = [
   '/',
