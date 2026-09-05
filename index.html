@@ -195,15 +195,19 @@
     background-clip:padding-box, border-box;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
+   html{
+     height:100%;
+     overflow:hidden;
+   }
    body{
      background:var(--bg);
     display:flex;
     justify-content:center;
     padding:32px 12px;
     font-family:'Instrument Sans',sans-serif;
-     min-height:100vh;
-     min-height:100dvh;
-     overflow-x:hidden;
+     height:100vh;
+     height:100dvh;
+     overflow:hidden;
   }
   svg{ display:block; }
 
@@ -249,7 +253,13 @@
     flex-direction:column;
   }
   .phone-scroll::-webkit-scrollbar{ display:none; }
-  .phone-main{ flex:1 0 auto; display:flex; flex-direction:column; }
+  /* .bottomnav is now position:absolute (see .bottomnav above) and no
+     longer takes up space in the document flow, so without this the last
+     bit of whatever section is showing would render underneath it. This
+     reserves roughly the nav's own rendered height (icon + label + its
+     vertical padding) plus the device's safe-area inset so nothing sits
+     behind it, on any tab. */
+  .phone-main{ flex:1 0 auto; display:flex; flex-direction:column; padding-bottom:calc(100px + env(safe-area-inset-bottom, 0px)); }
 
    .topbar{
      position:sticky; top:0; z-index:10;
@@ -1337,14 +1347,24 @@
    .account-divider{display:flex;align-items:center;gap:8px;color:var(--muted);font:9px 'Martian Mono',monospace;margin:11px 0;}
    .account-divider:before,.account-divider:after{content:'';height:1px;background:var(--line);flex:1;}
 
-  /* bottom nav */
+  /* bottom nav
+     Was `position:sticky; bottom:0` inside a flex column (.phone-scroll).
+     Sticky only "sticks" once you've scrolled far enough that the element's
+     normal in-flow position would leave the viewport — on any screen whose
+     content is shorter than the phone frame (e.g. Movies Hub with just one
+     clip, or right after posting a comment shrinks the space above it), the
+     nav has nothing to stick against yet, so it just renders wherever it
+     naturally falls in the document: right after the short content, partway
+     up the page, instead of pinned to the bottom. Anchoring it with
+     position:absolute to `.phone` (which is position:relative) removes it
+     from that flow entirely, so it's always glued to the bottom of the
+     phone frame no matter how tall the active section's content is. */
    .bottomnav{
-     position:sticky; bottom:0; z-index:10;
+     position:absolute; left:0; right:0; bottom:0; z-index:10;
     display:flex;
       background:linear-gradient(180deg,rgba(var(--bg-rgb),0) 0%,rgba(var(--bg-rgb),.92) 28%,var(--bg) 56%);
      border-top:0;
      padding:28px 0 18px;
-     margin-top:-24px;
      isolation:isolate;
   }
   .nav-item{
@@ -1566,6 +1586,18 @@
     .leaderboard-tab.active{ background:var(--accent-bg); border-color:var(--accent); color:#12100e; }
     .leaderboard-tab.hidden{ display:none; }
 
+    /* Comments sheet: Comments / Replies split — keeps reply threads out
+       of the main comment list entirely instead of nesting them inline,
+       which is what was making the sheet grow tall and fight the keyboard
+       when a reply's own quote block pushed the input further down. */
+    .comments-modal-tabs{ display:flex; gap:8px; margin-bottom:12px; }
+    .comments-modal-tab{
+      flex:1; text-align:center; padding:8px 0; border-radius:10px; border:1px solid var(--line);
+      background:transparent; color:var(--muted); font-size:11.5px; font-weight:800; letter-spacing:.03em;
+      cursor:pointer;
+    }
+    .comments-modal-tab.active{ background:var(--accent-bg); border-color:var(--accent); color:#12100e; }
+
     /* sign-in modal */
     .modal-overlay{
       position:absolute; inset:0; background:rgba(0,0,0,.6);
@@ -1602,7 +1634,7 @@
       background:transparent; color:var(--muted); font-weight:700; font-size:12.5px;
       font-family:'Instrument Sans',sans-serif;
     }
-    .modal-sheet-tall{ max-height:82vh; overflow-y:auto; }
+    .modal-sheet-tall{ max-height:82vh; max-height:min(82vh, calc(var(--vvh, 100vh) - 24px)); overflow-y:auto; }
 
     /* first-visit intro splash */
     .intro-fullbleed{
@@ -2427,9 +2459,9 @@
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Conversation</div>
       <div class="modal-sub" id="commentsModalSub">All comments on this post.</div>
-      <div class="profile-store-tabs" role="tablist" aria-label="Comments view">
-        <button class="profile-store-tab active" type="button" data-comments-tab="comments" role="tab">Comments</button>
-        <button class="profile-store-tab" type="button" data-comments-tab="replies" role="tab">Replies</button>
+      <div class="comments-modal-tabs">
+        <button class="comments-modal-tab active" id="commentsTabComments" type="button">Comments</button>
+        <button class="comments-modal-tab" id="commentsTabReplies" type="button">Replies</button>
       </div>
       <div id="commentsModalList"></div>
       <form class="comment-form" id="commentsModalForm">
@@ -5450,24 +5482,22 @@ Contact: fictionclash.app@gmail.com</div>
   const commentsModalForm = document.getElementById('commentsModalForm');
   const commentsModalInput = document.getElementById('commentsModalInput');
   const commentsModalClose = document.getElementById('commentsModalClose');
-  const commentsModalTabButtons = commentsModalOverlay.querySelectorAll('[data-comments-tab]');
+  const commentsTabComments = document.getElementById('commentsTabComments');
+  const commentsTabReplies = document.getElementById('commentsTabReplies');
   let openCommentsThread = null; // the thread object currently shown in the sheet, if any
-  // Comments and replies are stored flat in the same collection (a reply is
-  // just a comment with a replyToName snapshot attached) — this tab is a
-  // pure client-side filter over openCommentsThread.docs, not a second
-  // query, and keeping replies out of the main list is what stops the
-  // keyboard focus in a reply's quoted preview from dragging the whole
-  // comment section's scroll position around.
-  let commentsModalTab = 'comments'; // 'comments' | 'replies'
+  // Which half of the sheet is showing — top-level comments, or replies
+  // (anything with a replyToName). Kept separate so a growing reply thread
+  // never lengthens the comments list the input sits under.
+  let commentsModalTab = 'comments';
 
-  function setCommentsModalTab(tab){
+  function switchCommentsTab(tab){
     commentsModalTab = tab;
-    commentsModalTabButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.commentsTab === tab));
+    commentsTabComments.classList.toggle('active', tab === 'comments');
+    commentsTabReplies.classList.toggle('active', tab === 'replies');
     renderCommentsModalList();
   }
-  commentsModalTabButtons.forEach(btn => {
-    btn.addEventListener('click', () => setCommentsModalTab(btn.dataset.commentsTab));
-  });
+  commentsTabComments.addEventListener('click', () => switchCommentsTab('comments'));
+  commentsTabReplies.addEventListener('click', () => switchCommentsTab('replies'));
 
   // `thread` is a small { type, commentsFor, label, docs } object owned by
   // whoever's watching this comment collection (hero card or a clip card).
@@ -5480,9 +5510,16 @@ Contact: fictionclash.app@gmail.com</div>
     // instead of composing right there — that tiny inline box is meant
     // for a quick top-level comment, not for holding a quoted reply bar
     // on top of an already-cramped card.
-    docs.slice(-COMMENTS_PREVIEW_LIMIT).forEach(data => listEl.appendChild(renderCommentEl(data, (name, text, avatarUrl) => {
+    // Only top-level comments belong in this inline "Conversation" preview —
+    // replies live exclusively behind the Replies tab in the full sheet
+    // (see switchCommentsTab/renderCommentsModalList below). Without this
+    // filter, `docs` is the full comments+replies list, so whichever two
+    // items happened to be posted most recently could easily be replies,
+    // making them show up inline here even though they belong in their own
+    // tab — filter them out before slicing to the last two.
+    docs.filter(data => !data.replyToName).slice(-COMMENTS_PREVIEW_LIMIT).forEach(data => listEl.appendChild(renderCommentEl(data, (name, text, avatarUrl) => {
       openCommentsModal(thread);
-      setCommentsModalTab('replies');
+      switchCommentsTab('replies');
       setReplyTarget(commentsModalForm, { name, text, avatarUrl });
     })));
     listEl.classList.remove('scrollable'); // capped at 2 — never tall enough to need its own scroll now
@@ -5508,8 +5545,6 @@ Contact: fictionclash.app@gmail.com</div>
   function renderCommentsModalList(){
     commentsModalList.innerHTML = '';
     const allDocs = openCommentsThread ? openCommentsThread.docs : [];
-    // Top-level comments have no replyToName; replies always do — see
-    // comment.js / clip-comment.js.
     const docs = allDocs.filter(data => commentsModalTab === 'replies' ? !!data.replyToName : !data.replyToName);
     if (!docs.length) {
       commentsModalList.innerHTML = commentsModalTab === 'replies'
@@ -5518,11 +5553,10 @@ Contact: fictionclash.app@gmail.com</div>
       return;
     }
     docs.forEach(data => commentsModalList.appendChild(renderCommentEl(data, (name, text, avatarUrl) => {
-      // Jump to the Replies tab so the reply-in-progress (and the eventual
-      // posted reply) is visible where it'll actually land, instead of
-      // composing a reply while looking at the Comments tab it won't show
-      // up in.
-      setCommentsModalTab('replies');
+      // Replying jumps to the Replies tab — that's where the composed
+      // reply will land once posted, and where the quote thread lives,
+      // instead of nesting it back into the comments list it was opened from.
+      switchCommentsTab('replies');
       setReplyTarget(commentsModalForm, { name, text, avatarUrl });
     })));
     commentsModalList.scrollTop = commentsModalList.scrollHeight;
@@ -5530,12 +5564,9 @@ Contact: fictionclash.app@gmail.com</div>
 
   function openCommentsModal(thread){
     openCommentsThread = thread;
-    // Always land on Comments when opening a thread fresh — the "jump to
-    // Replies" behavior only happens when the open is triggered by tapping
-    // Reply (see the callbacks above), which set the tab themselves right
-    // after this call.
     commentsModalTab = 'comments';
-    commentsModalTabButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.commentsTab === 'comments'));
+    commentsTabComments.classList.add('active');
+    commentsTabReplies.classList.remove('active');
     commentsModalSub.textContent = thread.label || 'All comments on this post.';
     commentsModalForm.dataset.commentsFor = thread.commentsFor || '';
     commentsModalForm.dataset.commentsType = thread.type;
@@ -8432,6 +8463,27 @@ Contact: fictionclash.app@gmail.com</div>
   });
 
   renderHero();
+</script>
+
+<script>
+  // Keep a live "actually visible height" CSS var, since the keyboard now
+  // overlays the page (interactive-widget=overlays-content) instead of
+  // resizing it — so 100dvh no longer shrinks when the keyboard opens, but
+  // visualViewport.height still does. Bottom sheets (comments, leaderboard,
+  // etc.) read --vvh to cap their own height to the space actually visible
+  // above the keyboard, instead of relying on the browser to scroll a
+  // position:absolute sheet into view, which is what was dragging the
+  // whole page around before.
+  function setVisibleViewportHeight(){
+    const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    document.documentElement.style.setProperty('--vvh', h + 'px');
+  }
+  setVisibleViewportHeight();
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', setVisibleViewportHeight);
+  } else {
+    window.addEventListener('resize', setVisibleViewportHeight);
+  }
 </script>
 
 <script>
