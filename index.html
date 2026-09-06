@@ -641,6 +641,7 @@
    .clip-delete-btn:active{ opacity:.6; }
    .comment{
      display:flex; gap:11px; padding:13px 0; border-bottom:1px solid rgba(255,255,255,.07);
+     contain:content;
    }
    .comment-reply-quote{
      display:flex;align-items:center;gap:6px;position:relative;
@@ -969,7 +970,7 @@
       halo. No off-avatar floating glyphs: those don't scale across the
       different avatar sizes used in the store preview, account header, and
       32px comment avatar. */
-   .profile-deco{position:absolute;inset:-3px;border-radius:50%;pointer-events:none;z-index:1;animation:profileDecoFloat 3s ease-in-out infinite;}
+   .profile-deco{position:absolute;inset:-3px;border-radius:50%;pointer-events:none;z-index:1;animation:profileDecoFloat 3s ease-in-out infinite;will-change:transform,opacity;}
    .profile-deco-golden-aura{border:2px solid #ffbf3c;box-shadow:0 0 4px #ffcf4d,0 0 8px rgba(255,157,0,.6);}
    .profile-deco-magic-circle{border:2px solid #c39bff;border-top-color:transparent;border-bottom-color:#8c5ee8;box-shadow:0 0 4px rgba(168,85,247,.7);animation:profileDecoSpin 8s linear infinite;}
    .profile-deco-halftone{border:2px dotted #f0c65a;box-shadow:0 0 0 1px #111,0 0 0 2px rgba(240,198,90,.35);}
@@ -1735,6 +1736,7 @@
     .modal-sheet-full #commentsModalList{
       flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
       margin-bottom:0; padding:14px 16px;
+      overscroll-behavior:contain; transform:translateZ(0);
     }
     .modal-sheet-full .comment-form{
       flex:0 0 auto; margin-top:0;
@@ -1796,7 +1798,7 @@
     .submit-note{ font-size:10px; color:var(--muted); line-height:1.45; margin:2px 0 16px; }
 
     /* leaderboard */
-    .leaderboard-list{ margin-bottom:14px; max-height:52vh; overflow-y:auto; }
+    .leaderboard-list{ margin-bottom:14px; max-height:52vh; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; transform:translateZ(0); }
     .leaderboard-loading{ display:flex; align-items:center; gap:10px; padding:20px 0; color:var(--muted); font-size:12px; font-weight:700; }
     .leaderboard-row{
       display:flex; align-items:center; gap:11px; padding:11px 0;
