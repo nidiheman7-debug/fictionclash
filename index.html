@@ -5771,6 +5771,17 @@ Contact: fictionclash.app@gmail.com</div>
     openCommentsThread = null;
     setReplyTarget(commentsModalForm, null);
     document.querySelector('.phone-scroll').style.overflow = '';
+    // The sheet can close while its input still has focus (e.g. tapping
+    // "Back" right after typing) — blur() alone only starts an async
+    // focusout, so also force the docked-composer cleanup directly here
+    // rather than hoping that event lands. Without this, the input kept
+    // logical focus, the global focusout listener that undocks the
+    // composer never fired, and the fixed-position comment bar was left
+    // floating — at whatever height the keyboard last measured — on top
+    // of whatever screen opened next.
+    if (document.activeElement === commentsModalInput) commentsModalInput.blur();
+    document.body.classList.remove('keyboard-open');
+    undockCommentField(commentsModalForm);
     // Done reading/replying — safe for the hero card to resume rotating
     // again (no-op if this was a clip thread, since it was never paused).
     heroCommentsActive = false;
@@ -8709,6 +8720,12 @@ Contact: fictionclash.app@gmail.com</div>
     if (!form) return;
     form.classList.add('docked');
     document.body.classList.add('keyboard-open');
+    // Tracks whether we've actually seen the keyboard open during this
+    // dock session, so the very first reposition() call below (fired
+    // before the keyboard has animated in, when its height briefly reads
+    // 0) doesn't get mistaken for "the keyboard just closed" and undock
+    // the bar the instant it was docked.
+    let sawKeyboard = false;
     const reposition = () => {
       const phone = document.querySelector('.phone');
       if (phone) {
@@ -8716,7 +8733,22 @@ Contact: fictionclash.app@gmail.com</div>
         form.style.left = phoneRect.left + 'px';
         form.style.width = phoneRect.width + 'px';
       }
-      form.style.bottom = keyboardHeightPx() + 'px';
+      const kh = keyboardHeightPx();
+      if (kh > 20) sawKeyboard = true;
+      // Android's back button (and some gesture-nav setups) can dismiss
+      // just the on-screen keyboard without ever blurring the input, so
+      // the focusout-based cleanup below never runs. Left alone, the bar
+      // stayed pinned at the last keyboard height it saw — floating in
+      // the middle of the screen instead of sitting at the bottom. If the
+      // keyboard we were tracking has genuinely closed, treat it the same
+      // as the field losing focus.
+      if (sawKeyboard && kh === 0) {
+        document.activeElement === el && el.blur();
+        document.body.classList.remove('keyboard-open');
+        undockCommentField(form);
+        return;
+      }
+      form.style.bottom = kh + 'px';
     };
     reposition();
     // The keyboard animates in over the next couple hundred ms, firing
