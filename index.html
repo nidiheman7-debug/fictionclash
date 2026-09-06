@@ -6879,7 +6879,7 @@ Contact: fictionclash.app@gmail.com</div>
       location.href = data.authorization_url;
     } catch (err) {
       console.error('Badge renewal purchase failed', err);
-      showToast('Could not start checkout');
+      showToast('Debug: ' + (err && err.message ? err.message : String(err)));
     }
   });
   verifiedInfoOverlay.addEventListener('click', event => {
@@ -7827,7 +7827,7 @@ Contact: fictionclash.app@gmail.com</div>
       location.href = data.authorization_url;
     } catch (err) {
       console.error('Premium purchase failed', err);
-      showToast('Could not start checkout');
+      showToast('Debug: ' + (err && err.message ? err.message : String(err)));
     }
   }
 
