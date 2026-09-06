@@ -4062,8 +4062,10 @@ import {
   let shareCount = 0;
   let unlockedDecorations = [];
   let unlockedFonts = [];
+  let unlockedCardEffects = []; // only ever holds premium card effects — requiresXp ones are never "owned", just gated live on currentUserXp
   let equippedDecoration = null;
   let equippedFont = null;
+  let equippedCardEffect = null;
   // Per-character decoration overrides for the CURRENT viewer only — keyed
   // the same way as character avatar photos (avatarOverrideKey: name, or
   // "name|version" for a versioned character like Base Goku vs Ultra
@@ -4517,6 +4519,169 @@ import {
     });
   }
 
+  // ---------------------------------------------------------------------
+  // Card effects — a separate, much simpler engine from AvatarEffect.
+  // AvatarEffect is built entirely around orbiting a ring (this.center /
+  // this.radius), which fits avatar decorations but not a rectangular
+  // full-card overlay. Card effects are plain per-canvas rAF loops instead
+  // (same shape as the makeAurora/makeEmber/makeMeteor sample engine),
+  // each one self-contained so a canvas can be destroyed independently.
+  // ---------------------------------------------------------------------
+  const prefersReducedMotionCardFx = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function makeMeteorCardFx(w, h){
+    const dx = -0.62, dy = 0.78;
+    function spawn(atRandomPoint){
+      const speed = Math.random() * 2.4 + 2.6;
+      return {
+        x: atRandomPoint ? Math.random() * w * 1.4 : w * 0.9 + Math.random() * w * 0.5,
+        y: atRandomPoint ? Math.random() * h * 1.4 - h * 0.4 : -20 - Math.random() * 40,
+        speed, size: Math.random() * 1.5 + 1.3, trail: Math.random() * 22 + 18,
+        spin: Math.random() * Math.PI * 2, spinSpeed: (Math.random() - 0.5) * 0.3
+      };
+    }
+    const rocks = Array.from({ length: 7 }, () => spawn(true));
+    return function draw(ctx){
+      ctx.clearRect(0, 0, w, h);
+      rocks.forEach(m => {
+        m.x += dx * m.speed; m.y += dy * m.speed; m.spin += m.spinSpeed;
+        if (m.y > h + 30 || m.x < -30) Object.assign(m, spawn(false));
+        const tx = m.x - dx * m.trail, ty = m.y - dy * m.trail;
+        const grad = ctx.createLinearGradient(m.x, m.y, tx, ty);
+        grad.addColorStop(0, 'rgba(255,225,180,.85)');
+        grad.addColorStop(1, 'rgba(255,140,80,0)');
+        ctx.strokeStyle = grad; ctx.lineWidth = m.size;
+        ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(tx, ty); ctx.stroke();
+        ctx.save();
+        ctx.translate(m.x, m.y); ctx.rotate(m.spin);
+        ctx.fillStyle = '#ffdca8'; ctx.shadowColor = 'rgba(255,170,90,.9)'; ctx.shadowBlur = 6;
+        ctx.beginPath(); ctx.arc(0, 0, m.size * 1.6, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      });
+    };
+  }
+
+  // Vines creep in from all four edges toward the middle, sprouting a
+  // few leaves as they grow, then wilt/fade and re-sprout from a new
+  // point — a slow, looping "reclaiming the card" cycle rather than a
+  // one-shot grow. Each vine is a hand-drawn curved stem (quadratic
+  // control point bowed sideways) built up point-by-point as t advances.
+  function makePlantsCardFx(w, h){
+    const edgePoint = () => {
+      const edge = Math.floor(Math.random() * 4);
+      if (edge === 0) return { x: Math.random() * w, y: -4, nx: 0, ny: 1 };
+      if (edge === 1) return { x: w + 4, y: Math.random() * h, nx: -1, ny: 0 };
+      if (edge === 2) return { x: Math.random() * w, y: h + 4, nx: 0, ny: -1 };
+      return { x: -4, y: Math.random() * h, nx: 1, ny: 0 };
+    };
+    function spawnVine(){
+      const start = edgePoint();
+      const reach = Math.min(w, h) * (0.28 + Math.random() * 0.22);
+      const bow = (Math.random() - 0.5) * reach * 0.7;
+      const perpX = -start.ny, perpY = start.nx;
+      return {
+        x0: start.x, y0: start.y,
+        cx: start.x + start.nx * reach * 0.5 + perpX * bow,
+        cy: start.y + start.ny * reach * 0.5 + perpY * bow,
+        x1: start.x + start.nx * reach, y1: start.y + start.ny * reach,
+        leafCount: 3 + Math.floor(Math.random() * 3),
+        growSpeed: 0.16 + Math.random() * 0.1,
+        holdTime: 2 + Math.random() * 2,
+        t: 0, phase: 'grow', hold: 0
+      };
+    }
+    function bez(v, t){
+      const mt = 1 - t;
+      return {
+        x: mt * mt * v.x0 + 2 * mt * t * v.cx + t * t * v.x1,
+        y: mt * mt * v.y0 + 2 * mt * t * v.cy + t * t * v.y1
+      };
+    }
+    const vines = Array.from({ length: 5 }, () => Object.assign(spawnVine(), { t: Math.random() }));
+    return function draw(ctx, _t, dt){
+      ctx.clearRect(0, 0, w, h);
+      vines.forEach(v => {
+        if (v.phase === 'grow') {
+          v.t = Math.min(1, v.t + v.growSpeed * dt);
+          if (v.t >= 1) v.phase = 'hold';
+        } else if (v.phase === 'hold') {
+          v.hold += dt;
+          if (v.hold >= v.holdTime) v.phase = 'fade';
+        } else if (v.phase === 'fade') {
+          v.t = Math.max(0, v.t - v.growSpeed * 0.6 * dt);
+          if (v.t <= 0) Object.assign(v, spawnVine());
+        }
+
+        const alpha = v.phase === 'fade' ? Math.max(0, v.t) : Math.min(1, v.t * 1.4);
+        const steps = 18;
+        ctx.strokeStyle = `rgba(120,220,110,${0.75 * alpha})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+          const st = (i / steps) * v.t;
+          const p = bez(v, st);
+          i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+
+        for (let i = 1; i <= v.leafCount; i++) {
+          const lt = (i / (v.leafCount + 1)) * v.t;
+          if (lt <= 0 || lt > v.t) continue;
+          const p = bez(v, lt);
+          const p2 = bez(v, Math.min(1, lt + 0.02));
+          const ang = Math.atan2(p2.y - p.y, p2.x - p.x) + (i % 2 === 0 ? 1 : -1) * 1.1;
+          const leafSize = 5 + (i % 3);
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(ang);
+          ctx.fillStyle = `rgba(150,235,120,${0.7 * alpha})`;
+          ctx.beginPath();
+          ctx.ellipse(leafSize * 0.6, 0, leafSize, leafSize * 0.45, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      });
+    };
+  }
+
+  function makeCardFxDraw(type, w, h){
+    if (type === 'meteor') return makeMeteorCardFx(w, h);
+    if (type === 'plants') return makePlantsCardFx(w, h);
+    return null;
+  }
+
+  // Finds any not-yet-activated canvas.card-fx-canvas elements under root
+  // and starts a self-contained rAF loop for each. Canvas backing size is
+  // synced to its rendered box at activation time so it stays crisp across
+  // both the small store-grid previews and the full-width equipped card.
+  function activateCardFx(root){
+    if (!root) return;
+    root.querySelectorAll('canvas.card-fx-canvas').forEach(canvas => {
+      if (canvas._cardFx || !canvas.dataset.fxType) return;
+      const w = Math.max(1, Math.round(canvas.clientWidth || canvas.width || 1));
+      const h = Math.max(1, Math.round(canvas.clientHeight || canvas.height || 1));
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      const draw = makeCardFxDraw(canvas.dataset.fxType, w, h);
+      if (!draw) return;
+      let raf = null, last = 0;
+      function tick(ts){
+        const dt = Math.min((ts - (last || ts)) / 1000, 0.1);
+        last = ts;
+        draw(ctx, ts / 1000, dt);
+        raf = requestAnimationFrame(tick);
+      }
+      if (!prefersReducedMotionCardFx) raf = requestAnimationFrame(tick);
+      canvas._cardFx = { stop(){ if (raf) cancelAnimationFrame(raf); ctx.clearRect(0, 0, w, h); } };
+    });
+  }
+  function deactivateCardFx(root){
+    if (!root) return;
+    root.querySelectorAll('canvas.card-fx-canvas').forEach(canvas => {
+      if (canvas._cardFx) { canvas._cardFx.stop(); canvas._cardFx = null; }
+    });
+  }
+
   // Profile cosmetics are deliberately a closed, built-in catalogue. The
   // item IDs are also mirrored in firestore_rules so a browser cannot redeem
   // arbitrary values or bypass the point prices.
@@ -4551,6 +4716,19 @@ import {
     { id:'dragon-balls', name:'Dragon Balls', category:'Legendary', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'dragonballs', fxParticles:7, season:'anime' },
     { id:'star-struck', name:'Star Struck', category:'Discord Picks', rarity:'Epic', cost:90, fx:'canvas', canvasType:'star_struck', fxParticles:14, season:'anime' }
   ];
+  // Profile CARD effects — full-card particle overlays that sit over the
+  // banner + body (see card-fx-canvas / activateCardFx below), as opposed
+  // to PROFILE_DECORATIONS which ring the avatar. Two unlock types so far:
+  //   - requiresXp: free, but gated behind a live XP threshold (mirrors the
+  //     verified-badge mechanic — nothing is spent, it just stops being
+  //     locked once currentUserXp crosses the line)
+  //   - premium + cash: real money via Paystack, same flow/contract as
+  //     premium decorations (itemType 'cardEffect' instead of 'decoration')
+  const PROFILE_CARD_EFFECTS = [
+    { id:'meteor-fall', name:'Meteor Fall', category:'Cosmic', rarity:'Epic', canvasType:'meteor', requiresXp:200 },
+    { id:'overgrowth', name:'Overgrowth', category:'Nature', rarity:'Epic', canvasType:'plants', premium:true, cash:{ usd:0.70, ngnRef:970 } }
+  ];
+  const cardEffectById = id => PROFILE_CARD_EFFECTS.find(item => item.id === id);
   const PROFILE_FONTS = [
     { id:'bangers', name:'Bangers', category:'Comic', cls:'profile-font-bangers' },
     { id:'luckiest', name:'Luckiest Guy', category:'Comic', cls:'profile-font-luckiest' },
@@ -4844,10 +5022,12 @@ import {
     const decorationGrid = document.getElementById('decorationStoreGrid');
     const seasonSection = document.getElementById('decorationSeasonSection');
     const fontGrid = document.getElementById('fontStoreGrid');
+    const cardEffectGrid = document.getElementById('cardEffectStoreGrid');
     if (!decorationGrid || !fontGrid || !seasonSection) return;
 
     deactivateCanvasFx(decorationGrid);
     deactivateCanvasFx(seasonSection);
+    if (cardEffectGrid) deactivateCardFx(cardEffectGrid);
 
     // Season items only ever show while their own season is the active
     // one — that's the "one active season at a time" behavior. Anything
@@ -4920,6 +5100,37 @@ import {
     fontGrid.querySelectorAll('[data-font-action]').forEach(button => {
       button.addEventListener('click', () => handleCustomizationAction('font', button.dataset.fontAction));
     });
+
+    if (cardEffectGrid) {
+      cardEffectGrid.innerHTML = PROFILE_CARD_EFFECTS.map(item => {
+        const owned = unlockedCardEffects.includes(item.id);
+        const equipped = equippedCardEffect === item.id;
+        const isPremium = !!item.premium;
+        const xpLocked = !!item.requiresXp && currentUserXp < item.requiresXp && !owned;
+        const buttonLabel = equipped ? 'Equipped'
+          : owned ? 'Equip'
+          : isPremium ? 'Buy'
+          : xpLocked ? 'Locked' : 'Equip';
+        const costHtml = owned ? '' : isPremium
+          ? `$${item.cash.usd.toFixed(2)}`
+          : item.requiresXp ? `${Math.min(currentUserXp, item.requiresXp)}/${item.requiresXp} XP` : '';
+        return `<div class="profile-store-item card-effect-card${owned ? ' owned' : ''}${isPremium ? ' premium' : ''}${xpLocked ? ' locked' : ''}">
+          ${owned ? '<span class="profile-owned-tag">OWNED</span>' : ''}
+          ${!owned && isPremium ? '<span class="profile-premium-tag">PREMIUM</span>' : ''}
+          ${xpLocked ? '<span class="profile-locked-tag">LOCKED</span>' : ''}
+          <div class="profile-store-preview"><canvas class="card-fx-canvas mini" width="150" height="120" data-fx-type="${item.canvasType}"></canvas></div>
+          <h4>${item.name}</h4>
+          <p class="profile-store-cat">${item.category}</p>
+          <span class="profile-store-rarity ${item.rarity.toLowerCase()}">${item.rarity}</span>
+          <div class="profile-store-cost">${costHtml}</div>
+          <button class="profile-store-action${equipped ? ' equipped' : ''}${isPremium && !owned ? ' premium' : ''}" type="button" data-card-effect-action="${item.id}" ${xpLocked ? 'disabled' : ''}>${buttonLabel}</button>
+        </div>`;
+      }).join('');
+      activateCardFx(cardEffectGrid);
+      cardEffectGrid.querySelectorAll('[data-card-effect-action]').forEach(button => {
+        button.addEventListener('click', () => handleCardEffectAction(button.dataset.cardEffectAction));
+      });
+    }
   }
 
   // Premium (real-money) decorations are NOT unlocked by writing straight
@@ -4959,6 +5170,11 @@ import {
           renderCustomizationStore();
           const item = decorationById(data.itemId);
           showToast(`${item ? item.name : 'Decoration'} unlocked!`);
+        } else if (data.itemType === 'cardEffect') {
+          if (!unlockedCardEffects.includes(data.itemId)) unlockedCardEffects.push(data.itemId);
+          renderCustomizationStore();
+          const item = cardEffectById(data.itemId);
+          showToast(`${item ? item.name : 'Card effect'} unlocked!`);
         } else if (data.itemType === 'badge') {
           verifiedUntilCache[user.uid] = null; // force a fresh read next time it's checked
           showToast('Verified badge renewed!');
@@ -4972,15 +5188,15 @@ import {
     }
   }
 
-  async function handlePremiumPurchase(item){
+  async function handlePremiumPurchase(item, itemType = 'decoration'){
     const user = auth.currentUser;
-    if (!user) { requireSignIn('Sign in to buy this decoration'); return; }
+    if (!user) { requireSignIn('Sign in to buy this item'); return; }
     try {
       const idToken = await user.getIdToken();
       const res = await fetch(`${PAYMENT_API_BASE}/api/create-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-        body: JSON.stringify({ itemType: 'decoration', itemId: item.id, returnUrl: location.href.split('?')[0] }),
+        body: JSON.stringify({ itemType, itemId: item.id, returnUrl: location.href.split('?')[0] }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -4991,6 +5207,38 @@ import {
     } catch (err) {
       console.error('Premium purchase failed', err);
       showToast('Could not start checkout');
+    }
+  }
+
+  // Card effects have two totally different unlock paths, so they get
+  // their own handler rather than folding into handleCustomizationAction's
+  // points/shards logic — requiresXp effects are never bought or spent
+  // from, just gated live on currentUserXp until they cross the line.
+  async function handleCardEffectAction(id){
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to use the Theme Store'); return; }
+    const item = cardEffectById(id);
+    if (!item) return;
+    const owned = unlockedCardEffects.includes(id);
+
+    if (item.premium && !owned) { handlePremiumPurchase(item, 'cardEffect'); return; }
+    if (item.requiresXp && !owned && currentUserXp < item.requiresXp) {
+      showToast(`Reach ${item.requiresXp} XP to unlock ${item.name} (${currentUserXp}/${item.requiresXp})`);
+      return;
+    }
+
+    // Free to equip from here — either an owned premium effect or an
+    // XP-gated one that's cleared its threshold. Nothing is spent.
+    const nextValue = equippedCardEffect === id ? null : id;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { equippedCardEffect: nextValue });
+      equippedCardEffect = nextValue;
+      updateCardEffectDisplay();
+      renderCustomizationStore();
+      showToast(nextValue ? `${item.name} equipped` : `${item.name} unequipped`);
+    } catch (err) {
+      console.error('Card effect equip failed', err);
+      showToast('Could not update your Theme Store');
     }
   }
 
@@ -5103,10 +5351,12 @@ import {
   });
   document.querySelectorAll('[data-store-tab]').forEach(tab => {
     tab.addEventListener('click', () => {
-      const decorationsActive = tab.dataset.storeTab === 'decorations';
+      const activeTab = tab.dataset.storeTab;
       document.querySelectorAll('[data-store-tab]').forEach(item => item.classList.toggle('active', item === tab));
-      document.getElementById('decorationStoreGrid').hidden = !decorationsActive;
-      document.getElementById('fontStoreGrid').hidden = decorationsActive;
+      document.getElementById('decorationStoreGrid').hidden = activeTab !== 'decorations';
+      document.getElementById('fontStoreGrid').hidden = activeTab !== 'fonts';
+      const cardEffectGrid = document.getElementById('cardEffectStoreGrid');
+      if (cardEffectGrid) cardEffectGrid.hidden = activeTab !== 'cardEffects';
     });
   });
 
@@ -5353,6 +5603,25 @@ import {
     renderCustomizationStore();
     renderVerifiedBadge();
     renderHeroCharacterCosmetics();
+    updateCardEffectDisplay();
+  }
+
+  // Swaps the data-fx-type on the real account hero's canvas to match
+  // whatever's equipped (or clears it). The canvas element itself always
+  // stays in the DOM (see index.html) — this only ever toggles which
+  // effect (if any) is running on it, same start/stop contract as
+  // activateCardFx/deactivateCardFx use everywhere else.
+  function updateCardEffectDisplay(){
+    const canvas = document.getElementById('accountCardFxCanvas');
+    if (!canvas) return;
+    deactivateCardFx(canvas.parentElement);
+    const item = equippedCardEffect ? cardEffectById(equippedCardEffect) : null;
+    if (item) {
+      canvas.dataset.fxType = item.canvasType;
+      activateCardFx(canvas.parentElement);
+    } else {
+      delete canvas.dataset.fxType;
+    }
   }
 
   function persistProfile(){
@@ -5393,14 +5662,17 @@ import {
       shareCount = Number(data.shareCount || 0);
       unlockedDecorations = Array.isArray(data.unlockedDecorations) ? [...data.unlockedDecorations] : [];
       unlockedFonts = Array.isArray(data.unlockedFonts) ? [...data.unlockedFonts] : [];
+      unlockedCardEffects = Array.isArray(data.unlockedCardEffects) ? [...data.unlockedCardEffects] : [];
       equippedDecoration = decorationById(data.equippedDecoration) ? data.equippedDecoration : null;
       equippedFont = fontById(data.equippedFont) ? data.equippedFont : null;
+      equippedCardEffect = cardEffectById(data.equippedCardEffect) ? data.equippedCardEffect : null;
       characterDecorations = (data.characterDecorations && typeof data.characterDecorations === 'object') ? { ...data.characterDecorations } : {};
       currentUserVerifiedUntil = data.verifiedUntil || null;
       currentUserXp = Number(data.xp || 0);
       currentUserWeeklyXp = Number(data.weeklyXp || 0);
       verifiedUntilCache[uid] = currentUserVerifiedUntil ? currentUserVerifiedUntil.toMillis() : null;
       updateAccountHeader();
+      updateCardEffectDisplay();
     }).catch(err => console.error('Profile load failed', err));
   }
 
@@ -5620,8 +5892,10 @@ import {
          shareCount = 0;
          unlockedDecorations = [];
          unlockedFonts = [];
+         unlockedCardEffects = [];
          equippedDecoration = null;
          equippedFont = null;
+         equippedCardEffect = null;
          characterDecorations = {};
       }
       lastSignedInUid = user.uid;
@@ -5653,13 +5927,16 @@ import {
        shareCount = 0;
        unlockedDecorations = [];
        unlockedFonts = [];
+       unlockedCardEffects = [];
        equippedDecoration = null;
        equippedFont = null;
+       equippedCardEffect = null;
        characterDecorations = {};
       currentUserVerifiedUntil = null;
       currentUserXp = 0;
       currentUserWeeklyXp = 0;
       updateAccountHeader();
+      updateCardEffectDisplay();
       syncTopbarAvatar();
       closeAccountDropdown();
       renderAllLikeButtons(); // signed out — nothing should show as "liked" now
