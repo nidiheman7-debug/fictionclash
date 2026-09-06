@@ -50,19 +50,51 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid or expired auth token' });
   }
 
+  const usd = itemType === 'decoration' ? PREMIUM_DECORATIONS[itemId] : BADGE_RENEWAL_USD;
+
+  // Guards against double-taps (or any concurrent duplicate request)
+  // starting two Paystack sessions for the same item before the first
+  // one completes. Keyed by uid+item so it only blocks a *repeat* of
+  // this exact purchase, never other purchases. The lock self-expires
+  // after LOCK_TTL_MS so an abandoned checkout (tab closed, payment
+  // never finished) doesn't permanently block a real retry.
+  const LOCK_TTL_MS = 10 * 60 * 1000; // 10 minutes
+  const lockRef = db.collection('purchaseLocks').doc(`${uid}_${itemType}_${itemId || 'badge'}`);
+
   try {
-    const usd = itemType === 'decoration' ? PREMIUM_DECORATIONS[itemId] : BADGE_RENEWAL_USD;
-
-    if (itemType === 'decoration') {
-      const userSnap = await db.collection('users').doc(uid).get();
-      const owned = userSnap.exists && Array.isArray(userSnap.data().unlockedDecorations)
-        ? userSnap.data().unlockedDecorations
-        : [];
-      if (owned.includes(itemId)) {
-        return res.status(409).json({ error: 'You already own this decoration' });
+    await db.runTransaction(async (trx) => {
+      if (itemType === 'decoration') {
+        const userSnap = await trx.get(db.collection('users').doc(uid));
+        const owned = userSnap.exists && Array.isArray(userSnap.data().unlockedDecorations)
+          ? userSnap.data().unlockedDecorations
+          : [];
+        if (owned.includes(itemId)) {
+          throw Object.assign(new Error('already-owned'), { code: 'already-owned' });
+        }
       }
-    }
 
+      const lockSnap = await trx.get(lockRef);
+      const lockAgeMs = lockSnap.exists && lockSnap.data().createdAt
+        ? Date.now() - lockSnap.data().createdAt.toMillis()
+        : Infinity;
+      if (lockSnap.exists && lockAgeMs < LOCK_TTL_MS) {
+        throw Object.assign(new Error('purchase-in-progress'), { code: 'purchase-in-progress' });
+      }
+
+      trx.set(lockRef, { createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    });
+  } catch (err) {
+    if (err.code === 'already-owned') {
+      return res.status(409).json({ error: 'You already own this decoration' });
+    }
+    if (err.code === 'purchase-in-progress') {
+      return res.status(409).json({ error: 'A purchase for this item is already in progress. Please wait a moment and try again.' });
+    }
+    console.error('Purchase lock failed:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+
+  try {
     // Firebase Auth is the source of truth for email, not whatever the
     // client claims — same reasoning as pulling name/avatar server-side
     // in comment.js rather than trusting the request body.
@@ -78,6 +110,7 @@ export default async function handler(req, res) {
       email = userSnap.exists ? userSnap.data().email : null;
     }
     if (!email) {
+      await lockRef.delete().catch(() => {});
       return res.status(400).json({ error: 'Add an email to your account before buying premium items' });
     }
 
@@ -105,6 +138,7 @@ export default async function handler(req, res) {
     const paystackData = await paystackResp.json();
     if (!paystackResp.ok || !paystackData.status) {
       console.error('Paystack initialize failed:', paystackData);
+      await lockRef.delete().catch(() => {});
       return res.status(502).json({ error: 'Could not start checkout' });
     }
 
@@ -131,6 +165,7 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('Create payment failed:', err);
+    await lockRef.delete().catch(() => {});
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
