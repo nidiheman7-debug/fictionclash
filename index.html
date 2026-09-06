@@ -740,27 +740,24 @@
    .comment-form button svg{ width:17px; height:17px; margin-left:1px; } /* nudge to visually center the plane */
    .comment-form button:active{ transform:scale(.88); }
    /* Facebook-style docked composer: while a comment field (hero card,
-      clip card, or the full comments sheet) is focused, its form detaches
-      from wherever it sits in the scroll flow and pins to the very bottom
-      of the phone, right above the keyboard, instead of just scrolling
-      into view in place. .phone (or, for the comments sheet, its
-      .modal-overlay ancestor which sits inset:0 over .phone) is the
-      containing block, so bottom:0 here always means "bottom of the
-      phone" regardless of which form this is. JS sets the inline
-      `bottom` px value to clear the on-screen keyboard (see the docking
-      script near the end of the file). */
+      clip card, or the full comments page) is focused, its form detaches
+      from wherever it sits in the layout and pins to the very bottom of
+      the actual visible screen — flush above the keyboard — instead of
+      just scrolling into view where it sat on the page. `position:fixed`
+      here is deliberate: it's anchored to the real viewport rather than
+      to .phone, so its `bottom` only ever has to account for the
+      keyboard (computed in JS), never for .phone's own size/offset too.
+      JS sets `left`/`width` to match .phone's own edges (cosmetic, so it
+      doesn't span the full browser window on the desktop preview) and
+      `bottom` to the live keyboard height. */
    .comment-form.docked{
-     position:absolute; left:0; right:0; bottom:0; z-index:60;
+     position:fixed; z-index:60;
      margin:0; background:var(--bg);
      padding:9px 14px calc(9px + env(safe-area-inset-bottom));
      border-top:1px solid var(--line);
      box-shadow:0 -8px 18px rgba(0,0,0,.28);
    }
    body.light .comment-form.docked{ box-shadow:0 -8px 18px rgba(0,0,0,.10); }
-   /* Close button sits right after the form in the comments sheet — once
-      the form docks, hide it instead of letting it jump up into the gap
-      the form left behind (it's inaccessible under the keyboard anyway). */
-   .comment-form.docked + .modal-close{ opacity:0; pointer-events:none; }
    body.light .file-drop{background:rgba(255,255,255,.35);}
    body.light .comment{border-bottom-color:rgba(33,26,16,.12);}
 
@@ -1669,6 +1666,39 @@
     }
     .modal-sheet-tall{ max-height:82vh; max-height:min(82vh, calc(var(--vvh, 100vh) - 24px)); overflow-y:auto; }
 
+    /* Full-page comments screen (was a half-height bottom sheet). Reuses
+       the same slide-up transform/overlay as every other modal, but fills
+       the entire phone edge-to-edge instead of stopping at 82vh, so
+       "Reply" opens a real full page rather than a sheet with the app
+       still visible (dimmed) behind it. */
+    .modal-sheet-full{
+      width:100%; height:100%; max-height:100%;
+      border-radius:0; border:none; background-image:none;
+      padding:0; display:flex; flex-direction:column; overflow:hidden;
+    }
+    .modal-sheet-full-header{
+      display:flex; align-items:center; gap:12px; flex:0 0 auto;
+      padding:calc(14px + env(safe-area-inset-top)) 16px 12px;
+      border-bottom:1px solid var(--line);
+    }
+    .modal-sheet-full-header .modal-title,
+    .modal-sheet-full-header .modal-sub{ margin:0; }
+    .modal-sheet-full-back{
+      width:32px; height:32px; flex:0 0 auto; padding:0;
+      border:none; background:transparent; color:var(--text);
+      border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;
+    }
+    .modal-sheet-full .comments-modal-tabs{ flex:0 0 auto; padding:12px 16px 0; margin-bottom:0; }
+    .modal-sheet-full #commentsModalList{
+      flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
+      margin-bottom:0; padding:14px 16px;
+    }
+    .modal-sheet-full .comment-form{
+      flex:0 0 auto; margin-top:0;
+      padding:9px 14px calc(9px + env(safe-area-inset-bottom));
+      border-top:1px solid var(--line); background:var(--bg);
+    }
+
     /* first-visit intro splash */
     .intro-fullbleed{
       align-items:flex-end;
@@ -2502,9 +2532,16 @@
        every clip card. Only the last 2 comments show inline on each post;
        tapping "See all" opens this with the full thread. -->
   <div class="modal-overlay" id="commentsModalOverlay">
-    <div class="modal-sheet modal-sheet-tall">
-      <div class="modal-title">Conversation</div>
-      <div class="modal-sub" id="commentsModalSub">All comments on this post.</div>
+    <div class="modal-sheet modal-sheet-full">
+      <div class="modal-sheet-full-header">
+        <button type="button" class="modal-sheet-full-back" id="commentsModalClose" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div>
+          <div class="modal-title">Conversation</div>
+          <div class="modal-sub" id="commentsModalSub">All comments on this post.</div>
+        </div>
+      </div>
       <div class="comments-modal-tabs">
         <button class="comments-modal-tab active" id="commentsTabComments" type="button">Comments</button>
         <button class="comments-modal-tab" id="commentsTabReplies" type="button">Replies</button>
@@ -2514,7 +2551,6 @@
         <input class="clip-field" type="text" id="commentsModalInput" placeholder="Add your comment..." aria-label="Add your comment">
         <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
       </form>
-      <button class="modal-close" id="commentsModalClose">Close</button>
     </div>
   </div>
 
@@ -8648,19 +8684,17 @@ Contact: fictionclash.app@gmail.com</div>
     return !!(el && el.matches && el.matches('.comment-form .clip-field'));
   }
 
-  // How far the phone's own bottom edge currently sits below the space
-  // actually visible above the keyboard — 0 once there's no keyboard (or
-  // it hasn't finished animating in), positive while it's covering part
-  // of the phone. That's exactly the `bottom` offset the docked form
-  // needs so it clears the keyboard instead of hiding under it.
-  function keyboardOverlapPx(){
-    const phone = document.querySelector('.phone');
-    if (!phone) return 0;
-    const phoneBottom = phone.getBoundingClientRect().bottom;
-    const visibleBottom = window.visualViewport
-      ? window.visualViewport.height + window.visualViewport.offsetTop
-      : window.innerHeight;
-    return Math.max(0, phoneBottom - visibleBottom);
+  // How tall the on-screen keyboard currently is, in px. With
+  // interactive-widget=overlays-content the keyboard overlays the page
+  // instead of resizing it, so window.innerHeight stays constant while
+  // visualViewport.height shrinks by roughly the keyboard's height — the
+  // gap between the two (adjusted for any page scroll via offsetTop) IS
+  // the keyboard height. This is viewport math only (no .phone sizing
+  // assumptions baked in), which is what actually lines the bar up flush
+  // with the keyboard instead of leaving a gap above it.
+  function keyboardHeightPx(){
+    if (!window.visualViewport) return 0;
+    return Math.max(0, window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop);
   }
 
   function dockCommentField(el){
@@ -8668,7 +8702,15 @@ Contact: fictionclash.app@gmail.com</div>
     if (!form) return;
     form.classList.add('docked');
     document.body.classList.add('keyboard-open');
-    const reposition = () => { form.style.bottom = keyboardOverlapPx() + 'px'; };
+    const reposition = () => {
+      const phone = document.querySelector('.phone');
+      if (phone) {
+        const phoneRect = phone.getBoundingClientRect();
+        form.style.left = phoneRect.left + 'px';
+        form.style.width = phoneRect.width + 'px';
+      }
+      form.style.bottom = keyboardHeightPx() + 'px';
+    };
     reposition();
     // The keyboard animates in over the next couple hundred ms, firing
     // several visualViewport resize events as it does — react to those
@@ -8684,6 +8726,8 @@ Contact: fictionclash.app@gmail.com</div>
     if (!form) return;
     form.classList.remove('docked');
     form.style.bottom = '';
+    form.style.left = '';
+    form.style.width = '';
     if (form._undock) { form._undock(); form._undock = null; }
   }
 
