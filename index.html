@@ -2825,7 +2825,7 @@ Contact: fictionclash.app@gmail.com</div>
   // Everything else (vote, comment, like, etc.) stays on Vercel and
   // uses relative paths as before; only these two calls need the full
   // Render URL.
-  const PAYMENT_API_BASE = 'https://fictionclash-backend.onrender.com';
+  window.PAYMENT_API_BASE = 'https://fictionclash-backend.onrender.com';
 
   // Exposed for the rest of the page's module script to use
   window.firebaseApp = app;
@@ -6879,7 +6879,7 @@ Contact: fictionclash.app@gmail.com</div>
       location.href = data.authorization_url;
     } catch (err) {
       console.error('Badge renewal purchase failed', err);
-      showToast('Debug: ' + (err && err.message ? err.message : String(err)));
+      showToast('Could not start checkout');
     }
   });
   verifiedInfoOverlay.addEventListener('click', event => {
@@ -7827,7 +7827,7 @@ Contact: fictionclash.app@gmail.com</div>
       location.href = data.authorization_url;
     } catch (err) {
       console.error('Premium purchase failed', err);
-      showToast('Debug: ' + (err && err.message ? err.message : String(err)));
+      showToast('Could not start checkout');
     }
   }
 
