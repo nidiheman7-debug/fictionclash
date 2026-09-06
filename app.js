@@ -1,0 +1,6092 @@
+import {
+    GoogleAuthProvider,
+    signInWithPopup,
+    signInWithRedirect,
+    getRedirectResult,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
+    onAuthStateChanged,
+    signOut
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import {
+    doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, arrayUnion, runTransaction, collection, onSnapshot,
+    query, where, orderBy, limit, serverTimestamp, Timestamp, getCountFromServer
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+  const auth = window.firebaseAuth;
+
+  // ---------- boot loading screen ----------
+  // Shown from first paint (it's plain HTML/CSS above the fold, no JS
+  // needed to appear). Hidden once we hear back from Firebase auth, since
+  // that's the first real signal the app has connected to anything — with
+  // a timeout fallback so a slow/offline connection never blocks it forever.
+  const appLoadingScreen = document.getElementById('appLoadingScreen');
+  let appLoadingScreenHidden = false;
+  function hideAppLoadingScreen(){
+    if (appLoadingScreenHidden || !appLoadingScreen) return;
+    appLoadingScreenHidden = true;
+    appLoadingScreen.classList.add('is-hidden');
+    setTimeout(() => appLoadingScreen.remove(), 600);
+  }
+  setTimeout(hideAppLoadingScreen, 4000);
+
+  // The one account allowed to actually delete matchups/clips from
+  // Firestore for everyone. Find your UID in Firebase Console →
+  // Authentication → Users → your row → "User UID" column, then paste it
+  // here. Until it's filled in, nobody gets real deletes — everyone
+  // (including you) just gets the local "hide from my feed" behavior.
+  const ADMIN_UID = 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2';
+  function isAdmin(){
+    return !!(auth.currentUser && auth.currentUser.uid === ADMIN_UID);
+  }
+  const db = window.firebaseDb;
+  const googleProvider = new GoogleAuthProvider();
+
+  // Turns any string into a safe Firestore document ID / Storage path
+  // segment (character names, matchup keys, etc. can contain spaces,
+  // parentheses, slashes...).
+  function safeId(value){
+    return String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
+  }
+
+  // ---------- theme toggle ----------
+  const themeToggle = document.getElementById('themeToggle');
+  const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+  // Keeps the status bar (the strip behind the clock/battery icons, both in
+  // the browser tab and the installed PWA) matching the current theme
+  // instead of being stuck on one fixed color.
+  function syncStatusBarColor(){
+    if (!themeColorMeta) return;
+    const isLight = document.body.classList.contains('light');
+    themeColorMeta.setAttribute('content', isLight ? '#f1f1ef' : '#1c1d23');
+  }
+  themeToggle.addEventListener('click', () => {
+    const isLight = document.body.classList.toggle('light');
+    themeToggle.setAttribute('aria-label', isLight ? 'Switch to dark theme' : 'Switch to light theme');
+    themeToggle.title = isLight ? 'Switch to dark theme' : 'Switch to light theme';
+    if (nonEssentialStorageAllowed()) localStorage.setItem('fictionClashLight', isLight ? '1' : '0');
+    // Re-apply the accent theme so light-sensitive accents (like mono) stay visible.
+    applyTheme(currentThemeName);
+    syncStatusBarColor();
+  });
+  // The inline script at the top of <body> already decided light vs dark
+  // (saved choice, or the device's own setting) before first paint — just
+  // bring this button's label/icon in line with whatever it picked.
+  if (document.body.classList.contains('light')) {
+    themeToggle.setAttribute('aria-label', 'Switch to dark theme');
+    themeToggle.title = 'Switch to dark theme';
+  }
+  syncStatusBarColor(); // set it correctly for whatever theme loads by default
+
+  // ---------- toast helper ----------
+  const toastEl = document.getElementById('toast');
+  let toastTimer;
+  function showToast(msg){
+    toastEl.className = 'toast';
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
+  }
+
+  // Shown after voting/commenting/liking instead of the plain text toast,
+  // whenever the server actually awarded XP and returned a rank — gives
+  // the "+10 XP 🎉 You're now #23 → View Leaderboard" feedback that makes
+  // the leaderboard part of the moment-to-moment loop, not just a page
+  // someone occasionally checks. Falls back to a plain toast if `rank`
+  // came back null (best-effort computation on the server — see xp.js).
+  function showXpToast(xpAwarded, rank){
+    if (!xpAwarded) return;
+    if (rank == null) { showToast(`+${xpAwarded} XP`); return; }
+    toastEl.className = 'toast interactive';
+    toastEl.innerHTML = `<span class="toast-xp-line">+${xpAwarded} XP 🎉 You're now #${rank}</span><span class="toast-rank-link">View Leaderboard →</span>`;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 4000);
+  }
+  toastEl.addEventListener('click', (e) => {
+    if (!e.target.closest('.toast-rank-link')) return;
+    toastEl.classList.remove('show');
+    document.getElementById('qaLeaderboard').click();
+  });
+
+  // ---------- spinner helper ----------
+  // Shows a spinner inside a button while an async action runs, then
+  // restores the button's original content once it resolves (or rejects).
+  function withSpinner(btn, loadingLabel, action, delay = 350){
+    if (btn.disabled) return;
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="btn-spinner"></span><span>${loadingLabel}</span>`;
+    setTimeout(async () => {
+      try {
+        await action();
+      } finally {
+        btn.innerHTML = original;
+        btn.disabled = false;
+      }
+    }, delay);
+  }
+
+  // ---------- AI character analysis (Gemini, via /api/character-analysis) ----------
+  // Shared by AI Power Scout (hero), Compare Characters, and Team Builder's
+  // AI feat check — one endpoint, one response shape, three consumers.
+  // Falls back to the local hand-tuned aiStatsProfiles/featProfiles maps if
+  // the API call fails for any reason (not deployed yet, rate limited, no
+  // network) so none of the three features ever hard-break.
+  const aiAnalysisCache = {}; // cacheKey -> parsed response
+
+  function clampStat(n){
+    const num = Math.round(Number(n));
+    return Number.isFinite(num) ? Math.max(0, Math.min(100, num)) : 70;
+  }
+
+  async function fetchCharacterAnalysis(names, question){
+    const cacheKey = `${names.map(n => n.trim().toLowerCase()).sort().join('||')}::${(question || '').trim().toLowerCase()}`;
+    if (aiAnalysisCache[cacheKey]) return aiAnalysisCache[cacheKey];
+    // Match the server's own 9s deadline (see character-analysis.js) so a
+    // stuck request never leaves the button spinning far longer than the
+    // server would ever actually take to respond.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const res = await fetch('/api/character-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ characters: names, question: question || undefined }),
+        signal: controller.signal
+      });
+      if (!res.ok) throw new Error('AI analysis request failed: ' + res.status);
+      const data = await res.json();
+      if (!data || typeof data !== 'object' || !data.characters) throw new Error('Unexpected AI response shape');
+      aiAnalysisCache[cacheKey] = data;
+      return data;
+    } catch (err) {
+      console.warn('AI analysis unavailable, falling back to local ratings:', err);
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  // ---------- matchup data ----------
+  // Built-in matchups/clips have no Firestore doc of their own (they're
+  // hardcoded in this file), so admin can't just deleteDoc() them the way
+  // community submissions get deleted. Instead, admin deleting one of
+  // these writes its key into this single shared doc — every client
+  // (including admin's own other devices) listens to it live and filters
+  // matching built-ins out of view, so it's a real "gone for everyone"
+  // delete, not just a per-device hide.
+  const globallyHiddenMatchupKeys = new Set();
+  const globallyHiddenClipIds = new Set();
+
+  // ---------- cookie / local-storage consent ----------
+  // Fiction Clash has no third-party ads or analytics trackers, but it does
+  // use localStorage (and Firebase's own sign-in session storage) — which
+  // the cookie/ePrivacy rules this banner is for treat the same as cookies.
+  // "Essential" storage (votes, hidden items, uploads, profile, sign-in,
+  // and this consent flag itself) is needed to deliver something the user
+  // explicitly asked for, so it's written regardless of this choice — same
+  // legal basis most sites use to skip a consent prompt for a shopping
+  // cart. Only the purely optional/preference writes below are gated.
+  const COOKIE_CONSENT_KEY = 'fictionClashCookieConsent'; // 'accepted' | 'rejected'
+  function getCookieConsent(){
+    try { return localStorage.getItem(COOKIE_CONSENT_KEY); } catch (err) { return null; }
+  }
+  function setCookieConsent(value){
+    try { localStorage.setItem(COOKIE_CONSENT_KEY, value); } catch (err) {}
+  }
+  function nonEssentialStorageAllowed(){
+    return getCookieConsent() === 'accepted';
+  }
+  function applyCookieConsentChoice(value){
+    setCookieConsent(value);
+    cookieBanner.hidden = true;
+    renderCookiePolicyStatus();
+    showToast(value === 'accepted' ? 'Preferences saved — thanks!' : 'Only essential storage will be used');
+  }
+  function applyGlobalHiddenBuiltins(){
+    let heroNeedsRerender = false;
+    for (let i = matchups.length - 1; i >= 0; i--) {
+      if (globallyHiddenMatchupKeys.has(matchupPairKey(matchups[i]))) {
+        if (i === activeIdx) heroNeedsRerender = true;
+        matchups.splice(i, 1);
+        if (i < activeIdx) activeIdx--;
+      }
+    }
+    if (matchups.length && activeIdx >= matchups.length) activeIdx = matchups.length - 1;
+    if (heroNeedsRerender || matchups.length === 0) renderHero();
+    renderTrendScroll();
+    globallyHiddenClipIds.forEach(clipId => {
+      const card = clipFeed?.querySelector(`.clip-card[data-clip-id="${clipId}"]`);
+      if (card) { deactivateCanvasFx(card); card.remove(); }
+    });
+  }
+  onSnapshot(doc(db, 'appConfig', 'hiddenBuiltins'), snap => {
+    const data = snap.exists() ? snap.data() : {};
+    globallyHiddenMatchupKeys.clear();
+    (data.matchupKeys || []).forEach(k => globallyHiddenMatchupKeys.add(k));
+    globallyHiddenClipIds.clear();
+    (data.clipIds || []).forEach(id => globallyHiddenClipIds.add(id));
+    applyGlobalHiddenBuiltins();
+  }, err => console.error('Hidden-builtins listener failed', err));
+
+  // ---------- Seasons: full app reskins (colors/art/font), rotated by an
+  // admin flag in appConfig/activeSeason. Each entry here is pure data —
+  // adding season #2 later is a config addition, not new code. The CSS
+  // side (body.season-<id> rules) lives in the <style> block above and
+  // must exist for any id added here, or applySeason() just adds a class
+  // that does nothing.
+  const SEASONS = {
+    anime: {
+      id: 'anime',
+      label: 'Anime Season',
+      bodyClass: 'season-anime',
+      bannerAsset: '/public/seasons/anime/store-banner.png?v=2',
+      currencyLabel: 'Shards',
+    },
+  };
+
+  let activeSeasonId = null;
+
+  function applySeason(seasonId){
+    // Strip every season body-class before applying the new one, so
+    // switching (or clearing) the active season never leaves a stale
+    // reskin layered underneath the new one.
+    Object.values(SEASONS).forEach(s => document.body.classList.remove(s.bodyClass));
+    const season = seasonId ? SEASONS[seasonId] : null;
+    if (season) document.body.classList.add(season.bodyClass);
+    const seasonChanged = activeSeasonId !== (season ? season.id : null);
+    activeSeasonId = season ? season.id : null;
+    if (typeof renderCustomizationStore === 'function') renderCustomizationStore();
+    if (typeof updateLeaderboardSeasonAvailability === 'function') updateLeaderboardSeasonAvailability();
+    // The matchups onSnapshot listener only filters docs AS THEY ARRIVE —
+    // anything already sitting in the `matchups` array from before the
+    // season changed (or before it was known) needs a fresh, filtered
+    // rebuild, both for someone loading the app for the first time after
+    // a season went live and for an admin flipping it on/off while people
+    // already have the app open.
+    if (seasonChanged && typeof resyncMatchupsForSeason === 'function') resyncMatchupsForSeason();
+  }
+
+  onSnapshot(doc(db, 'appConfig', 'activeSeason'), snap => {
+    const data = snap.exists() ? snap.data() : {};
+    applySeason(data.seasonId || null);
+    renderSeasonAdminControls();
+  }, err => console.error('Active-season listener failed', err));
+
+  // ---------- admin: turn seasons on/off ----------
+  // Writes straight to appConfig/activeSeason — the same doc every client's
+  // onSnapshot listener above is already watching, so a toggle here goes
+  // live for everyone the moment the write lands. No Cloud Function needed.
+  const adminSeasonCard = document.getElementById('adminSeasonCard');
+  const seasonAdminList = document.getElementById('seasonAdminList');
+  function updateSeasonCardVisibility(){
+    if (adminSeasonCard) adminSeasonCard.classList.toggle('hidden', !isAdmin());
+    document.getElementById('settingsAdminGroup')?.classList.toggle('hidden', !isAdmin());
+  }
+  function renderSeasonAdminControls(){
+    updateSeasonCardVisibility();
+    if (!seasonAdminList || !isAdmin()) return;
+    seasonAdminList.innerHTML = Object.values(SEASONS).map(season => {
+      const isLive = activeSeasonId === season.id;
+      return `
+        <div class="admin-report-row" data-season-id="${season.id}">
+          <div class="admin-report-info">
+            <b>${escapeHtml(season.label)}</b>
+            <span>${isLive ? 'Live now — visible to everyone' : 'Not live'}</span>
+          </div>
+          <div class="admin-report-actions">
+            <button type="button" class="${isLive ? 'danger' : ''}" data-season-action="${isLive ? 'deactivate' : 'activate'}">${isLive ? 'Turn off' : 'Turn on'}</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+  if (seasonAdminList) {
+    seasonAdminList.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-season-action]');
+      if (!btn) return;
+      const row = btn.closest('[data-season-id]');
+      const seasonId = row?.dataset.seasonId;
+      const season = seasonId ? SEASONS[seasonId] : null;
+      if (!season) return;
+      const activating = btn.dataset.seasonAction === 'activate';
+      btn.disabled = true;
+      setDoc(doc(db, 'appConfig', 'activeSeason'), { seasonId: activating ? seasonId : null })
+        .then(() => showToast(activating ? `${season.label} is now live` : `${season.label} turned off`))
+        .catch(err => {
+          console.error('Season toggle failed', err);
+          showToast('Could not update season — try again');
+          btn.disabled = false;
+        });
+      // No need to manually re-enable/re-render on success — the
+      // onSnapshot listener above fires from our own write and calls
+      // renderSeasonAdminControls(), which redraws this row.
+    });
+  }
+
+  // ---------- admin: tag matchups with a season category ----------
+  // Deliberately a SEPARATE, unfiltered listener from the main matchups
+  // one above — that one hides anything not tagged for the active season,
+  // which would make it impossible for an admin to ever find and tag the
+  // very matchups that need tagging. This one always shows everything,
+  // admin-only, regardless of what season (if any) is currently live.
+  const adminMatchupCategoryCard = document.getElementById('adminMatchupCategoryCard');
+  const matchupCategoryList = document.getElementById('matchupCategoryList');
+  let adminAllMatchups = [];
+  function updateMatchupCategoryCardVisibility(){
+    if (adminMatchupCategoryCard) adminMatchupCategoryCard.classList.toggle('hidden', !isAdmin());
+  }
+  function renderMatchupCategoryList(){
+    updateMatchupCategoryCardVisibility();
+    if (!matchupCategoryList || !isAdmin()) return;
+    matchupCategoryList.innerHTML = adminAllMatchups.map(m => `
+      <div class="admin-report-row" data-matchup-id="${m.docId}">
+        <div class="admin-report-info">
+          <b>${escapeHtml(m.a.name)} vs ${escapeHtml(m.b.name)}</b>
+          <span>${m.category ? SEASONS[m.category]?.label || m.category : 'Untagged'}</span>
+        </div>
+        <div class="admin-report-actions">
+          <select data-category-select>
+            <option value="">— Untagged —</option>
+            ${Object.values(SEASONS).map(s => `<option value="${s.id}" ${m.category === s.id ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    `).join('');
+  }
+  onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
+    adminAllMatchups = snapshot.docs
+      .filter(d => d.data().a && d.data().b)
+      .map(d => ({ docId: d.id, a: d.data().a, b: d.data().b, category: d.data().category || null }));
+    renderMatchupCategoryList();
+  }, err => console.error('Admin matchup-category listener failed', err));
+  if (matchupCategoryList) {
+    matchupCategoryList.addEventListener('change', (e) => {
+      const select = e.target.closest('[data-category-select]');
+      if (!select) return;
+      const row = select.closest('[data-matchup-id]');
+      const matchupId = row?.dataset.matchupId;
+      if (!matchupId) return;
+      const newCategory = select.value;
+      select.disabled = true;
+      updateDoc(doc(db, 'matchups', matchupId), newCategory ? { category: newCategory } : { category: deleteField() })
+        .then(() => showToast(newCategory ? `Tagged as ${SEASONS[newCategory]?.label || newCategory}` : 'Untagged'))
+        .catch(err => {
+          console.error('Matchup category update failed', err);
+          showToast('Could not update category — try again');
+        })
+        .finally(() => { select.disabled = false; });
+    });
+  }
+
+  // No hardcoded seed matchups anymore — every matchup shown comes from
+  // the 'matchups' Firestore collection via the onSnapshot listener below.
+  // Starts empty; renderHero() and renderTrendScroll() both handle the
+  // zero-matchups case until the first one streams in.
+  const matchups = [];
+  let activeIdx = 0;
+  const VOTED_STATE_KEY = 'fictionClashVotedState';
+  const VOTE_DELTA_KEY = 'fictionClashVoteDeltas'; // extra votes this browser cast on built-in (non-Firestore) matchups
+  const HIDDEN_MATCHUPS_KEY = 'fictionClashHiddenMatchups'; // matchups this browser chose to hide from its own feed
+  const votedState = JSON.parse(localStorage.getItem(VOTED_STATE_KEY) || '{}'); // matchupKey -> 'a' | 'b'
+  const voteDeltas = JSON.parse(localStorage.getItem(VOTE_DELTA_KEY) || '{}'); // matchupKey -> {a:n,b:n}
+  const hiddenMatchupKeys = new Set(JSON.parse(localStorage.getItem(HIDDEN_MATCHUPS_KEY) || '[]'));
+  function hideMatchupLocally(m){
+    hiddenMatchupKeys.add(matchupPairKey(m));
+    localStorage.setItem(HIDDEN_MATCHUPS_KEY, JSON.stringify([...hiddenMatchupKeys]));
+  }
+  // Re-apply any votes this browser previously cast on the built-in matchups
+  // (they have no Firestore doc to persist to, so localStorage is their
+  // only record — otherwise a refresh would silently wipe them too).
+  matchups.forEach(m => {
+    const delta = voteDeltas[matchupPairKey(m)];
+    if (delta) { m.votesA += delta.a || 0; m.votesB += delta.b || 0; }
+  });
+  // Drop any built-in matchups this browser chose to hide previously —
+  // community matchups get the same treatment where they're fetched below.
+  for (let i = matchups.length - 1; i >= 0; i--) {
+    if (hiddenMatchupKeys.has(matchupPairKey(matchups[i]))) matchups.splice(i, 1);
+  }
+
+  // A character's "version" (e.g. Base, Ultra Instinct, Six Paths Sage Mode)
+  // is kept separate from `name` on purpose: `name` stays the plain
+  // character name so avatar lookups and stat lookups still match
+  // correctly regardless of which version someone picked.
+  function charLabel(char){
+    return char.version ? `${char.name} (${char.version})` : char.name;
+  }
+
+  const heroAvatarA = document.getElementById('heroAvatarA');
+  const heroAvatarB = document.getElementById('heroAvatarB');
+  const heroAvatarReportA = document.getElementById('heroAvatarReportA');
+  const heroAvatarReportB = document.getElementById('heroAvatarReportB');
+  const heroNameA = document.getElementById('heroNameA');
+  const heroNameB = document.getElementById('heroNameB');
+  const heroSubA = document.getElementById('heroSubA');
+  const heroSubB = document.getElementById('heroSubB');
+  const heroVoteCount = document.getElementById('heroVoteCount');
+  const voteRow = document.getElementById('voteRow');
+  const voteBtnA = document.getElementById('voteBtnA');
+  const voteBtnB = document.getElementById('voteBtnB');
+  const voteBar = document.getElementById('voteBar');
+  const votePctA = document.getElementById('votePctA');
+  const votePctB = document.getElementById('votePctB');
+  const aiStatsButton = document.getElementById('aiStatsButton');
+  const aiStatsResult = document.getElementById('aiStatsResult');
+  const aiStatsProfiles = {
+    'Gojo Satoru':[96,98,94,91], 'Saitama':[100,100,100,76],
+    'Goku':[98,97,95,94], 'Vegeta':[97,96,93,90],
+    'Naruto':[91,89,88,92], 'Sasuke Uchiha':[89,91,84,93],
+    'Itachi Uchiha':[82,88,75,98], 'Kakashi Hatake':[78,85,74,94],
+    'Monkey D. Luffy':[93,90,92,85], 'Roronoa Zoro':[90,86,85,83],
+    'Ichigo Kurosaki':[92,90,87,86], 'Levi Ackerman':[79,94,73,91],
+    'Eren Yeager':[90,80,89,80], 'All Might':[95,88,93,89],
+    'Izuku Midoriya':[84,86,78,87], 'Light Yagami':[20,20,20,99],
+    'Edward Elric':[76,74,72,90], 'Natsu Dragneel':[88,82,86,74],
+    'Killua Zoldyck':[80,96,75,88], 'Gon Freecss':[85,88,80,76],
+    'Meliodas':[97,93,96,85], 'Rimuru Tempest':[94,89,95,88],
+    'Spider-Man':[85,90,80,89], 'Iron Man':[88,84,86,96],
+    'Thor':[97,86,96,80], 'Hulk':[99,65,98,58],
+    'Captain America':[83,80,85,92], 'Wolverine':[87,79,97,82],
+    'Deadpool':[80,78,95,70], 'Thanos':[99,78,98,90],
+    'Doctor Strange':[60,70,72,97], 'Scarlet Witch':[96,72,80,84],
+    'Magneto':[85,65,78,93], 'Venom':[90,82,90,72],
+    'Batman':[72,68,62,99], 'Superman':[99,97,99,86],
+    'Wonder Woman':[93,85,90,88], 'The Flash':[70,100,75,80],
+    'Joker':[40,45,50,92], 'Aquaman':[92,84,90,75],
+    'Darkseid':[98,80,99,88], 'Green Lantern':[86,88,82,84],
+    'Master Chief':[82,79,88,90], 'Kratos':[95,80,92,84],
+    'Link':[80,83,78,85], 'Sephiroth':[93,95,88,91],
+    'Dante':[86,90,84,80], 'Geralt of Rivia':[78,82,80,90],
+    'Solid Snake':[68,75,72,95], 'Doom Slayer':[94,88,96,78],
+    'John Wick':[69,82,70,95], 'Jack Sparrow':[52,60,58,86],
+    'Neo':[89,93,85,87], 'Darth Vader':[91,78,90,89],
+    'Yoda':[75,86,72,97], 'James Bond':[62,68,64,90],
+    'The Terminator':[93,72,97,75], 'Ellen Ripley':[58,64,66,88],
+    'Rocky Balboa':[80,62,88,79]
+  };
+  function avatarUrl(name, initials){
+    const colors = ['#B4881F','#385C4B','#6B3F69','#315A78','#77552D','#514A7A'];
+    const color = colors[name.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) % colors.length];
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="60" fill="${color}"/><circle cx="60" cy="47" r="23" fill="#f1d2bc"/><path d="M24 111c4-26 18-39 36-39s32 13 36 39" fill="#171717"/><path d="M35 45c3-23 47-30 54 2-10-8-28-9-54-2z" fill="#171717"/><text x="60" y="105" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="15" font-weight="700">${initials}</text></svg>`;
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+  }
+
+  // Shrinks + re-encodes an image file into a small JPEG data URL, small
+  // enough to store directly inside a Firestore document/field (no
+  // Firebase Storage bucket required — works on the free Spark plan).
+  function compressImageToDataUrl(file, maxDim = 220, quality = 0.72){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > height && width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+          else if (height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => reject(new Error('Could not decode image'));
+        img.src = reader.result;
+      };
+      reader.onerror = () => reject(new Error('Could not read file'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ---------- character avatars (upload-only, no external API) ----------
+  // User-uploaded pictures for specific characters -- set via the camera
+  // icon on the hero card. These are the ONLY source of a "real" photo;
+  // there is no Wikipedia (or any other) lookup anymore. Anything without
+  // an uploaded picture just uses the generated placeholder avatar.
+  const CHARACTER_AVATARS_STORAGE_KEY = 'fictionClashCharacterAvatars';
+  let characterAvatarOverrides = {};
+  try { characterAvatarOverrides = JSON.parse(localStorage.getItem(CHARACTER_AVATARS_STORAGE_KEY) || '{}'); } catch (err) { characterAvatarOverrides = {}; }
+
+  function avatarOverrideKey(name, version){
+    return version ? `${name}|${version}` : name;
+  }
+  // Which avatar keys are currently hidden pending review (reportCount hit
+  // the auto-hide threshold). Populated from Firestore alongside the
+  // pictures themselves, so a flagged picture disappears everywhere at once.
+  const AVATAR_REPORT_HIDE_THRESHOLD = 3;
+  let hiddenAvatarKeys = {};
+  function getCharacterAvatarOverride(name, version){
+    const key = avatarOverrideKey(name, version);
+    if (hiddenAvatarKeys[key]) return null;
+    return characterAvatarOverrides[key] || null;
+  }
+  function persistCharacterAvatarOverridesLocally(){
+    try { localStorage.setItem(CHARACTER_AVATARS_STORAGE_KEY, JSON.stringify(characterAvatarOverrides)); } catch (err) {}
+  }
+  // Re-paints every place a character photo can appear once new overrides
+  // arrive from Firestore (hero card, trend scroll, leaderboard, team list).
+  function refreshAllCharacterPhotos(){
+    renderHero();
+    if (typeof renderTrendScroll === 'function') renderTrendScroll();
+    document.querySelectorAll('img[data-char-photo]').forEach(img => {
+      const name = img.getAttribute('data-char-photo');
+      const version = img.getAttribute('data-char-version') || undefined;
+      const uploaded = getCharacterAvatarOverride(name, version);
+      if (uploaded) img.src = uploaded;
+    });
+  }
+  // Sets the override locally (instant paint) and saves a compressed copy
+  // straight into Firestore (no Firebase Storage bucket needed — this
+  // works on the free Spark plan) so every browser sees it. `file` is the
+  // original File object; `dataUrl` is the uncompressed FileReader
+  // preview shown immediately while compression runs in the background.
+  function setCharacterAvatarOverride(name, version, dataUrl, file){
+    const key = avatarOverrideKey(name, version);
+    characterAvatarOverrides[key] = dataUrl;
+    persistCharacterAvatarOverridesLocally();
+    if (!file) return;
+    compressImageToDataUrl(file)
+      .then(compressed => setDoc(doc(db, 'characterAvatars', safeId(key)), {
+        url: compressed, name, version: version || '', updatedAt: serverTimestamp(),
+        // Who uploaded it + moderation state — the report/takedown system
+        // below reads and writes these same fields.
+        uploadedBy: (auth.currentUser && auth.currentUser.uid) || 'anonymous',
+        reportCount: 0, hidden: false
+      }))
+      .catch(err => { console.error('Character avatar sync failed', err); showToast('Picture saved locally, but sync to other browsers failed'); });
+  }
+
+  // Real-time: any character picture uploaded from any browser lands here.
+  // Also carries moderation state (reportCount/hidden) so a flagged picture
+  // is hidden the same way on every device, not just the one that flagged it.
+  onSnapshot(collection(db, 'characterAvatars'), snapshot => {
+    let changed = false;
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      const key = avatarOverrideKey(data.name, data.version);
+      if (characterAvatarOverrides[key] !== data.url) {
+        characterAvatarOverrides[key] = data.url;
+        changed = true;
+      }
+      const shouldHide = !!data.hidden || (data.reportCount || 0) >= AVATAR_REPORT_HIDE_THRESHOLD;
+      if (!!hiddenAvatarKeys[key] !== shouldHide) {
+        if (shouldHide) hiddenAvatarKeys[key] = true; else delete hiddenAvatarKeys[key];
+        changed = true;
+      }
+    });
+    if (changed) {
+      persistCharacterAvatarOverridesLocally();
+      refreshAllCharacterPhotos();
+    }
+    renderAdminReports(snapshot);
+  }, err => console.error('Character avatar listener failed', err));
+
+  // Renders the uploaded picture if one exists for this character, or the
+  // generated placeholder otherwise -- no network call either way.
+  function setAvatarPhoto(el, name, initials, altSuffix, hint, version){
+    const uploaded = getCharacterAvatarOverride(name, version);
+    const src = uploaded || avatarUrl(name, initials);
+    el.innerHTML = `<img src="${src}" alt="${name}${altSuffix || ''}">`;
+  }
+
+  // For photos rendered via innerHTML template strings (compare tool,
+  // leaderboard, team list): mark the <img> with data-char-photo="Name"
+  // and optionally data-char-version="Version", and call this after
+  // inserting the HTML to upgrade placeholders to any uploaded picture.
+  function hydrateCharacterPhotos(root){
+    root.querySelectorAll('img[data-char-photo]').forEach(img => {
+      const name = img.getAttribute('data-char-photo');
+      const version = img.getAttribute('data-char-version') || undefined;
+      const uploaded = getCharacterAvatarOverride(name, version);
+      if (uploaded) img.src = uploaded;
+    });
+  }
+
+  // Applies the CURRENT VIEWER's own equipped decoration/font to the two
+  // matchup hero avatars and character names. This is a personal skin, not
+  // a per-character one: character avatars are shared community pictures
+  // (looked up by name+version via getCharacterAvatarOverride), so nobody
+  // "owns" them the way an account owns its own avatar. Rather than writing
+  // a decoration onto a character for everyone to see (which would need
+  // ownership rules and moderation, same as the report button above already
+  // has to handle for uploaded photos), this just re-skins how the CURRENT
+  // signed-in user sees every character avatar, client-side only — nothing
+  // is written to Firestore and nobody else's view changes.
+  // Resolves which decoration id should show on one character avatar for
+  // the current viewer: an explicit per-character choice (including an
+  // explicit "none") wins; otherwise it falls back to whatever the viewer
+  // has globally equipped on their profile.
+  function resolveCharacterDecoration(name, version){
+    const key = avatarOverrideKey(name, version);
+    if (Object.prototype.hasOwnProperty.call(characterDecorations, key)) {
+      const chosen = characterDecorations[key];
+      return chosen === 'none' ? null : chosen;
+    }
+    return equippedDecoration;
+  }
+
+  function renderHeroCharacterCosmetics(){
+    const m = matchups[activeIdx];
+    applyDecorationToContainer(heroAvatarA, m ? resolveCharacterDecoration(m.a.name, m.a.version) : equippedDecoration);
+    applyDecorationToContainer(heroAvatarB, m ? resolveCharacterDecoration(m.b.name, m.b.version) : equippedDecoration);
+    const font = fontById(equippedFont);
+    [heroNameA, heroNameB].forEach(el => {
+      PROFILE_FONTS.forEach(f => el.classList.remove(f.cls));
+      if (font) el.classList.add(font.cls);
+    });
+  }
+
+  function renderHero(){
+    const m = matchups[activeIdx];
+    const heroCardWrapper = document.getElementById('heroCard');
+    const heroSkeleton = document.getElementById('heroSkeleton');
+    if (!m) {
+      // No matchups yet (fresh install, or Firestore hasn't synced its
+      // first one in) — hide the hero card and show its shimmering
+      // skeleton instead of crashing on undefined character data.
+      // renderHero() runs again automatically once a matchup streams in
+      // (see the matchups onSnapshot handler).
+      if (heroCardWrapper) heroCardWrapper.hidden = true;
+      if (heroSkeleton) heroSkeleton.hidden = false;
+      return;
+    }
+    if (heroCardWrapper) heroCardWrapper.hidden = false;
+    if (heroSkeleton) heroSkeleton.hidden = true;
+    setAvatarPhoto(heroAvatarA, m.a.name, m.a.initials, ' avatar', m.a.hint, m.a.version);
+    setAvatarPhoto(heroAvatarB, m.b.name, m.b.initials, ' avatar', m.b.hint, m.b.version);
+    renderHeroCharacterCosmetics();
+    // Only user-uploaded pictures can be reported — no point flagging a
+    // generated placeholder that isn't anyone's artwork.
+    heroAvatarReportA.hidden = !getCharacterAvatarOverride(m.a.name, m.a.version);
+    heroAvatarReportB.hidden = !getCharacterAvatarOverride(m.b.name, m.b.version);
+    heroNameA.textContent = m.a.name.toUpperCase();
+    heroNameB.textContent = m.b.name.toUpperCase();
+    heroSubA.textContent = m.a.sub;
+    heroSubB.textContent = m.b.sub;
+    // If it's the same character in both slots (a version-vs-version grudge
+    // match like Base Goku vs Ultra Instinct Goku), the vote buttons need
+    // the version in the label too, or they'd read identically.
+    const sameBase = m.a.name.toLowerCase() === m.b.name.toLowerCase();
+    voteBtnA.textContent = (sameBase && m.a.version) ? `${m.a.name.split(' ')[0]} (${m.a.version})` : m.a.name.split(' ')[0];
+    voteBtnB.textContent = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
+    aiStatsResult.innerHTML = 'Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.';
+    updatePercentages();
+    const voted = votedState[votedStateKey(m)];
+    voteRow.classList.toggle('voted', !!voted);
+    voteBtnA.classList.toggle('picked', voted === 'a');
+    voteBtnB.classList.toggle('picked', voted === 'b');
+    renderHeroSocial();
+  }
+
+  // ---------- hero card like + share ----------
+  // Wired once, outside renderHero, since renderHero runs on every
+  // matchup switch — re-attaching a listener each time would stack up
+  // duplicate handlers. heroLikeKey is updated by renderHeroSocial()
+  // and read fresh by the click handler below via closure.
+  const heroLikeBtn = document.getElementById('heroLikeBtn');
+  const heroLikeCountEl = document.getElementById('heroLikeCount');
+  const heroShareBtn = document.getElementById('heroShareBtn');
+  let heroLikeKey = '';
+
+  function renderHeroLikeButton(){
+    heroLikeBtn.classList.toggle('liked', likedByCurrentUser(heroLikeKey));
+    heroLikeCountEl.textContent = formatLikeCount(likeDisplayCount(heroLikeKey));
+  }
+
+  function renderHeroSocial(){
+    const m = matchups[activeIdx];
+    if (!m) return;
+    heroLikeKey = 'matchup:' + matchupPairKey(m);
+    // Seed a starting count from vote totals so a popular matchup doesn't
+    // just show "0" before its like doc exists — this is cosmetic only,
+    // it's never written to Firestore and never counts as a "like" from
+    // any account.
+    if (!(heroLikeKey in baseSeedCounts)) {
+      baseSeedCounts[heroLikeKey] = Math.round((m.votesA + m.votesB) * 0.08);
+    }
+    likeRenderers[heroLikeKey] = renderHeroLikeButton;
+    renderHeroLikeButton();
+    // IMPORTANT: comments are keyed by the matchup's real Firestore doc id
+    // (m.docId), NOT heroLikeKey — heroLikeKey is a composite
+    // "matchup:<pairKey>" string used only for the separate likes/
+    // subsystem. /api/comment looks the matchup up by doc(db,'matchups')
+    // .doc(matchupId), so passing heroLikeKey there always 404'd
+    // ("Matchup not found"), which is why comments were failing and
+    // the +5 comment XP was never actually being awarded.
+    wireHeroComments(m.docId || '');
+  }
+
+  heroLikeBtn.addEventListener('click', () => toggleLike(heroLikeKey));
+
+  let heroCardBusy = false;
+  heroShareBtn.addEventListener('click', async () => {
+    const m = matchups[activeIdx];
+    if (!m || heroCardBusy) return;
+    heroCardBusy = true;
+    const originalLabel = heroShareBtn.querySelector('span:last-child').textContent;
+    heroShareBtn.querySelector('span:last-child').textContent = '…';
+    try {
+      const url = buildShareUrl('matchup', matchupPairKey(m));
+      const canvas = await buildMatchupBattleCard(m, url);
+      await shareOrDownloadCard(canvas, {
+        filename: `fictionclash-${m.a.name}-vs-${m.b.name}.png`.toLowerCase().replace(/[^a-z0-9.]+/g, '-'),
+        title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
+        text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
+        url,
+        onShared: () => awardShareXp('matchup', matchupPairKey(m))
+      });
+    } catch (err) {
+      console.error('Battle card share failed', err);
+      // Never leave the user with nothing to share — fall back to the
+      // plain link if the canvas/image pipeline throws for any reason.
+      shareLink({
+        title: `${m.a.name} vs ${m.b.name} — Fiction Clash`,
+        text: `Who actually wins: ${m.a.name} or ${m.b.name}? Cast your vote on Fiction Clash.`,
+        url: buildShareUrl('matchup', matchupPairKey(m)),
+        onShared: () => awardShareXp('matchup', matchupPairKey(m))
+      });
+    } finally {
+      heroShareBtn.querySelector('span:last-child').textContent = originalLabel;
+      heroCardBusy = false;
+    }
+  });
+
+  // ---------- hero card comments ----------
+  // Deliberately a FLAT top-level collection ('matchupComments' with a
+  // matchupId field) instead of a subcollection nested under each matchup
+  // doc. Matchups get cleared out periodically straight from the Firestore
+  // console — a flat collection means that cleanup is one filtered
+  // query (matchupId == ...) in the console, instead of having to open
+  // each matchup doc individually to find and clear its own subcollection.
+  // Comments left behind after a matchup is cleared are otherwise orphaned
+  // data that still costs reads/storage even though nothing shows them.
+  const heroCommentsList = document.getElementById('heroCommentsList');
+  const heroCommentForm = document.getElementById('heroCommentForm');
+  const heroCommentInput = document.getElementById('heroCommentInput');
+  let heroCommentsUnsubscribe = null;
+  let heroCommentsMatchupId = '';
+  // Only the last 2 comments render inline on the hero card — this object
+  // is the "thread" handed to the shared see-all sheet (see
+  // renderCommentsPreview / openCommentsModal below), which keeps the full
+  // list and knows how to post back to /api/comment.
+  const heroCommentsThread = { type: 'hero', commentsFor: '', label: 'All comments on this matchup.', docs: [], form: heroCommentForm };
+
+  function wireHeroComments(matchupId){
+    if (matchupId === heroCommentsMatchupId) return; // already watching this matchup — avoid re-subscribing
+    if (heroCommentsUnsubscribe) { heroCommentsUnsubscribe(); heroCommentsUnsubscribe = null; }
+    heroCommentsMatchupId = matchupId;
+    heroCommentsThread.commentsFor = matchupId;
+    // Genuinely a different thread (new matchup) — a full teardown is
+    // correct here, unlike the snapshot-driven re-renders further down
+    // (see reconcileKeyedList), but still needs to stop any running
+    // particle-effect canvases before their elements go, and drop the
+    // stale keyed-element map so the next renderCommentsPreview() call
+    // for this list starts from a clean slate instead of holding
+    // references to elements that no longer exist.
+    deactivateCanvasFx(heroCommentsList);
+    heroCommentsList.innerHTML = '';
+    heroCommentsList._keyedEls = null;
+    heroCommentsList.classList.remove('scrollable');
+    if (!matchupId) return;
+    // Deliberately NOT combining where() + orderBy() in the same query —
+    // that combination requires a composite index to be created in the
+    // Firestore console first, and without it Firestore just fails the
+    // listener silently (comments post fine, but never render). Filtering
+    // by matchupId alone needs no extra index; comments are re-sorted by
+    // createdAt here instead, which is trivial for a single matchup's
+    // comment count.
+    heroCommentsUnsubscribe = onSnapshot(
+      query(collection(db, 'matchupComments'), where('matchupId', '==', matchupId)),
+      snapshot => {
+        const docs = snapshot.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
+        renderCommentsPreview(heroCommentsList, docs, heroCommentsThread);
+      },
+      err => {
+        console.error('Matchup comments listener failed', err);
+        showToast('Could not load comments — try again');
+      }
+    );
+  }
+
+  // Shared by the hero card's own form and the "see all" sheet when it's
+  // open on this matchup's thread.
+  async function postHeroComment(text, sourceForm){
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to comment'); return; }
+    const matchupId = heroCommentsMatchupId;
+    const replyTarget = sourceForm?._replyTarget || null;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ matchupId, text, replyTo: replyTarget }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Comment failed');
+      setReplyTarget(sourceForm, null);
+      currentUserXp += 10;
+      currentUserWeeklyXp += 10;
+      renderVerifiedProgress();
+      showXpToast(data.xpAwarded, data.rank);
+    } catch (err) {
+      console.error('Matchup comment post failed', err);
+      showToast('Could not post comment — try again');
+      throw err;
+    }
+  }
+
+  heroCommentForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const text = heroCommentInput.value.trim();
+    if (!text) return;
+    heroCommentInput.value = '';
+    postHeroComment(text, heroCommentForm).catch(() => { heroCommentInput.value = text; });
+  });
+
+  const heroDeleteBtn = document.getElementById('heroDeleteBtn');
+  heroDeleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const idx = activeIdx;
+    const m = matchups[idx];
+    if (!m || matchups.length <= 1) return; // keep at least one matchup visible
+    if (isAdmin() && m.docId) {
+      // Admin account, community matchup — this actually deletes the doc
+      // from Firestore, so it disappears for every visitor, not just this browser.
+      if (!confirm(`Delete ${m.a.name} vs ${m.b.name} for everyone? This can't be undone.`)) return;
+      deleteDoc(doc(db, 'matchups', m.docId)).catch(err => {
+        console.error('Delete failed', err);
+        showToast('Could not delete — try again');
+      });
+      // The list/hero update themselves when the onSnapshot 'removed' event arrives.
+      return;
+    }
+    if (isAdmin() && !m.docId) {
+      // Admin account, built-in matchup — there's no Firestore doc to
+      // delete (it's hardcoded in the app), so instead its key gets added
+      // to the shared hiddenBuiltins doc. Every client, including this
+      // one, is listening to that doc and will filter it out — a real
+      // delete-for-everyone, not just a local hide.
+      if (!confirm(`Remove ${m.a.name} vs ${m.b.name} for everyone? This is a built-in matchup, so it'll be hidden from all users everywhere, not just this device. This can't be undone.`)) return;
+      setDoc(doc(db, 'appConfig', 'hiddenBuiltins'), { matchupKeys: arrayUnion(matchupPairKey(m)) }, { merge: true }).catch(err => {
+        console.error('Global hide failed', err);
+        showToast('Could not remove — try again');
+      });
+      // The list/hero update themselves once the hiddenBuiltins listener picks this up.
+      return;
+    }
+    if (!confirm(`Hide ${m.a.name} vs ${m.b.name} from your feed? It'll stay visible to everyone else — you just won't see it on this device unless you clear your browser data.`)) return;
+    // This only affects what renders on this browser — the Firestore doc
+    // (if any) is never touched, so nothing changes for anyone else.
+    hideMatchupLocally(m);
+    matchups.splice(idx, 1);
+    activeIdx = Math.min(idx, matchups.length - 1);
+    renderTrendScroll();
+    renderHero();
+    showToast('Hidden from your feed');
+  });
+
+
+  // ---------- per-character decoration picker (personal skin, per matchup) ----------
+  const heroDecorateBtn = document.getElementById('heroDecorateBtn');
+  const heroDecorateOverlay = document.getElementById('heroDecorateOverlay');
+  const heroDecorateClose = document.getElementById('heroDecorateClose');
+  const heroDecorateNameA = document.getElementById('heroDecorateNameA');
+  const heroDecorateNameB = document.getElementById('heroDecorateNameB');
+  const heroDecorateGridA = document.getElementById('heroDecorateGridA');
+  const heroDecorateGridB = document.getElementById('heroDecorateGridB');
+
+  function heroDecorateSwatchInner(id){
+    if (id === 'none') return '—';
+    if (id === null) return '✦';
+    return profileDecorationMarkup(id);
+  }
+
+  function renderHeroDecorateGrid(gridEl, name, version){
+    const key = avatarOverrideKey(name, version);
+    const current = Object.prototype.hasOwnProperty.call(characterDecorations, key) ? characterDecorations[key] : null;
+    const options = [
+      { id: null, label: 'Default' },
+      { id: 'none', label: 'None' },
+      ...unlockedDecorations.map(id => ({ id, label: decorationById(id)?.name || id }))
+    ];
+    gridEl.innerHTML = options.map(opt => `
+      <div class="hero-decorate-item${current === opt.id ? ' selected' : ''}" data-deco-id="${opt.id === null ? '' : opt.id}">
+        <div class="hero-decorate-swatch">${heroDecorateSwatchInner(opt.id)}</div>
+        <div class="hero-decorate-label">${escapeHtml(opt.label)}</div>
+      </div>`).join('')
+      + (unlockedDecorations.length === 0 ? `<div class="hero-decorate-empty-hint">Redeem decorations in the Avatar Store to add more options here.</div>` : '');
+    gridEl.querySelectorAll('[data-deco-id]').forEach(item => {
+      item.addEventListener('click', () => {
+        const raw = item.dataset.decoId;
+        setCharacterDecoration(name, version, raw === '' ? null : raw);
+      });
+    });
+  }
+
+  async function setCharacterDecoration(name, version, decorationId){
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to customize character decorations'); return; }
+    const key = avatarOverrideKey(name, version);
+    const next = { ...characterDecorations };
+    if (decorationId === null) delete next[key]; else next[key] = decorationId;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { characterDecorations: next });
+      characterDecorations = next;
+      renderHeroCharacterCosmetics();
+      renderHeroDecorateGrid(heroDecorateGridA, matchups[activeIdx].a.name, matchups[activeIdx].a.version);
+      renderHeroDecorateGrid(heroDecorateGridB, matchups[activeIdx].b.name, matchups[activeIdx].b.version);
+    } catch (err) {
+      console.error('Character decoration save failed', err);
+      showToast('Could not save — try again');
+    }
+  }
+
+  function openHeroDecorateModal(){
+    if (!auth.currentUser) { requireSignIn('Sign in to customize character decorations'); return; }
+    const m = matchups[activeIdx];
+    if (!m) return;
+    heroDecorateNameA.textContent = m.a.name;
+    heroDecorateNameB.textContent = m.b.name;
+    renderHeroDecorateGrid(heroDecorateGridA, m.a.name, m.a.version);
+    renderHeroDecorateGrid(heroDecorateGridB, m.b.name, m.b.version);
+    heroDecorateOverlay.classList.add('show');
+  }
+  heroDecorateBtn.addEventListener('click', (e) => { e.stopPropagation(); openHeroDecorateModal(); });
+  heroDecorateClose.addEventListener('click', () => heroDecorateOverlay.classList.remove('show'));
+  heroDecorateOverlay.addEventListener('click', (e) => { if (e.target === heroDecorateOverlay) heroDecorateOverlay.classList.remove('show'); });
+
+  // ---------- per-character avatar upload ----------
+  const heroAvatarEditA = document.getElementById('heroAvatarEditA');
+  const heroAvatarEditB = document.getElementById('heroAvatarEditB');
+  const charAvatarFile = document.getElementById('charAvatarFile');
+  let pendingAvatarChar = null; // { name, version } — which character the next file picked applies to
+
+  function openCharAvatarUpload(side){
+    const m = matchups[activeIdx];
+    if (!m) return;
+    const char = side === 'a' ? m.a : m.b;
+    pendingAvatarChar = { name: char.name, version: char.version };
+    // Gate every upload behind the consent modal instead of opening the
+    // file picker directly — this is what makes the checkbox agreement
+    // active/per-upload rather than a passive footer link nobody reads.
+    avatarConsentCheck.checked = false;
+    avatarConsentOverlay.classList.add('show');
+  }
+  heroAvatarEditA.addEventListener('click', (e) => { e.stopPropagation(); openCharAvatarUpload('a'); });
+  heroAvatarEditB.addEventListener('click', (e) => { e.stopPropagation(); openCharAvatarUpload('b'); });
+
+  // ---------- upload consent modal ----------
+  const avatarConsentOverlay = document.getElementById('avatarConsentOverlay');
+  const avatarConsentCheck = document.getElementById('avatarConsentCheck');
+  const avatarConsentSubmit = document.getElementById('avatarConsentSubmit');
+  const avatarConsentCancel = document.getElementById('avatarConsentCancel');
+  avatarConsentSubmit.addEventListener('click', () => {
+    if (!avatarConsentCheck.checked) {
+      showToast('Please confirm the box before uploading');
+      return;
+    }
+    avatarConsentOverlay.classList.remove('show');
+    charAvatarFile.click();
+  });
+  avatarConsentCancel.addEventListener('click', () => {
+    avatarConsentOverlay.classList.remove('show');
+    pendingAvatarChar = null;
+  });
+  avatarConsentOverlay.addEventListener('click', (e) => {
+    if (e.target === avatarConsentOverlay) { avatarConsentOverlay.classList.remove('show'); pendingAvatarChar = null; }
+  });
+
+  // ---------- content policy modal ----------
+  const contentPolicyOverlay = document.getElementById('contentPolicyOverlay');
+  function openContentPolicy(){ contentPolicyOverlay.classList.add('show'); }
+  document.getElementById('openContentPolicyBtn').addEventListener('click', openContentPolicy);
+  document.getElementById('openPolicyFromConsent').addEventListener('click', (e) => { e.preventDefault(); openContentPolicy(); });
+  document.getElementById('contentPolicyClose').addEventListener('click', () => contentPolicyOverlay.classList.remove('show'));
+  contentPolicyOverlay.addEventListener('click', (e) => { if (e.target === contentPolicyOverlay) contentPolicyOverlay.classList.remove('show'); });
+
+  // ---------- cookie policy modal + consent banner ----------
+  const cookieBanner = document.getElementById('cookieBanner');
+  const cookiePolicyOverlay = document.getElementById('cookiePolicyOverlay');
+  const cookiePolicyStatus = document.getElementById('cookiePolicyStatus');
+  function renderCookiePolicyStatus(){
+    const c = getCookieConsent();
+    cookiePolicyStatus.textContent = c === 'accepted'
+      ? 'Your current choice: accepted all storage.'
+      : c === 'rejected'
+        ? 'Your current choice: essential storage only.'
+        : "You haven't made a choice yet.";
+  }
+  function openCookiePolicy(){ renderCookiePolicyStatus(); cookiePolicyOverlay.classList.add('show'); }
+  document.getElementById('openCookiePolicyBtn').addEventListener('click', openCookiePolicy);
+  document.getElementById('cookieBannerPolicyLink').addEventListener('click', (e) => { e.preventDefault(); openCookiePolicy(); });
+  document.getElementById('cookiePolicyClose').addEventListener('click', () => cookiePolicyOverlay.classList.remove('show'));
+  cookiePolicyOverlay.addEventListener('click', (e) => { if (e.target === cookiePolicyOverlay) cookiePolicyOverlay.classList.remove('show'); });
+  document.getElementById('cookieAcceptBtn').addEventListener('click', () => applyCookieConsentChoice('accepted'));
+  document.getElementById('cookieRejectBtn').addEventListener('click', () => applyCookieConsentChoice('rejected'));
+  document.getElementById('cookiePolicyAccept').addEventListener('click', () => applyCookieConsentChoice('accepted'));
+  document.getElementById('cookiePolicyReject').addEventListener('click', () => applyCookieConsentChoice('rejected'));
+  // Shown once per browser until a choice is made either way — same "never
+  // block browsing" spirit as the first-visit intro overlay just below.
+  if (!getCookieConsent()) cookieBanner.hidden = false;
+
+
+  // ---------- report a picture ----------
+  const reportAvatarOverlay = document.getElementById('reportAvatarOverlay');
+  const reportReasonRow = document.getElementById('reportReasonRow');
+  const reportAvatarSubmit = document.getElementById('reportAvatarSubmit');
+  const reportAvatarClose = document.getElementById('reportAvatarClose');
+  let pendingReportChar = null; // { name, version, key }
+  let selectedReportReason = null;
+
+  function openReportAvatar(side){
+    const m = matchups[activeIdx];
+    if (!m) return;
+    const char = side === 'a' ? m.a : m.b;
+    pendingReportChar = { name: char.name, version: char.version, key: avatarOverrideKey(char.name, char.version) };
+    selectedReportReason = null;
+    reportReasonRow.querySelectorAll('.report-reason-btn').forEach(btn => btn.classList.remove('selected'));
+    document.getElementById('reportAvatarSub').textContent = `Reporting the picture for ${char.name}`;
+    reportAvatarOverlay.classList.add('show');
+  }
+  heroAvatarReportA.addEventListener('click', (e) => { e.stopPropagation(); openReportAvatar('a'); });
+  heroAvatarReportB.addEventListener('click', (e) => { e.stopPropagation(); openReportAvatar('b'); });
+
+  reportReasonRow.addEventListener('click', (e) => {
+    const btn = e.target.closest('.report-reason-btn');
+    if (!btn) return;
+    reportReasonRow.querySelectorAll('.report-reason-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedReportReason = btn.dataset.reason;
+  });
+
+  reportAvatarSubmit.addEventListener('click', () => {
+    if (!pendingReportChar) return;
+    if (!selectedReportReason) { showToast('Pick a reason first'); return; }
+    const { name, version, key } = pendingReportChar;
+    const avatarDocId = safeId(key);
+    withSpinner(reportAvatarSubmit, 'SUBMIT REPORT', () => {
+      // Log the report for the admin queue, and bump the counter on the
+      // avatar doc itself — the onSnapshot listener above auto-hides it
+      // everywhere once that counter crosses the threshold.
+      return Promise.all([
+        addDoc(collection(db, 'avatarReports'), {
+          avatarKey: key, name, version: version || '', reason: selectedReportReason,
+          reporterUid: (auth.currentUser && auth.currentUser.uid) || 'anonymous',
+          createdAt: serverTimestamp()
+        }),
+        updateDoc(doc(db, 'characterAvatars', avatarDocId), { reportCount: increment(1) }).catch(() => {})
+      ]).then(() => {
+        reportAvatarOverlay.classList.remove('show');
+        pendingReportChar = null;
+        showToast('Thanks — we\'ll review this picture');
+      }).catch(err => {
+        console.error('Report failed', err);
+        showToast('Could not submit the report — try again');
+      });
+    }, 0);
+  });
+  reportAvatarClose.addEventListener('click', () => { reportAvatarOverlay.classList.remove('show'); pendingReportChar = null; });
+  reportAvatarOverlay.addEventListener('click', (e) => { if (e.target === reportAvatarOverlay) { reportAvatarOverlay.classList.remove('show'); pendingReportChar = null; } });
+
+  // ---------- admin: review flagged pictures ----------
+  const adminReportsCard = document.getElementById('adminReportsCard');
+  const adminReportsList = document.getElementById('adminReportsList');
+  function renderAdminReports(snapshot){
+    if (!isAdmin()) { adminReportsCard.classList.add('hidden'); return; }
+    const flagged = [];
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      if ((data.reportCount || 0) > 0) flagged.push({ id: docSnap.id, ...data });
+    });
+    adminReportsCard.classList.toggle('hidden', flagged.length === 0);
+    adminReportsList.innerHTML = flagged.map(item => `
+      <div class="admin-report-row" data-doc-id="${item.id}">
+        <img src="${item.url}" alt="${escapeHtml(item.name)}">
+        <div class="admin-report-info">
+          <b>${escapeHtml(item.name)}${item.version ? ` (${escapeHtml(item.version)})` : ''}</b>
+          <span>${item.reportCount} report${item.reportCount === 1 ? '' : 's'}${item.hidden ? ' · hidden' : ''}</span>
+        </div>
+        <div class="admin-report-actions">
+          <button data-action="dismiss">Dismiss</button>
+          <button data-action="remove" class="danger">Remove</button>
+        </div>
+      </div>`).join('');
+  }
+  adminReportsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const row = btn.closest('.admin-report-row');
+    const docId = row.dataset.docId;
+    if (btn.dataset.action === 'remove') {
+      // Rights-holder-style takedown: delete the picture doc entirely so
+      // it falls back to the placeholder avatar for everyone.
+      deleteDoc(doc(db, 'characterAvatars', docId)).catch(err => console.error('Avatar removal failed', err));
+    } else {
+      // False alarm — clear the report count so it stops showing as flagged.
+      updateDoc(doc(db, 'characterAvatars', docId), { reportCount: 0, hidden: false }).catch(err => console.error('Dismiss failed', err));
+    }
+  });
+
+  // ---------- admin: review pending matchups & clips ----------
+  const adminModerationCard = document.getElementById('adminModerationCard');
+  const pendingMatchupsList = document.getElementById('pendingMatchupsList');
+  const pendingClipsList = document.getElementById('pendingClipsList');
+  function updateModerationCardVisibility(){
+    adminModerationCard.classList.toggle('hidden', !isAdmin());
+  }
+  function renderPendingMatchups(snapshot){
+    updateModerationCardVisibility();
+    const rows = [];
+    snapshot.forEach(docSnap => rows.push({ id: docSnap.id, ...docSnap.data() }));
+    pendingMatchupsList.innerHTML = rows.length ? rows.map(item => `
+      <div class="admin-report-row" data-doc-id="${item.id}" data-push-title="New matchup" data-push-body="${escapeHtml(item.a.name)} vs ${escapeHtml(item.b.name)}">
+        <div class="admin-report-info">
+          <b>${escapeHtml(charLabel(item.a))} vs ${escapeHtml(charLabel(item.b))}</b>
+          <span>submitted by ${escapeHtml(item.submittedByName || 'unknown')}</span>
+        </div>
+        <div class="admin-report-actions">
+          <button data-action="reject" class="danger">Reject</button>
+          <button data-action="approve">Approve</button>
+        </div>
+      </div>`).join('') : `<p style="font-size:11px;color:var(--muted);">Nothing pending.</p>`;
+  }
+  function renderPendingClips(snapshot){
+    updateModerationCardVisibility();
+    const rows = [];
+    snapshot.forEach(docSnap => rows.push({ id: docSnap.id, ...docSnap.data() }));
+    pendingClipsList.innerHTML = rows.length ? rows.map(item => `
+      <div class="admin-report-row" data-doc-id="${item.id}" data-push-title="New clip posted" data-push-body="${escapeHtml(item.title || 'A new clip')}">
+        <div class="admin-report-info">
+          <b>${escapeHtml(item.title)}</b>
+          <span>by ${escapeHtml(item.postedByName || 'unknown')} · ${escapeHtml(item.videoPlatform)}</span>
+        </div>
+        <div class="admin-report-actions">
+          <button data-action="reject" class="danger">Reject</button>
+          <button data-action="approve">Approve</button>
+        </div>
+      </div>`).join('') : `<p style="font-size:11px;color:var(--muted);">Nothing pending.</p>`;
+  }
+  // Approve/reject both go through /api/moderate (Admin SDK) rather than
+  // touching Firestore directly — the client can't write to `matchups` or
+  // `movieClips` at all anymore (see rules), and can't be trusted to
+  // delete its own way out of the pending queue either, since anyone with
+  // devtools open could otherwise "moderate" their own submission in.
+  async function moderatePending(type, pendingId, action, btn, pushTitle, pushBody){
+    const user = auth.currentUser;
+    if (!user) return;
+    btn.disabled = true;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/moderate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ type, pendingId, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Moderation action failed');
+      // The admin's own click is the one and only place a real device push
+      // should fire for this matchup/clip — this runs once, right here,
+      // never from the `matchups`/`movieClips` onSnapshot listeners (those
+      // fire in every connected visitor's browser and only drive the
+      // in-app bell via pushNotification()).
+      if (action === 'approve' && pushTitle) sendOneSignalPush(pushTitle, pushBody);
+    } catch (err) {
+      console.error('Moderation action failed', err);
+      showToast('Could not complete that action — try again');
+      btn.disabled = false;
+    }
+  }
+  pendingMatchupsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const row = btn.closest('.admin-report-row');
+    moderatePending('matchup', row.dataset.docId, btn.dataset.action, btn, row.dataset.pushTitle, row.dataset.pushBody);
+  });
+  pendingClipsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const row = btn.closest('.admin-report-row');
+    moderatePending('clip', row.dataset.docId, btn.dataset.action, btn, row.dataset.pushTitle, row.dataset.pushBody);
+  });
+  let unsubPendingMatchups = null;
+  let unsubPendingClips = null;
+  // Only the admin account can ever read these collections (see rules) —
+  // an unfiltered query from anyone else would get rejected outright,
+  // since Firestore can't guarantee a per-document "is this my own
+  // submission" rule holds across a whole collection listener. So these
+  // listeners are only ever attached for the admin account, from
+  // onAuthStateChanged below, and detached the moment that's no longer true.
+  function refreshModerationListeners(){
+    if (unsubPendingMatchups) { unsubPendingMatchups(); unsubPendingMatchups = null; }
+    if (unsubPendingClips) { unsubPendingClips(); unsubPendingClips = null; }
+    updateSeasonCardVisibility();
+    if (typeof updateMatchupCategoryCardVisibility === 'function') updateMatchupCategoryCardVisibility();
+    if (typeof renderMatchupCategoryList === 'function') renderMatchupCategoryList();
+    if (!isAdmin()) { updateModerationCardVisibility(); return; }
+    unsubPendingMatchups = onSnapshot(query(collection(db, 'pendingMatchups'), orderBy('createdAt', 'asc')), renderPendingMatchups, err => console.error('Pending matchups listener failed', err));
+    unsubPendingClips = onSnapshot(query(collection(db, 'pendingClips'), orderBy('createdAt', 'asc')), renderPendingClips, err => console.error('Pending clips listener failed', err));
+  }
+
+  charAvatarFile.addEventListener('change', () => {
+    const file = charAvatarFile.files[0];
+    if (!file || !pendingAvatarChar) { charAvatarFile.value = ''; return; }
+    if (!file.type.startsWith('image/')) {
+      showToast('Please choose an image file');
+      charAvatarFile.value = '';
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      showToast('Image must be under 4MB');
+      charAvatarFile.value = '';
+      return;
+    }
+    const { name, version } = pendingAvatarChar;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCharacterAvatarOverride(name, version, reader.result, file);
+      charAvatarFile.value = '';
+      pendingAvatarChar = null;
+      renderHero(); // picks up the new picture immediately for this matchup
+      showToast(`Picture saved for ${name}`);
+    };
+    reader.onerror = () => {
+      showToast('Could not read that image');
+      charAvatarFile.value = '';
+      pendingAvatarChar = null;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  aiStatsButton.addEventListener('click', () => {
+    heroAnalyzing = true; // pause auto-rotate for as long as they're looking at this breakdown
+    scheduleHeroRotate(); // clears the pending rotation (no-ops the reschedule, since heroAnalyzing is now true)
+    withSpinner(aiStatsButton, 'THINKING…', async () => {
+      const m = matchups[activeIdx];
+      const labelA = charLabel(m.a);
+      const labelB = charLabel(m.b);
+      const data = await fetchCharacterAnalysis([labelA, labelB]);
+      const entryA = data && data.characters && (data.characters[labelA] || data.characters[m.a.name]);
+      const entryB = data && data.characters && (data.characters[labelB] || data.characters[m.b.name]);
+      const statsA = entryA
+        ? [clampStat(entryA.strength), clampStat(entryA.speed), clampStat(entryA.durability), clampStat(entryA.battleIQ)]
+        : (aiStatsProfiles[m.a.name] || [70,70,70,70]);
+      const statsB = entryB
+        ? [clampStat(entryB.strength), clampStat(entryB.speed), clampStat(entryB.durability), clampStat(entryB.battleIQ)]
+        : (aiStatsProfiles[m.b.name] || [70,70,70,70]);
+      const labels = ['Strength', 'Speed', 'Durability', 'Battle IQ'];
+      const bars = labels.map((label, index) => `
+        <div class="ai-stat-row">
+          <span>${label}</span>
+          <div class="ai-stat-track">
+            <div class="ai-stat-fill-a" style="width:${statsA[index]}%"></div>
+            <div class="ai-stat-fill-b" style="width:${statsB[index]}%"></div>
+          </div>
+          <span>${statsA[index]} · ${statsB[index]}</span>
+        </div>`).join('');
+      const verdict = data && data.verdict
+        ? escapeHtml(data.verdict)
+        : (() => {
+            const avgA = Math.round(statsA.reduce((sum, v) => sum + v, 0) / statsA.length);
+            const avgB = Math.round(statsB.reduce((sum, v) => sum + v, 0) / statsB.length);
+            return avgA === avgB ? 'This matchup is too close to call.' : `${avgA > avgB ? labelA : labelB} has the higher overall stat profile.`;
+          })();
+      const analysisA = entryA && entryA.analysis ? `<p><b>${escapeHtml(labelA)}:</b> ${escapeHtml(entryA.analysis)}</p>` : '';
+      const analysisB = entryB && entryB.analysis ? `<p><b>${escapeHtml(labelB)}:</b> ${escapeHtml(entryB.analysis)}</p>` : '';
+      aiStatsResult.innerHTML = `<strong>${escapeHtml(labelA)} vs ${escapeHtml(labelB)}</strong>${verdict}<div class="ai-stat-bars">${bars}</div>${analysisA}${analysisB}`;
+      showToast(data ? 'AI stats generated' : 'AI unavailable — showing saved ratings');
+    });
+  });
+
+  function updatePercentages(){
+    const m = matchups[activeIdx];
+    const total = m.votesA + m.votesB;
+    heroVoteCount.textContent = total.toLocaleString();
+    const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
+    const pctB = 100 - pctA;
+    voteBar.style.width = pctA + '%';
+    votePctA.textContent = `${pctA}% ${m.a.name.split(' ')[0]}`;
+    votePctB.textContent = `${pctB}% ${m.b.name.split(' ')[0]}`;
+  }
+
+  async function castVote(side){
+    const m = matchups[activeIdx];
+    const key = votedStateKey(m);
+    if (votedState[key]) return; // already voted on this matchup
+
+    if (m.docId) {
+      // Community matchup — server-authoritative vote via /api/vote.
+      // The backend verifies the user's identity, blocks duplicate
+      // votes, and is the only thing allowed to write votesA/votesB
+      // in Firestore (see security rules), so we never trust a
+      // client-side increment here.
+      const user = auth.currentUser;
+      if (!user) { showToast('Please sign in to vote'); return; }
+
+      // Lock the UI immediately so a double-tap can't fire two requests
+      // while we wait on the network.
+      votedState[key] = side;
+      localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+      voteRow.classList.add('voted');
+      voteBtnA.classList.toggle('picked', side === 'a');
+      voteBtnB.classList.toggle('picked', side === 'b');
+
+      try {
+        const idToken = await user.getIdToken();
+        const res = await fetch('/api/vote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+          body: JSON.stringify({ matchupId: m.docId, choice: side }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          // Rejected (already voted, clash ended, etc.) — undo the local lock.
+          delete votedState[key];
+          localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+          voteRow.classList.remove('voted');
+          voteBtnA.classList.remove('picked');
+          voteBtnB.classList.remove('picked');
+          showToast(data.error || 'Vote failed, please try again');
+          return;
+        }
+        m.votesA = data.votesA;
+        m.votesB = data.votesB;
+        // Optimistic local bump so the progress bar feels live — the
+        // server awarded the real +5 XP already; this just avoids
+        // waiting on a full profile reload to reflect it here.
+        currentUserXp += 5;
+        currentUserWeeklyXp += 5;
+        renderVerifiedProgress();
+        showXpToast(data.xpAwarded, data.rank);
+      } catch (err) {
+        console.error('Vote sync failed', err);
+        delete votedState[key];
+        localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+        voteRow.classList.remove('voted');
+        voteBtnA.classList.remove('picked');
+        voteBtnB.classList.remove('picked');
+        showToast('Vote failed, check your connection and try again');
+        return;
+      }
+    } else {
+      // Built-in matchup — no Firestore doc, so remember the extra vote
+      // in this browser's localStorage or it'd be lost on refresh.
+      if (side === 'a') m.votesA++; else m.votesB++;
+      votedState[key] = side;
+      localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+      const delta = voteDeltas[key] || { a: 0, b: 0 };
+      delta[side]++;
+      voteDeltas[key] = delta;
+      localStorage.setItem(VOTE_DELTA_KEY, JSON.stringify(voteDeltas));
+      voteRow.classList.add('voted');
+      voteBtnA.classList.toggle('picked', side === 'a');
+      voteBtnB.classList.toggle('picked', side === 'b');
+    }
+
+    updatePercentages();
+    const pickedName = side === 'a' ? m.a.name.split(' ')[0] : m.b.name.split(' ')[0];
+    showToast(`Vote locked in for ${pickedName}`);
+  }
+
+  voteBtnA.addEventListener('click', () => castVote('a'));
+  voteBtnB.addEventListener('click', () => castVote('b'));
+
+  // ---------- quick action: vote now ----------
+  document.getElementById('qaVote').addEventListener('click', () => {
+    const heroCard = document.getElementById('heroCard');
+    heroCard.scrollIntoView({ behavior:'smooth', block:'center' });
+    heroCard.classList.remove('pulse');
+    void heroCard.offsetWidth; // restart animation if clicked again quickly
+    heroCard.classList.add('pulse');
+  });
+
+  // ---------- quick action: compare characters ----------
+  const compareOverlay = document.getElementById('compareOverlay');
+  const compareCharA = document.getElementById('compareCharA');
+  const compareCharB = document.getElementById('compareCharB');
+  const compareSubmit = document.getElementById('compareSubmit');
+  const compareResult = document.getElementById('compareResult');
+  const compareClose = document.getElementById('compareClose');
+  const rosterNames = Object.keys(aiStatsProfiles).sort();
+
+  function initialsFor(name){
+    return name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase();
+  }
+
+  document.getElementById('qaCompare').addEventListener('click', () => {
+    compareCharA.value = '';
+    compareCharB.value = '';
+    compareResult.hidden = true;
+    compareOverlay.classList.add('show');
+  });
+  compareClose.addEventListener('click', () => compareOverlay.classList.remove('show'));
+  compareOverlay.addEventListener('click', event => {
+    if (event.target === compareOverlay) compareOverlay.classList.remove('show');
+  });
+
+  compareSubmit.addEventListener('click', () => {
+    const nameA = compareCharA.value.trim();
+    const nameB = compareCharB.value.trim();
+    if (!nameA || !nameB) {
+      showToast('Enter both characters');
+      return;
+    }
+    if (nameA.toLowerCase() === nameB.toLowerCase()) {
+      showToast('Pick two different characters');
+      return;
+    }
+    withSpinner(compareSubmit, 'COMPARING…', async () => {
+      const data = await fetchCharacterAnalysis([nameA, nameB]);
+      const entryA = data && data.characters && data.characters[nameA];
+      const entryB = data && data.characters && data.characters[nameB];
+      const statsA = entryA
+        ? [clampStat(entryA.strength), clampStat(entryA.speed), clampStat(entryA.durability), clampStat(entryA.battleIQ)]
+        : (aiStatsProfiles[nameA] || [70,70,70,70]);
+      const statsB = entryB
+        ? [clampStat(entryB.strength), clampStat(entryB.speed), clampStat(entryB.durability), clampStat(entryB.battleIQ)]
+        : (aiStatsProfiles[nameB] || [70,70,70,70]);
+      const labels = ['Strength', 'Speed', 'Durability', 'Battle IQ'];
+      const bars = labels.map((label, i) => `
+        <div class="ai-stat-row">
+          <span>${label}</span>
+          <div class="ai-stat-track">
+            <div class="ai-stat-fill-a" style="width:${statsA[i]}%"></div>
+            <div class="ai-stat-fill-b" style="width:${statsB[i]}%"></div>
+          </div>
+          <span>${statsA[i]} · ${statsB[i]}</span>
+        </div>`).join('');
+      let note;
+      if (data && data.verdict) {
+        note = escapeHtml(data.verdict);
+      } else {
+        const avgA = Math.round(statsA.reduce((sum, v) => sum + v, 0) / statsA.length);
+        const avgB = Math.round(statsB.reduce((sum, v) => sum + v, 0) / statsB.length);
+        const verdict = avgA === avgB ? 'This one is too close to call.' : `${avgA > avgB ? nameA : nameB} has the higher overall stat profile.`;
+        const knownA = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameA);
+        const knownB = Object.prototype.hasOwnProperty.call(aiStatsProfiles, nameB);
+        note = knownA && knownB
+          ? `${verdict} AI ratings are unavailable right now — showing saved baseline ratings instead.`
+          : `AI ratings are unavailable right now, and there's no saved profile yet for ${[!knownA ? nameA : null, !knownB ? nameB : null].filter(Boolean).join(' and ')} — showing a flat baseline. Try again in a moment.`;
+      }
+      const analysisA = entryA && entryA.analysis ? `<p><b>${escapeHtml(nameA)}:</b> ${escapeHtml(entryA.analysis)}</p>` : '';
+      const analysisB = entryB && entryB.analysis ? `<p><b>${escapeHtml(nameB)}:</b> ${escapeHtml(entryB.analysis)}</p>` : '';
+      compareResult.hidden = false;
+      compareResult.innerHTML = `
+        <div class="compare-heads">
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameA)}" src="${avatarUrl(nameA, initialsFor(nameA))}" alt=""><span>${escapeHtml(nameA)}</span></div>
+          <div class="compare-head"><img data-char-photo="${escapeHtml(nameB)}" src="${avatarUrl(nameB, initialsFor(nameB))}" alt=""><span>${escapeHtml(nameB)}</span></div>
+        </div>
+        <div class="ai-stat-bars">${bars}</div>
+        <div class="compare-verdict">${note}</div>${analysisA}${analysisB}`;
+      hydrateCharacterPhotos(compareResult);
+    }, 300);
+  });
+
+  // ---------- quick action: clash leaderboard ----------
+  const leaderboardOverlay = document.getElementById('leaderboardOverlay');
+  const leaderboardList = document.getElementById('leaderboardList');
+  const leaderboardClose = document.getElementById('leaderboardClose');
+  const yourRankCard = document.getElementById('yourRankCard');
+  const yourRankNum = document.getElementById('yourRankNum');
+  const yourRankName = document.getElementById('yourRankName');
+  const yourRankXp = document.getElementById('yourRankXp');
+  const yourRankGap = document.getElementById('yourRankGap');
+  const leaderboardTabWeekly = document.getElementById('leaderboardTabWeekly');
+  const leaderboardTabAllTime = document.getElementById('leaderboardTabAllTime');
+  const leaderboardTabSeason = document.getElementById('leaderboardTabSeason');
+  let activeLeaderboardField = 'weeklyXp'; // 'weeklyXp' (resets every Monday, see /api/reset-weekly-xp), 'xp' (lifetime), or 'seasonShards' (active season only)
+
+  // Display unit for a leaderboard field — everything's "XP" except the
+  // season currency, which shows its own season-specific label.
+  function leaderboardUnitLabel(field){
+    if (field === 'seasonShards') return (activeSeasonId && SEASONS[activeSeasonId]?.currencyLabel) || 'Shards';
+    return 'XP';
+  }
+
+  // Top players by the given field — `xp` (lifetime, awarded server-side
+  // via /api/vote, /api/comment, /api/like, /api/clip-comment) or
+  // `weeklyXp` (same awards, zeroed out every Monday). Firestore rules
+  // make users/{uid} publicly readable, so a straight orderBy desc query
+  // works without any extra grants.
+  async function fetchTopUsers(field){
+    const snap = await getDocs(
+      query(collection(db, 'users'), orderBy(field, 'desc'), limit(50))
+    );
+    return snap.docs
+      .map(d => ({ uid: d.id, ...d.data() }))
+      .filter(u => (u[field] || 0) > 0);
+  }
+
+  // Renders the "Your Rank" card at the top of the sheet. If the signed-in
+  // user is inside the fetched top 50 their position/value comes straight
+  // from that list; otherwise a single count query finds their real rank
+  // without having to fetch the whole collection. Also shows how much XP
+  // separates them from breaking into the top 10 (or from #1, if they're
+  // already there) — the "+45 XP to reach #10" hook.
+  async function renderYourRank(field, ranked){
+    const user = auth.currentUser;
+    if (!user) { yourRankCard.classList.add('hidden'); return; }
+
+    const myValue = field === 'xp' ? currentUserXp : field === 'seasonShards' ? seasonShards : currentUserWeeklyXp;
+    let rank;
+    const idx = ranked.findIndex(u => u.uid === user.uid);
+    if (idx !== -1) {
+      rank = idx + 1;
+    } else if (myValue > 0) {
+      try {
+        const aggSnap = await getCountFromServer(query(collection(db, 'users'), where(field, '>', myValue)));
+        rank = aggSnap.data().count + 1;
+      } catch (err) {
+        console.error('Your-rank lookup failed', err);
+        yourRankCard.classList.add('hidden');
+        return;
+      }
+    } else {
+      // No XP of this kind yet — nothing to rank.
+      yourRankCard.classList.add('hidden');
+      return;
+    }
+
+    const identity = currentUserIdentity();
+    yourRankCard.classList.remove('hidden');
+    yourRankNum.textContent = `#${rank}`;
+    yourRankName.textContent = (identity && identity.name) || 'You';
+    yourRankXp.textContent = `${myValue.toLocaleString()} ${leaderboardUnitLabel(field)}`;
+
+    if (rank <= 1) {
+      yourRankGap.textContent = "You're #1!";
+    } else if (rank <= 10) {
+      const topValue = ranked[0] ? (ranked[0][field] || 0) : myValue;
+      const gap = topValue - myValue;
+      yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} ${leaderboardUnitLabel(field)} to reach #1` : '';
+    } else if (ranked[9]) {
+      const gap = (ranked[9][field] || 0) - myValue + 1;
+      yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} ${leaderboardUnitLabel(field)} to reach #10` : '';
+    } else {
+      yourRankGap.textContent = '';
+    }
+  }
+
+  async function renderLeaderboard(){
+    const field = activeLeaderboardField;
+    let ranked;
+    try {
+      ranked = await fetchTopUsers(field);
+    } catch (err) {
+      console.error('Leaderboard fetch failed:', err);
+      leaderboardList.innerHTML = `<div class="leaderboard-loading">Couldn't load the leaderboard — try again in a moment.</div>`;
+      yourRankCard.classList.add('hidden');
+      return;
+    }
+
+    renderYourRank(field, ranked);
+
+    if (!ranked.length) {
+      leaderboardList.innerHTML = `<div class="leaderboard-loading">No ranked players yet — be the first to earn XP!</div>`;
+      return;
+    }
+
+    const medals = ['🥇','🥈','🥉'];
+    leaderboardList.innerHTML = ranked.map((entry, index) => `
+      <div class="leaderboard-row ${index < 3 ? 'top' + (index + 1) : ''}">
+        <div class="leaderboard-rank">${medals[index] || (index + 1)}</div>
+        <div class="leaderboard-avatar" data-uid="${escapeHtml(entry.uid)}" data-name="${escapeHtml(entry.name || '')}" data-avatar="${escapeHtml(entry.avatarUrl || '')}">${commentAvatarHtml(entry.name || 'User', entry.avatarUrl)}</div>
+        <div class="leaderboard-info">
+          <div class="leaderboard-name">${escapeHtml(entry.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></div>
+        </div>
+        <div class="leaderboard-votes">${(entry[field] || 0).toLocaleString()}<br>${leaderboardUnitLabel(field).toLowerCase()}</div>
+      </div>`).join('');
+
+    leaderboardList.querySelectorAll('.leaderboard-row').forEach((row, index) => {
+      const entry = ranked[index];
+      attachVerifiedBadge(row.querySelector('.verified-badge'), entry.uid);
+      attachDecoration(row.querySelector('.leaderboard-avatar'), entry.uid);
+    });
+  }
+
+  function switchLeaderboardTab(field){
+    if (field === activeLeaderboardField) return;
+    activeLeaderboardField = field;
+    leaderboardTabWeekly.classList.toggle('active', field === 'weeklyXp');
+    leaderboardTabAllTime.classList.toggle('active', field === 'xp');
+    leaderboardTabSeason.classList.toggle('active', field === 'seasonShards');
+    leaderboardList.innerHTML = `<div class="leaderboard-loading"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--accent);"></span>Loading rankings…</div>`;
+    renderLeaderboard();
+  }
+  leaderboardTabWeekly.addEventListener('click', () => switchLeaderboardTab('weeklyXp'));
+  leaderboardTabAllTime.addEventListener('click', () => switchLeaderboardTab('xp'));
+  leaderboardTabSeason.addEventListener('click', () => switchLeaderboardTab('seasonShards'));
+
+  // While a season is live, the leaderboard becomes season-only: Weekly/
+  // All Time hide, the Season tab (labeled with the season's own name)
+  // takes over and becomes the active view. When the season ends, it
+  // reverts to the normal Weekly/All Time leaderboard. Called from
+  // applySeason() so this stays in sync with the live admin toggle.
+  function updateLeaderboardSeasonAvailability(){
+    const season = activeSeasonId ? SEASONS[activeSeasonId] : null;
+    leaderboardTabSeason.classList.toggle('hidden', !season);
+    leaderboardTabWeekly.classList.toggle('hidden', !!season);
+    leaderboardTabAllTime.classList.toggle('hidden', !!season);
+    if (season) {
+      leaderboardTabSeason.textContent = season.label.toUpperCase();
+      if (activeLeaderboardField !== 'seasonShards') {
+        activeLeaderboardField = 'seasonShards';
+        leaderboardTabSeason.classList.add('active');
+        leaderboardTabWeekly.classList.remove('active');
+        leaderboardTabAllTime.classList.remove('active');
+        if (leaderboardOverlay.classList.contains('show')) renderLeaderboard();
+      }
+    } else if (activeLeaderboardField === 'seasonShards') {
+      activeLeaderboardField = 'weeklyXp';
+      leaderboardTabWeekly.classList.add('active');
+      leaderboardTabSeason.classList.remove('active');
+      if (leaderboardOverlay.classList.contains('show')) renderLeaderboard();
+    }
+  }
+
+  document.getElementById('qaLeaderboard').addEventListener('click', () => {
+    leaderboardOverlay.classList.add('show');
+    leaderboardList.innerHTML = `<div class="leaderboard-loading"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--accent);"></span>Loading rankings…</div>`;
+    renderLeaderboard();
+  });
+  leaderboardClose.addEventListener('click', () => leaderboardOverlay.classList.remove('show'));
+  leaderboardOverlay.addEventListener('click', event => {
+    if (event.target === leaderboardOverlay) leaderboardOverlay.classList.remove('show');
+  });
+
+  // ---------- quick action: submit a matchup ----------
+  const submitOverlay = document.getElementById('submitOverlay');
+  const submitCharA = document.getElementById('submitCharA');
+  const submitCharB = document.getElementById('submitCharB');
+  const submitSourceA = document.getElementById('submitSourceA');
+  const submitSourceB = document.getElementById('submitSourceB');
+  const submitVersionA = document.getElementById('submitVersionA');
+  const submitVersionB = document.getElementById('submitVersionB');
+  const submitMatchupBtn = document.getElementById('submitMatchupBtn');
+  const characterSuggestions = document.getElementById('characterSuggestions');
+  const submitAvatarFileA = document.getElementById('submitAvatarFileA');
+  const submitAvatarFileB = document.getElementById('submitAvatarFileB');
+  const submitAvatarPreviewA = document.getElementById('submitAvatarPreviewA');
+  const submitAvatarPreviewB = document.getElementById('submitAvatarPreviewB');
+  let pendingSubmitAvatarA = null; // { file, dataUrl } | null
+  let pendingSubmitAvatarB = null;
+
+  // Wires a submit-modal photo picker to a { file, dataUrl } holder and its preview thumbnail.
+  function wireSubmitAvatarPicker(fileInput, previewEl, setPending){
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        showToast('Please choose an image file');
+        fileInput.value = '';
+        return;
+      }
+      if (file.size > 4 * 1024 * 1024) {
+        showToast('Image must be under 4MB');
+        fileInput.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPending({ file, dataUrl: reader.result });
+        previewEl.innerHTML = `<img src="${reader.result}" alt="">`;
+      };
+      reader.onerror = () => showToast('Could not read that image');
+      reader.readAsDataURL(file);
+    });
+  }
+  wireSubmitAvatarPicker(submitAvatarFileA, submitAvatarPreviewA, val => { pendingSubmitAvatarA = val; });
+  wireSubmitAvatarPicker(submitAvatarFileB, submitAvatarPreviewB, val => { pendingSubmitAvatarB = val; });
+
+  function refreshCharacterSuggestions(){
+    const names = new Set(rosterNames);
+    matchups.forEach(m => { names.add(m.a.name); names.add(m.b.name); });
+    characterSuggestions.innerHTML = [...names].sort().map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
+  }
+  refreshCharacterSuggestions();
+
+  document.getElementById('submitMatchupLink').addEventListener('click', () => {
+    submitCharA.value = '';
+    submitCharB.value = '';
+    submitSourceA.value = '';
+    submitSourceB.value = '';
+    submitVersionA.value = '';
+    submitVersionB.value = '';
+    submitAvatarFileA.value = '';
+    submitAvatarFileB.value = '';
+    pendingSubmitAvatarA = null;
+    pendingSubmitAvatarB = null;
+    submitAvatarPreviewA.innerHTML = '＋ Photo';
+    submitAvatarPreviewB.innerHTML = '＋ Photo';
+    refreshCharacterSuggestions();
+    submitOverlay.classList.add('show');
+  });
+  document.getElementById('submitClose').addEventListener('click', () => submitOverlay.classList.remove('show'));
+  submitOverlay.addEventListener('click', event => {
+    if (event.target === submitOverlay) submitOverlay.classList.remove('show');
+  });
+
+  submitMatchupBtn.addEventListener('click', () => {
+    const nameA = submitCharA.value.trim();
+    const nameB = submitCharB.value.trim();
+    const sourceA = submitSourceA.value.trim();
+    const sourceB = submitSourceB.value.trim();
+    const versionA = submitVersionA.value.trim();
+    const versionB = submitVersionB.value.trim();
+    if (!nameA || !nameB) {
+      showToast('Enter both characters');
+      return;
+    }
+    // Same character is allowed if the versions differ (Base Goku vs Ultra
+    // Instinct Goku is a legit matchup) — only block a true exact duplicate.
+    if (nameA.toLowerCase() === nameB.toLowerCase() && versionA.toLowerCase() === versionB.toLowerCase()) {
+      showToast(versionA ? 'Pick two different versions' : 'Pick two different characters, or add a version');
+      return;
+    }
+    const keyA = `${nameA.toLowerCase()}|${versionA.toLowerCase()}`;
+    const keyB = `${nameB.toLowerCase()}|${versionB.toLowerCase()}`;
+    const duplicate = matchups.some(m => {
+      const mKeyA = `${m.a.name.toLowerCase()}|${(m.a.version || '').toLowerCase()}`;
+      const mKeyB = `${m.b.name.toLowerCase()}|${(m.b.version || '').toLowerCase()}`;
+      return (mKeyA === keyA && mKeyB === keyB) || (mKeyA === keyB && mKeyB === keyA);
+    });
+    if (duplicate) {
+      showToast('That matchup already exists — vote on it below');
+      submitOverlay.classList.remove('show');
+      return;
+    }
+    withSpinner(submitMatchupBtn, 'SUBMITTING…', () => {
+      // `sourceA`/`sourceB` (an optional franchise/source label like
+      // "Marvel" or "DC") is purely a display detail now — it's combined
+      // with the version into `sub`, shown under the character's name.
+      // It no longer feeds any lookup since avatars are upload-only.
+      const subA = [versionA, sourceA].filter(Boolean).join(' · ') || 'Fan Submission';
+      const subB = [versionB, sourceB].filter(Boolean).join(' · ') || 'Fan Submission';
+      const identity = currentUserIdentity();
+      if (!identity) { requireSignIn('Sign in to submit a matchup'); return; }
+      const newMatchup = {
+        a: { name: nameA, version: versionA, sub: subA, initials: initialsFor(nameA) },
+        b: { name: nameB, version: versionB, sub: subB, initials: initialsFor(nameB) },
+        votesA: 0, votesB: 0, community: true,
+        submittedBy: identity.uid, submittedByName: identity.name,
+      };
+      // Apply any photos picked in the submit form the same way the
+      // hero-card camera icon does — instant local paint, then a
+      // compressed copy synced to Firestore so it shows up everywhere.
+      // Avatars are shown regardless of moderation status since they're a
+      // shared per-character resource, not tied to this specific matchup.
+      if (pendingSubmitAvatarA) setCharacterAvatarOverride(nameA, versionA, pendingSubmitAvatarA.dataUrl, pendingSubmitAvatarA.file);
+      if (pendingSubmitAvatarB) setCharacterAvatarOverride(nameB, versionB, pendingSubmitAvatarB.dataUrl, pendingSubmitAvatarB.file);
+      submitOverlay.classList.remove('show');
+      // Goes to a review queue, not straight onto the public matchups list
+      // (that collection now rejects direct client writes — see rules).
+      // An admin approves/rejects from the moderation panel in Account,
+      // which is what actually creates the live "matchups" doc.
+      addDoc(collection(db, 'pendingMatchups'), {
+        ...newMatchup,
+        createdAt: serverTimestamp()
+      })
+        .then(() => showToast(`${charLabel(newMatchup.a)} vs ${charLabel(newMatchup.b)} submitted — pending review`))
+        .catch(err => { console.error('Matchup submission failed', err); showToast('Could not submit that matchup — try again'); });
+    }, 700);
+  });
+
+  // Same "same characters + same versions, either order" key used by the
+  // duplicate check above, reused so the Firestore listener never adds a
+  // matchup that's already in `matchups` (including the one we just
+  // optimistically pushed ourselves).
+  function matchupPairKey(m){
+    const keyA = `${m.a.name.toLowerCase()}|${(m.a.version || '').toLowerCase()}`;
+    const keyB = `${m.b.name.toLowerCase()}|${(m.b.version || '').toLowerCase()}`;
+    return [keyA, keyB].sort().join('~');
+  }
+
+  // Voting is remembered per matchup DOCUMENT, not per character pairing.
+  // A built-in matchup has no docId, so it still falls back to the
+  // pairKey — but any community matchup uses its docId instead. This
+  // matters because an admin can delete a community matchup and later
+  // get a fresh one approved with the exact same character pairing;
+  // without this, every browser that had already voted on the deleted
+  // matchup would find its old pairKey-keyed "already voted" entry still
+  // sitting in localStorage and be silently locked out of voting on the
+  // brand-new doc forever — castVote() returns before ever calling
+  // /api/vote, so no error shows, it just looks like voting is broken.
+  function votedStateKey(m){
+    return m.docId ? `id:${m.docId}` : `key:${matchupPairKey(m)}`;
+  }
+
+  // Real-time: community matchups submitted from any browser land here,
+  // and disappear for everyone the moment anyone deletes them.
+  let matchupsSynced = false; // true once the initial replay-everything snapshot has finished
+  const trendLoadingMore = document.getElementById('trendLoadingMore');
+  trendLoadingMore.classList.add('show'); // visible until the first snapshot resolves, however fast that is
+  // Rebuilds `matchups` from a fresh Firestore read, applying the current
+  // season filter to every doc — not just newly-arrived ones. Called from
+  // applySeason() whenever the active season actually changes, so a live
+  // toggle (or a page load that resolves the season after matchups have
+  // already streamed in) doesn't leave stale out-of-season matchups sitting
+  // in the array, or miss ones that should now be visible.
+  async function resyncMatchupsForSeason(){
+    let snap;
+    try {
+      snap = await getDocs(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')));
+    } catch (err) {
+      console.error('Season matchup resync failed', err);
+      return;
+    }
+    const currentPairKey = matchups[activeIdx] ? matchupPairKey(matchups[activeIdx]) : null;
+    matchups.length = 0;
+    snap.forEach(docSnap => {
+      const data = docSnap.data();
+      if (!data.a || !data.b) return;
+      if (data.expiresAt && data.expiresAt.toMillis() < Date.now()) return;
+      if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
+      if (activeSeasonId && data.category !== activeSeasonId) return;
+      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null });
+    });
+    // Try to keep whatever was on screen still on screen if it survived
+    // the filter; otherwise fall back to the start of the (new) list
+    // rather than an index that may now point at something else entirely.
+    const preservedIdx = currentPairKey ? matchups.findIndex(m => matchupPairKey(m) === currentPairKey) : -1;
+    activeIdx = preservedIdx !== -1 ? preservedIdx : 0;
+    renderTrendScroll();
+    renderHero();
+  }
+
+  onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
+    let listChanged = false;
+    let heroNeedsRefresh = false;
+    const wasEmpty = matchups.length === 0;
+    snapshot.docChanges().forEach(change => {
+      const docSnap = change.doc;
+      if (change.type === 'removed') {
+        const idx = matchups.findIndex(m => m.docId === docSnap.id);
+        if (idx !== -1) {
+          matchups.splice(idx, 1);
+          if (activeIdx >= matchups.length) activeIdx = matchups.length - 1;
+          else if (idx < activeIdx) activeIdx--;
+          listChanged = true;
+          if (idx === activeIdx || idx <= activeIdx) heroNeedsRefresh = true;
+        }
+        return;
+      }
+      if (change.type !== 'added') return; // vote-count edits arrive as 'modified' — ignored here, same as before
+      const data = docSnap.data();
+      if (!data.a || !data.b) return;
+      // TTL policies need the Blaze plan, so we can't have Firestore
+      // physically delete expired docs — instead just skip showing
+      // anything already past its expiresAt. The doc itself stays in
+      // the database (small storage footprint, well within Spark's
+      // free 1 GiB), it just stops appearing in the app.
+      if (data.expiresAt && data.expiresAt.toMillis() < Date.now()) return;
+      // This browser chose to hide this exact matchup before — respect
+      // that even though the doc is still live in Firestore for everyone else.
+      if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
+      // Anime-season-only filtering: while a season is active, only
+      // matchups explicitly tagged with that season's category show up.
+      // Untagged matchups (data.category is unset — true for every
+      // matchup that existed before this feature) are hidden rather than
+      // shown by default, per the "hide until tagged" decision — an admin
+      // tags each one via the Season Control card's matchup list.
+      if (activeSeasonId && data.category !== activeSeasonId) return;
+      const existingMatchup = matchups.find(m => matchupPairKey(m) === matchupPairKey(data));
+      if (existingMatchup) {
+        // Already showing locally (e.g. the one we just optimistically
+        // pushed on submit) — just attach the Firestore doc id so votes
+        // and deletes on it can be written back, without duplicating the card.
+        if (!existingMatchup.docId) {
+          existingMatchup.docId = docSnap.id;
+          // If this is the matchup currently on screen, its comment box
+          // was disabled (no docId to post against yet) — rewire it now
+          // that a real id exists, instead of leaving it dead until the
+          // user switches away and back.
+          if (matchups[activeIdx] === existingMatchup) wireHeroComments(existingMatchup.docId);
+        }
+        return;
+      }
+      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null });
+      listChanged = true;
+      if (matchupsSynced) pushNotification('matchup', 'New matchup', `${data.a.name} vs ${data.b.name}`, docSnap.id);
+    });
+    matchupsSynced = true;
+    trendLoadingMore.classList.remove('show');
+    if (!listChanged && matchups.length === 0) renderTrendScroll(); // clears the skeleton cards even with nothing to show
+    if (listChanged) { renderTrendScroll(); refreshCharacterSuggestions(); }
+    // wasEmpty case covers going from zero matchups (no hardcoded seed
+    // data anymore) to the first one ever streaming in — heroNeedsRefresh
+    // alone only catches the 'removed' path above.
+    if (heroNeedsRefresh || (wasEmpty && matchups.length > 0)) renderHero();
+    tryOpenSharedMatchup();
+  }, err => console.error('Matchup listener failed', err));
+
+  // Deep-link support: a shared matchup URL looks like ?matchup=<pairKey>.
+  // Built-in matchups are present immediately; community ones stream in
+  // async above, so this is safe to call repeatedly — it only acts once,
+  // then gets out of the way.
+  let sharedMatchupHandled = false;
+  function tryOpenSharedMatchup(){
+    if (sharedMatchupHandled) return;
+    const key = new URLSearchParams(location.search).get('matchup');
+    if (!key) { sharedMatchupHandled = true; return; }
+    const idx = matchups.findIndex(m => matchupPairKey(m) === key);
+    if (idx === -1) return; // might still be loading (community matchup) — try again on the next snapshot
+    sharedMatchupHandled = true;
+    activeIdx = idx;
+    renderHero();
+    renderTrendScroll();
+    document.getElementById('heroCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  tryOpenSharedMatchup(); // covers built-in matchups, which are already loaded at this point
+
+  // ---------- trending clashes (dynamic, includes user-submitted matchups) ----------
+  const trendScroll = document.getElementById('trendScroll');
+  // 3 shimmering placeholder cards shown until the first matchup streams
+  // in — there's no hardcoded seed data anymore, so without this the
+  // strip would just be blank on a fresh load.
+  const TREND_SKELETON_HTML = Array.from({ length: 3 }).map(() => `
+      <div class="trend-card skeleton">
+        <div class="trend-vs">
+          <div class="mini-avatar hi skeleton-block"></div>
+          <div class="mini-vs">VS</div>
+          <div class="mini-avatar lo skeleton-block"></div>
+        </div>
+        <div class="skel-line skeleton-block" style="width:90%;height:9px;margin:0;"></div>
+        <div class="skel-line skeleton-block" style="width:60%;height:8px;margin-top:6px;"></div>
+      </div>`).join('');
+  function renderTrendScroll(){
+    if (matchups.length === 0) {
+      // Still nothing at all: while the listener is still doing its first
+      // sync, show shimmering placeholders; once synced and truly empty,
+      // drop the shimmer for a plain empty state instead of animating forever.
+      trendScroll.innerHTML = matchupsSynced
+        ? '<div class="comments-modal-empty" style="padding:18px 20px;">No matchups yet — be the first to submit one.</div>'
+        : TREND_SKELETON_HTML;
+      return;
+    }
+    trendScroll.innerHTML = matchups.map((m, idx) => {
+      const sameBase = m.a.name.toLowerCase() === m.b.name.toLowerCase();
+      const labelA = (sameBase && m.a.version) ? `${m.a.name.split(' ')[0]} (${m.a.version})` : m.a.name.split(' ')[0];
+      const labelB = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
+      return `
+      <div class="trend-card ${idx === activeIdx ? 'active-card' : ''}" data-matchup="${idx}">
+        <div class="trend-vs">
+          <div class="mini-avatar hi">${escapeHtml(m.a.initials)}</div>
+          <div class="mini-vs">VS</div>
+          <div class="mini-avatar lo">${escapeHtml(m.b.initials)}</div>
+        </div>
+        <div class="trend-label">${escapeHtml(labelA)} vs ${escapeHtml(labelB)}</div>
+        <div class="trend-votes">${(m.votesA + m.votesB).toLocaleString()} votes${m.community ? ' · Community' : ''}</div>
+      </div>`;
+    }).join('');
+  }
+  renderTrendScroll();
+
+  trendScroll.addEventListener('click', event => {
+    const card = event.target.closest('.trend-card');
+    if (!card) return;
+    activeIdx = parseInt(card.dataset.matchup, 10);
+    heroAnalyzing = false; // picking a different matchup means they're done with the old one's analysis
+    heroCommentsActive = false; // ...and with its comments, too
+    renderTrendScroll();
+    renderHero();
+    document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
+  });
+
+  document.getElementById('seeAllLink').addEventListener('click', () => {
+    showToast('More clashes coming soon');
+  });
+
+  // ---------- hero auto-rotate ----------
+  // The featured matchup used to just sit on whatever was first in the
+  // list forever. This cycles it through every matchup automatically,
+  // and backs off the moment someone actually touches it — a vote, a
+  // manual pick from the trend row, checking AI stats, or the tab going
+  // into the background — so nothing changes out from under them.
+  const HERO_ROTATE_MS = 45000;
+  const heroCardEl = document.getElementById('heroCard');
+  let heroRotateTimer = null;
+  // True while someone's actively looking at an AI stats breakdown for the
+  // current matchup — auto-rotate stays fully off (not just delayed) until
+  // they pick a different matchup themselves, so it can't switch out from
+  // under them mid-read no matter how long they take.
+  let heroAnalyzing = false;
+  // Same idea, but for reading or writing comments on the current matchup:
+  // the full "see all comments" sheet (paused for as long as it's open on
+  // this matchup) and the quick inline reply box on the hero card itself.
+  // Resumes once they close the sheet, step away from the inline box, or
+  // switch matchups themselves — it shouldn't switch out from under someone
+  // mid-conversation any more than it should mid AI-stats-read.
+  let heroCommentsActive = false;
+  heroCommentInput.addEventListener('focus', () => { heroCommentsActive = true; scheduleHeroRotate(); });
+  heroCommentInput.addEventListener('blur', () => { heroCommentsActive = false; scheduleHeroRotate(); });
+
+  function scheduleHeroRotate(){
+    clearTimeout(heroRotateTimer);
+    if (heroAnalyzing || heroCommentsActive) return; // paused for AI analysis or comments — resumes on manual matchup switch / closing the sheet / leaving the reply box
+    if (matchups.length < 2) return; // nothing to flex between
+    heroRotateTimer = setTimeout(() => {
+      if (document.hidden) { scheduleHeroRotate(); return; } // tab not visible — just reschedule, don't burn a cycle
+      activeIdx = (activeIdx + 1) % matchups.length;
+      renderTrendScroll();
+      renderHero();
+      scheduleHeroRotate();
+    }, HERO_ROTATE_MS);
+  }
+  scheduleHeroRotate();
+
+  // Any manual interaction resets the clock so auto-rotate never fights
+  // something the person just did.
+  heroCardEl.addEventListener('pointerdown', scheduleHeroRotate);
+  trendScroll.addEventListener('click', scheduleHeroRotate);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleHeroRotate(); });
+
+  // ---------- movie clips ----------
+  const moviesSection = document.getElementById('moviesSection');
+  const clipUploaderOverlay = document.getElementById('clipUploaderOverlay');
+  const openClipUploader = document.getElementById('openClipUploader');
+  const clipUploaderClose = document.getElementById('clipUploaderClose');
+  openClipUploader.addEventListener('click', () => clipUploaderOverlay.classList.add('show'));
+  clipUploaderClose.addEventListener('click', () => clipUploaderOverlay.classList.remove('show'));
+  clipUploaderOverlay.addEventListener('click', event => {
+    if (event.target === clipUploaderOverlay) clipUploaderOverlay.classList.remove('show');
+  });
+  const clipYoutubeUrl = document.getElementById('clipYoutubeUrl');
+  const clipFileName = document.getElementById('clipFileName');
+  const clipTitle = document.getElementById('clipTitle');
+  const clipReview = document.getElementById('clipReview');
+  const publishClip = document.getElementById('publishClip');
+  const clipFeed = document.getElementById('clipFeed');
+
+  // ---------- like + share (shared by the matchup hero card and video clips) ----------
+  // Likes are now ACCOUNT-based, not device-based: "have I liked this" is
+  // determined by whether the signed-in user's uid appears in that target's
+  // like doc, not by anything stored in localStorage. That means the same
+  // account sees the same liked/unliked state on every phone/browser it
+  // signs into, and switching accounts on one device shows that account's
+  // own like state instead of whatever the previous account left behind.
+  //
+  // Data model: 'likes/{key}' doc has a `uids` map, e.g. { uid1: true,
+  // uid2: true }. The displayed count is baseSeedCounts[key] (a cosmetic
+  // starting number so a popular matchup doesn't show "0" before anyone's
+  // liked it for real) PLUS the number of uids actually in the doc — so
+  // the real, verifiable per-account count only ever grows from genuine
+  // distinct accounts liking it.
+  const baseSeedCounts = {}; // key -> cosmetic starting count (local only, never written to Firestore)
+  let remoteLikeUids = {}; // key -> { uid: true, ... }, filled in by Firestore
+  const confirmedLikeKeys = new Set(); // keys that actually have a Firestore doc already
+  const likeRenderers = {}; // key -> function that repaints whatever button(s) show that key
+
+  function formatLikeCount(n){
+    if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'k';
+    return String(Math.max(0, n));
+  }
+
+  function likeDisplayCount(key){
+    return (baseSeedCounts[key] || 0) + Object.keys(remoteLikeUids[key] || {}).length;
+  }
+
+  function likedByCurrentUser(key){
+    const user = auth.currentUser;
+    return !!(user && remoteLikeUids[key] && remoteLikeUids[key][user.uid]);
+  }
+
+  // Re-paints every currently-wired like button — used after sign-in/out,
+  // since whether a given key shows as "liked" depends on which account
+  // (if any) is currently signed in.
+  function renderAllLikeButtons(){
+    Object.values(likeRenderers).forEach(render => render());
+  }
+
+  async function toggleLike(key){
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to like'); return; }
+    const uid = user.uid;
+    // key is "matchup:<pairKey>" or "clip:<clipId>" — split once, since a
+    // pairKey/clipId could itself contain no further colons we need to keep.
+    const sepIndex = key.indexOf(':');
+    const targetType = key.slice(0, sepIndex);
+    const targetId = key.slice(sepIndex + 1);
+
+    const previousUids = remoteLikeUids[key] || {};
+    const liked = !previousUids[uid];
+    const nextUids = { ...previousUids };
+    if (liked) nextUids[uid] = true; else delete nextUids[uid];
+    remoteLikeUids[key] = nextUids;
+    if (likeRenderers[key]) likeRenderers[key]();
+
+    // Server-authoritative toggle via /api/like — verifies identity,
+    // enforces one uid per like, and awards a one-time XP credit. Direct
+    // Firestore writes to `likes/{id}` are rejected by the security rules.
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/like', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ targetType, targetId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Like failed');
+      // Optimistic local bump so the progress bar feels live — the server
+      // already awarded the real XP for a first-time like (xpAwarded is 0
+      // for an unlike or a re-like that was already credited once).
+      if (data.xpAwarded) {
+        currentUserXp += data.xpAwarded;
+        currentUserWeeklyXp += data.xpAwarded;
+        renderVerifiedProgress();
+        showXpToast(data.xpAwarded, data.rank);
+      }
+    } catch (err) {
+      console.error('Like sync failed', err);
+      // The optimistic bump above never actually landed on the server —
+      // undo it so this account doesn't end up stuck showing a "liked"
+      // state and an inflated count that only it can see. Without this,
+      // a failed write (permission error, offline, blocked request) looks
+      // exactly like a successful like that never synced.
+      remoteLikeUids[key] = previousUids;
+      if (likeRenderers[key]) likeRenderers[key]();
+      showToast('Could not save like — try again');
+    }
+  }
+
+  // Builds a link that lands the receiver directly on the specific
+  // matchup or clip that was shared, instead of just the app's home
+  // screen. Matchups are identified by their pairKey (works for both
+  // built-in and community matchups, since built-ins have no Firestore
+  // docId), clips by their clipId (Firestore docId, or the built-in
+  // demo id). Strips any existing query/hash so old share params never
+  // stack up on a re-share.
+  function buildShareUrl(kind, id){
+    const url = new URL(location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set(kind, id);
+    return url.toString();
+  }
+
+  // Opens the device's native share sheet (all installed apps: WhatsApp,
+  // Messenger, X, Instagram, Mail, etc. — whatever the OS offers), falling
+  // back to copying the link when the Web Share API isn't available
+  // (mainly desktop browsers).
+  async function shareLink({ title, text, url, onShared }){
+    let shared = false;
+    if (navigator.share) {
+      try { await navigator.share({ title, text, url }); shared = true; } catch (err) { /* user cancelled — ignore */ }
+    } else {
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast('Link copied!');
+        shared = true;
+      } catch (err) {
+        showToast('Could not copy link');
+      }
+    }
+    if (shared) {
+      if (onShared) await onShared();
+    }
+    return shared;
+  }
+
+  // ---------- shareable "battle card" images ----------
+  // Turns a matchup or a custom team build into a single self-contained
+  // PNG (branded, sized for feeds) instead of a bare link, so a Reddit/
+  // Discord post actually shows something instead of a plain URL preview.
+  // Character art here is always either our own generated placeholder SVG
+  // or a data: URL the user already uploaded through the existing avatar
+  // flow — never a fetched third-party image — so nothing new is pulled
+  // in from off-site, and the canvas is never tainted by cross-origin
+  // pixels (a hard requirement for canvas.toBlob to work at all).
+  const BATTLE_CARD_W = 1080, BATTLE_CARD_H = 1080;
+
+  function loadImageEl(src){
+    return new Promise(resolve => {
+      if (!src) { resolve(null); return; }
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  }
+
+  function roundRectPath(ctx, x, y, w, h, r){
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawCardAvatar(ctx, img, cx, cy, r, initials){
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    if (img) {
+      const scale = Math.max((r * 2) / img.width, (r * 2) / img.height);
+      const w = img.width * scale, h = img.height * scale;
+      ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+    } else {
+      ctx.fillStyle = '#3a3b42';
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `700 ${Math.round(r * 0.55)}px 'Rajdhani', sans-serif`;
+      ctx.fillText(initials || '?', cx, cy + 2);
+    }
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(255,255,255,.85)';
+    ctx.stroke();
+  }
+
+  // Async because the anime-season path has to await the hero art before
+  // it can draw anything — callers must `await` this now (both do).
+  async function drawBattleCardShell(ctx, w, h, kicker){
+    const isAnime = document.body.classList.contains('season-anime');
+    const heroImgPath = '/public/seasons/anime/battle-card-bg.jpg';
+    const heroImg = isAnime ? await loadImageEl(heroImgPath) : null;
+    if (isAnime && !heroImg) {
+      console.warn(`Battle card art failed to load from ${heroImgPath} — falling back to the plain background. Check the file is actually deployed at that path (open the URL directly in a tab to confirm it 200s).`);
+    }
+
+    if (heroImg) {
+      // Cover-fit crop, same math as the CSS `background-size:cover` used
+      // for the phone frame itself, so the art reads consistently.
+      const scale = Math.max(w / heroImg.width, h / heroImg.height);
+      const iw = heroImg.width * scale, ih = heroImg.height * scale;
+      ctx.drawImage(heroImg, (w - iw) / 2, (h - ih) / 2, iw, ih);
+      ctx.fillStyle = 'rgba(8,10,22,.5)'; // deep night-navy, matches the torii art's sky
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      const bg = ctx.createLinearGradient(0, 0, 0, h);
+      bg.addColorStop(0, '#2b2c33');
+      bg.addColorStop(1, '#17181d');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    const glowRgb = isAnime ? '244,185,92' : '228,169,41'; // warm lantern-gold, matches the new art
+    const glow = ctx.createRadialGradient(w / 2, h * 0.22, 10, w / 2, h * 0.22, w * 0.65);
+    glow.addColorStop(0, `rgba(${glowRgb},.28)`);
+    glow.addColorStop(1, `rgba(${glowRgb},0)`);
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = isAnime ? '#FF3D7A' : '#E4A929';
+    ctx.font = `700 34px 'Rajdhani', sans-serif`;
+    ctx.fillText('FICTION CLASH', w / 2, 96);
+    ctx.fillStyle = '#999';
+    ctx.font = `700 16px 'Instrument Sans', sans-serif`;
+    ctx.letterSpacing = '1px';
+    ctx.fillText(kicker || 'VOTE · COMPARE · SETTLE IT', w / 2, 126);
+    ctx.letterSpacing = '0px';
+  }
+
+  function drawBattleCardFooter(ctx, w, h, url){
+    ctx.fillStyle = 'rgba(255,255,255,.07)';
+    ctx.fillRect(0, h - 110, w, 110);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.font = `700 26px 'Rajdhani', sans-serif`;
+    ctx.fillText('Cast your vote at Fiction Clash', w / 2, h - 58);
+    ctx.fillStyle = '#999';
+    ctx.font = `600 16px 'Martian Mono', monospace`;
+    ctx.fillText((url || '').replace(/^https?:\/\//, ''), w / 2, h - 26);
+  }
+
+  // Waits for the two brand fonts the card leans on hardest so canvas text
+  // doesn't silently fall back to a system serif on the very first share
+  // of a session (fonts loaded via the @import above can still be mid-flight).
+  async function ensureCardFontsReady(){
+    if (!document.fonts || !document.fonts.load) return;
+    try {
+      await Promise.all([
+        document.fonts.load("700 34px 'Rajdhani'"),
+        document.fonts.load("700 16px 'Instrument Sans'"),
+        document.fonts.load("600 16px 'Martian Mono'")
+      ]);
+    } catch (err) { /* best-effort — card still renders with fallback fonts */ }
+  }
+
+  async function buildMatchupBattleCard(m, shareUrl){
+    await ensureCardFontsReady();
+    const canvas = document.createElement('canvas');
+    canvas.width = BATTLE_CARD_W;
+    canvas.height = BATTLE_CARD_H;
+    const ctx = canvas.getContext('2d');
+    await drawBattleCardShell(ctx, canvas.width, canvas.height, 'TODAY\u2019S MATCHUP');
+
+    const total = (m.votesA || 0) + (m.votesB || 0);
+    const pctA = total === 0 ? 50 : Math.round((m.votesA / total) * 100);
+    const pctB = 100 - pctA;
+
+    const [imgA, imgB] = await Promise.all([
+      loadImageEl(getCharacterAvatarOverride(m.a.name, m.a.version) || avatarUrl(m.a.name, m.a.initials)),
+      loadImageEl(getCharacterAvatarOverride(m.b.name, m.b.version) || avatarUrl(m.b.name, m.b.initials))
+    ]);
+
+    const cy = 400, r = 210;
+    drawCardAvatar(ctx, imgA, canvas.width * 0.28, cy, r, m.a.initials);
+    drawCardAvatar(ctx, imgB, canvas.width * 0.72, cy, r, m.b.initials);
+
+    ctx.fillStyle = '#E4A929';
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, cy, 58, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0A0806';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 36px 'Rajdhani', sans-serif`;
+    ctx.fillText('VS', canvas.width / 2, cy + 3);
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.fillStyle = '#fff';
+    ctx.font = `700 30px 'Rajdhani', sans-serif`;
+    wrapCenteredText(ctx, m.a.name.toUpperCase(), canvas.width * 0.28, cy + r + 52, canvas.width * 0.42, 34);
+    wrapCenteredText(ctx, m.b.name.toUpperCase(), canvas.width * 0.72, cy + r + 52, canvas.width * 0.42, 34);
+
+    const barY = cy + r + 150, barW = canvas.width - 160, barX = 80, barH = 28;
+    ctx.fillStyle = '#3a3b42';
+    roundRectPath(ctx, barX, barY, barW, barH, 14);
+    ctx.fill();
+    ctx.fillStyle = '#E4A929';
+    roundRectPath(ctx, barX, barY, Math.max(barH, barW * (pctA / 100)), barH, 14);
+    ctx.fill();
+
+    ctx.font = `700 22px 'Rajdhani', sans-serif`;
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${pctA}%`, barX, barY - 14);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${pctB}%`, barX + barW, barY - 14);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#999';
+    ctx.font = `600 16px 'Martian Mono', monospace`;
+    ctx.fillText(`${total.toLocaleString()} vote${total === 1 ? '' : 's'} so far`, canvas.width / 2, barY + 54);
+
+    drawBattleCardFooter(ctx, canvas.width, canvas.height, shareUrl);
+    return canvas;
+  }
+
+  // Generic word-wrap: measures against ctx's *currently set* font, so
+  // callers must set ctx.font before calling this (and again before
+  // drawing, if drawing happens in a separate pass on a different canvas).
+  function computeWrappedLines(ctx, text, maxWidth, maxLines = Infinity){
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = '';
+    words.forEach(word => {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    });
+    if (line) lines.push(line);
+    return lines.slice(0, maxLines);
+  }
+
+  // Simple centered word-wrap for labels under an avatar (name, caption).
+  function wrapCenteredText(ctx, text, cx, startY, maxWidth, lineHeight, maxLines = 2){
+    ctx.textAlign = 'center';
+    computeWrappedLines(ctx, text, maxWidth, maxLines).forEach((l, i) => ctx.fillText(l, cx, startY + i * lineHeight));
+  }
+
+  // Draws a team's fighters as a slightly-overlapping row of avatar circles
+  // (front fighter drawn last so it sits on top), centered on cx.
+  async function drawAvatarCluster(ctx, names, cx, cy, r){
+    const spacing = r * 1.15;
+    const entries = await Promise.all(names.map(async name => {
+      const initials = name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
+      const img = await loadImageEl(getCharacterAvatarOverride(name) || avatarUrl(name, initials));
+      return { img, initials };
+    }));
+    entries.forEach((entry, i) => {
+      const x = cx + (i - (entries.length - 1) / 2) * spacing;
+      drawCardAvatar(ctx, entry.img, x, cy, r, entry.initials);
+    });
+  }
+
+  // Builds the team-builder battle card: two overlapping avatar clusters
+  // facing off, with an optional AI Power Scout verdict underneath when
+  // `report` (the last successful AI feat-check result) is passed in.
+  async function buildTeamBattleCard(teamsState, shareUrl, report){
+    await ensureCardFontsReady();
+    const maxCount = Math.max(teamsState.alpha.length, teamsState.omega.length, 1);
+    const r = maxCount > 2 ? 60 : 78;
+    const clusterY = 260;
+    const alphaCaption = teamsState.alpha.join(', ');
+    const omegaCaption = teamsState.omega.join(', ');
+    const captionMaxWidth = BATTLE_CARD_W * 0.42;
+    const captionTop = clusterY + r + 40;
+    const captionLineHeight = 26;
+
+    // Measurement pass on a throwaway canvas — we need final line counts
+    // (captions + optional verdict paragraph) before we know how tall the
+    // real canvas should be, and font metrics require a live 2D context.
+    const mctx = document.createElement('canvas').getContext('2d');
+    mctx.font = `700 20px 'Instrument Sans', sans-serif`;
+    const alphaLines = computeWrappedLines(mctx, alphaCaption, captionMaxWidth, 2);
+    const omegaLines = computeWrappedLines(mctx, omegaCaption, captionMaxWidth, 2);
+    const captionBottom = captionTop + Math.max(alphaLines.length, omegaLines.length, 1) * captionLineHeight;
+
+    let verdictLines = [];
+    let verdictTop = captionBottom;
+    if (report && report.verdict) {
+      mctx.font = `500 22px 'Instrument Sans', sans-serif`;
+      verdictLines = computeWrappedLines(mctx, report.verdict, BATTLE_CARD_W - 160, 10);
+      verdictTop = captionBottom + 76;
+    }
+    const contentBottom = verdictLines.length ? verdictTop + verdictLines.length * 30 : captionBottom;
+    const canvasHeight = Math.round(contentBottom + 150);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = BATTLE_CARD_W;
+    canvas.height = canvasHeight;
+    const ctx = canvas.getContext('2d');
+    await drawBattleCardShell(ctx, canvas.width, canvas.height, report ? 'AI POWER SCOUT VERDICT' : 'CUSTOM TEAM MATCHUP');
+
+    const alphaCx = canvas.width * 0.26, omegaCx = canvas.width * 0.74;
+    await drawAvatarCluster(ctx, teamsState.alpha, alphaCx, clusterY, r);
+    await drawAvatarCluster(ctx, teamsState.omega, omegaCx, clusterY, r);
+
+    ctx.fillStyle = '#E4A929';
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, clusterY, 58, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0A0806';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 36px 'Rajdhani', sans-serif`;
+    ctx.fillText('VS', canvas.width / 2, clusterY + 3);
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.fillStyle = '#E4A929';
+    ctx.font = `700 20px 'Rajdhani', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('TEAM ALPHA', alphaCx, clusterY - r - 24);
+    ctx.fillText('TEAM OMEGA', omegaCx, clusterY - r - 24);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = `700 20px 'Instrument Sans', sans-serif`;
+    alphaLines.forEach((l, i) => ctx.fillText(l, alphaCx, captionTop + i * captionLineHeight));
+    omegaLines.forEach((l, i) => ctx.fillText(l, omegaCx, captionTop + i * captionLineHeight));
+
+    if (verdictLines.length) {
+      ctx.strokeStyle = 'rgba(255,255,255,.12)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(80, captionBottom + 24);
+      ctx.lineTo(canvas.width - 80, captionBottom + 24);
+      ctx.stroke();
+
+      ctx.fillStyle = '#E4A929';
+      ctx.font = `700 18px 'Rajdhani', sans-serif`;
+      ctx.fillText('AI VERDICT', canvas.width / 2, captionBottom + 56);
+
+      ctx.fillStyle = '#fff';
+      ctx.font = `500 22px 'Instrument Sans', sans-serif`;
+      verdictLines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, verdictTop + i * 30));
+    }
+
+    drawBattleCardFooter(ctx, canvas.width, canvas.height, shareUrl);
+    return canvas;
+  }
+
+  // Shares the rendered card as an actual image file wherever the OS share
+  // sheet supports files (Reddit and Discord's own apps both accept an
+  // image this way); falls back to downloading the PNG + copying the link
+  // on browsers that can only share text (mainly desktop).
+  async function shareOrDownloadCard(canvas, { filename, title, text, url, onShared }){
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+    if (!blob) { showToast('Could not generate the battle card'); return; }
+    const file = new File([blob], filename, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title, text: `${text}\n${url}` });
+        if (onShared) await onShared();
+        return;
+      } catch (err) { return; /* user cancelled the share sheet */ }
+    }
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Battle card downloaded — link copied too!');
+    } catch (err) {
+      showToast('Battle card downloaded!');
+    }
+    if (onShared) await onShared();
+  }
+
+  // Server-authoritative XP for sharing a matchup or a clip, via /api/share
+  // — same shape as toggleLike's /api/like call. Awards once per unique
+  // (targetType, targetId) per user; re-sharing the same matchup/clip just
+  // returns xpAwarded: 0. Never blocks or throws into the caller's share
+  // flow — sharing itself should always succeed even if the XP call fails
+  // or the user isn't signed in.
+  async function awardShareXp(targetType, targetId){
+    const user = auth.currentUser;
+    if (!user || !targetId) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ targetType, targetId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Share XP failed');
+      if (data.xpAwarded) {
+        currentUserXp += data.xpAwarded;
+        currentUserWeeklyXp += data.xpAwarded;
+        renderVerifiedProgress();
+        showXpToast(data.xpAwarded, data.rank);
+      }
+    } catch (err) {
+      console.error('Share XP award failed', err);
+    }
+  }
+
+  // Wires a clip card's like + share buttons. Safe to call more than once
+  // per card id — it just re-registers the renderer + listeners.
+  function wireClipSocial(id, card, baseLikeCount){
+    const likeBtn = card.querySelector('.like-btn');
+    const shareBtn = card.querySelector('.share-btn');
+    if (!likeBtn || !shareBtn) return;
+    const countEl = likeBtn.querySelector('.like-count');
+    const key = 'clip:' + id;
+    if (!(key in baseSeedCounts)) baseSeedCounts[key] = baseLikeCount;
+    function renderLike(){
+      likeBtn.classList.toggle('liked', likedByCurrentUser(key));
+      countEl.textContent = formatLikeCount(likeDisplayCount(key));
+    }
+    // Also keeps the reels overlay's own like button in sync, on the rare
+    // chance this same clip is open there when the like state changes.
+    likeRenderers[key] = () => { renderLike(); if (reelsLikeKey === key) renderReelsLikeButton(); };
+    renderLike();
+    likeBtn.addEventListener('click', () => toggleLike(key));
+    shareBtn.addEventListener('click', () => {
+      const title = card.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
+      shareLink({ title, text: title, url: buildShareUrl('clip', id), onShared: () => awardShareXp('clip', id) });
+    });
+  }
+
+  // ---------- full-screen reels-style clip player ----------
+  // The only place a clip's video/YouTube embed is ever actually mounted.
+  // Cards themselves only ever show a static poster + play button — so
+  // opening a new clip always tears down whatever was playing before,
+  // making it structurally impossible for two clips to play at once.
+  const reelsOverlay = document.getElementById('reelsOverlay');
+  const reelsMedia = document.getElementById('reelsMedia');
+  const reelsCloseBtn = document.getElementById('reelsCloseBtn');
+  const reelsLikeBtn = document.getElementById('reelsLikeBtn');
+  const reelsLikeCount = document.getElementById('reelsLikeCount');
+  const reelsCommentBtn = document.getElementById('reelsCommentBtn');
+  const reelsShareBtn = document.getElementById('reelsShareBtn');
+  const reelsTitle = document.getElementById('reelsTitle');
+  const reelsMeta = document.getElementById('reelsMeta');
+  let reelsLikeKey = '';
+  let reelsClipCard = null;
+
+  function renderReelsLikeButton(){
+    if (!reelsLikeKey) return;
+    reelsLikeBtn.classList.toggle('liked', likedByCurrentUser(reelsLikeKey));
+    reelsLikeCount.textContent = formatLikeCount(likeDisplayCount(reelsLikeKey));
+  }
+
+  function closeReelsPlayer(){
+    reelsOverlay.classList.remove('show');
+    reelsMedia.innerHTML = ''; // actually tears down the player so it stops playing
+    reelsMedia.classList.remove('switching');
+    reelsLikeKey = '';
+    reelsClipCard = null;
+    // Release the scroll lock applied when the player opened.
+    document.querySelector('.phone-scroll').style.overflow = '';
+  }
+
+  function renderReelsMedia(type, src){
+    reelsMedia.innerHTML = type === 'youtube'
+      ? `<iframe src="https://www.youtube.com/embed/${src}?autoplay=1&playsinline=1" title="Clip" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`
+      : `<video src="${src}" autoplay playsinline controls></video>`;
+  }
+
+  function openReelsPlayer(thumb){
+    const card = thumb.closest('.clip-card');
+    if (!card) return;
+    const clipId = card.dataset.clipId;
+    const type = thumb.dataset.videoType;
+    const src = thumb.dataset.videoSrc;
+    if (!src) return; // demo placeholder cards with no real video yet
+    const isAlreadyOpen = reelsOverlay.classList.contains('show');
+    if (isAlreadyOpen) {
+      // Switching between clips while the player is already open — fade
+      // the old one out, swap the source, then fade the new one in,
+      // instead of an instant hard cut.
+      reelsMedia.classList.add('switching');
+      setTimeout(() => {
+        renderReelsMedia(type, src);
+        reelsMedia.classList.remove('switching');
+      }, 160);
+    } else {
+      renderReelsMedia(type, src);
+      // Prevent the page underneath this fixed overlay from also
+      // scrolling/bouncing while a swipe gesture plays out on top of it.
+      document.querySelector('.phone-scroll').style.overflow = 'hidden';
+    }
+    reelsTitle.textContent = card.querySelector('h3')?.textContent || '';
+    reelsMeta.textContent = card.querySelector('.clip-meta span')?.textContent || '';
+    reelsLikeKey = 'clip:' + clipId;
+    reelsClipCard = card;
+    renderReelsLikeButton();
+    reelsOverlay.classList.add('show');
+  }
+
+  clipFeed.addEventListener('click', event => {
+    const playBtn = event.target.closest('.clip-play-btn');
+    if (!playBtn) return;
+    openReelsPlayer(playBtn.closest('.clip-thumb'));
+  });
+
+  // ---------- reels swipe-to-scroll (next/previous clip) ----------
+  // Only clips with an actual video attached count as "playable" — the
+  // still-empty demo cards are skipped so swiping never lands on a dead
+  // player. Recomputed on every swipe (not cached) so newly-posted clips
+  // are included without needing the overlay to be reopened.
+  function getPlayableThumbs(){
+    return Array.from(clipFeed.querySelectorAll('.clip-thumb')).filter(t => t.dataset.videoSrc);
+  }
+  function goToAdjacentClip(direction){
+    const thumbs = getPlayableThumbs();
+    const currentThumb = reelsClipCard ? reelsClipCard.querySelector('.clip-thumb') : null;
+    const idx = thumbs.indexOf(currentThumb);
+    if (idx === -1) return;
+    const nextThumb = thumbs[idx + direction];
+    if (nextThumb) openReelsPlayer(nextThumb);
+  }
+  let reelsTouchStartY = 0;
+  const reelsSwipeCatcher = document.getElementById('reelsSwipeCatcher');
+  reelsSwipeCatcher.addEventListener('touchstart', event => {
+    reelsTouchStartY = event.touches[0].clientY;
+  }, { passive: true });
+  // Not passive — this is what actually stops the browser from treating
+  // the drag as a native scroll/bounce on whatever's underneath the fixed
+  // overlay, which previously made one swipe direction feel fine and the
+  // other feel like it was scrolling the wrong thing.
+  reelsSwipeCatcher.addEventListener('touchmove', event => {
+    event.preventDefault();
+  }, { passive: false });
+  reelsSwipeCatcher.addEventListener('touchend', event => {
+    const deltaY = reelsTouchStartY - event.changedTouches[0].clientY;
+    if (Math.abs(deltaY) < 50) return; // a tap, not a deliberate swipe
+    goToAdjacentClip(deltaY > 0 ? 1 : -1); // swipe up = next clip, swipe down = previous
+  }, { passive: true });
+  // Desktop equivalent: mouse-wheel/trackpad scroll while the player is open.
+  let reelsWheelLocked = false;
+  reelsSwipeCatcher.addEventListener('wheel', event => {
+    if (reelsWheelLocked) return;
+    reelsWheelLocked = true;
+    goToAdjacentClip(event.deltaY > 0 ? 1 : -1);
+    setTimeout(() => { reelsWheelLocked = false; }, 450); // debounce so one scroll gesture = one clip
+  }, { passive: true });
+
+  reelsCloseBtn.addEventListener('click', closeReelsPlayer);
+  reelsLikeBtn.addEventListener('click', () => toggleLike(reelsLikeKey));
+  reelsShareBtn.addEventListener('click', () => {
+    if (!reelsClipCard) return;
+    const title = reelsClipCard.querySelector('h3')?.textContent || 'A clip on Fiction Clash';
+    const clipId = reelsClipCard.dataset.clipId;
+    shareLink({ title, text: title, url: buildShareUrl('clip', clipId), onShared: () => awardShareXp('clip', clipId) });
+  });
+  reelsCommentBtn.addEventListener('click', () => {
+    if (!reelsClipCard) return;
+    const card = reelsClipCard;
+    closeReelsPlayer();
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    card.querySelector('.comment-form input')?.focus();
+  });
+
+  // Real-time: a like tapped on any device updates this doc, which every
+  // other visitor is subscribed to here, so the count and "liked" state
+  // move for everyone without a page refresh — same pattern as the
+  // matchups/movieClips feeds.
+  onSnapshot(collection(db, 'likes'), snapshot => {
+    snapshot.docChanges().forEach(change => {
+      const key = change.doc.id;
+      if (change.type === 'removed') { confirmedLikeKeys.delete(key); remoteLikeUids[key] = {}; if (likeRenderers[key]) likeRenderers[key](); return; }
+      confirmedLikeKeys.add(key);
+      remoteLikeUids[key] = change.doc.data().uids || {};
+      if (likeRenderers[key]) likeRenderers[key]();
+    });
+  }, err => console.error('Likes listener failed', err));
+
+
+  // Pulls the 11-character video ID out of any common YouTube URL shape
+  // (watch?v=, youtu.be/, shorts/, embed/), or accepts a bare ID typed in.
+  // Also flags whether the link was specifically a /shorts/ URL — that's
+  // the signal that the underlying video is actually vertical, which is
+  // what makes it fill the reels player instead of letterboxing.
+  function extractYoutubeId(input){
+    const value = (input || '').trim();
+    if (!value) return null;
+    if (/^[a-zA-Z0-9_-]{11}$/.test(value)) return value;
+    const match = value.match(/(?:youtube\.com\/watch\?[^#]*\bv=|youtube\.com\/shorts\/|youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    return match ? match[1] : null;
+  }
+  function isYoutubeShortsLink(input){
+    return /youtube\.com\/shorts\//.test((input || '').trim());
+  }
+
+  // Figures out which platform a pasted link belongs to and returns its ID,
+  // or null if it isn't a recognizable YouTube link.
+  function parseClipLink(input){
+    const youtubeId = extractYoutubeId(input);
+    if (youtubeId) return { platform: 'youtube', id: youtubeId, isShort: isYoutubeShortsLink(input) };
+    return null;
+  }
+
+  clipYoutubeUrl.addEventListener('input', () => {
+    const raw = clipYoutubeUrl.value;
+    const parsed = parseClipLink(raw);
+    if (parsed && parsed.isShort) clipFileName.textContent = `Looks good — this'll fill the reels view properly`;
+    else if (parsed) clipFileName.textContent = `Works, but it's a regular video — it may show with black bars in reels view. A youtube.com/shorts/ link looks best.`;
+    else if (raw.trim()) clipFileName.textContent = "That doesn't look like a YouTube link";
+    else clipFileName.textContent = 'Paste a YouTube Shorts link for best results';
+  });
+
+
+  function escapeHtml(value){
+    return value.replace(/[&<>"']/g, char => ({
+      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;'
+    }[char]));
+  }
+
+  // Returns {uid, name, avatarUrl, decorationId} for the signed-in user (using their
+  // saved profile name/picture where set), or null if signed out. A real
+  // account is required to comment/post so the name + picture attached to
+  // a comment are meaningful on every browser, not just this one.
+  function currentUserIdentity(){
+    const user = auth.currentUser;
+    if (!user) return null;
+    const name = profileName.value.trim() || user.displayName || (user.email ? user.email.split('@')[0] : 'You');
+    // Accept either an http(s) URL or a compressed data URL (small enough
+    // to embed safely) — but never an uncompressed multi-MB preview.
+    const usable = avatarDataUrl && (avatarDataUrl.startsWith('http') || avatarDataUrl.length < 400000);
+    return {
+      uid: user.uid,
+      name,
+      avatarUrl: usable ? avatarDataUrl : (user.photoURL || ''),
+      decorationId: decorationById(equippedDecoration) ? equippedDecoration : null
+    };
+  }
+
+  function requireSignIn(message){
+    showToast(message || 'Sign in to continue');
+    signinOverlay.classList.add('show');
+  }
+
+  function commentAvatarHtml(name, avatarUrl){
+    const initials = (name || 'You').trim().split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase() || 'YU';
+    return avatarUrl ? `<img src="${avatarUrl}" alt="${escapeHtml(name)}">` : escapeHtml(initials);
+  }
+
+  // Discord-style reply: a small dismissible bar above whichever form is
+  // actively composing, showing who/what is being replied to. Stored
+  // directly on the form element (form._replyTarget) rather than in a
+  // shared variable, since several forms can exist at once (the hero
+  // card's own box, the "see all" sheet, and one per clip card) and each
+  // needs to track its own in-progress reply independently.
+  function setReplyTarget(form, target, focusField = true){
+    if (!form) return;
+    form._replyTarget = target;
+    let bar = form.querySelector('.reply-target-bar');
+    if (!target) { if (bar) bar.remove(); return; }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'reply-target-bar';
+      form.insertBefore(bar, form.firstChild);
+    }
+    bar.innerHTML = `<span class="reply-target-info"><span class="reply-quote-avatar">${commentAvatarHtml(target.name, target.avatarUrl)}</span><span>Replying to <b>${escapeHtml(target.name)}</b>: ${escapeHtml(target.text)}</span></span><button type="button" class="reply-target-clear" aria-label="Cancel reply">&times;</button>`;
+    bar.querySelector('.reply-target-clear').addEventListener('click', () => setReplyTarget(form, null));
+    // Skippable: when this call is opening the full comments page for the
+    // first time, that page schedules its own focus once its slide-in
+    // transition and content render are actually done (see
+    // openCommentsModal's setTimeout below). Focusing here too, on top of
+    // that, raced the keyboard-docking logic against a page that hadn't
+    // finished laying itself out yet, and the composer landed in the
+    // wrong spot as a result.
+    if (focusField) form.querySelector('input')?.focus();
+  }
+
+  // Reconciles listEl's children against `items` in place — reusing any
+  // element already rendered for a key instead of tearing the whole list
+  // down and rebuilding it from scratch on every Firestore snapshot.
+  // Before this, renderCommentsPreview/renderCommentsModalList did
+  // `listEl.innerHTML = ''` on every single update (including ones caused
+  // by someone ELSE'S comment landing elsewhere in the same thread), which
+  // meant every visible comment avatar re-ran its decoration/font lookups,
+  // and — worse — any equipped particle-effect decoration
+  // (attachDecoration → applyDecorationToContainer → activateCanvasFx)
+  // started a brand-new canvas + requestAnimationFrame loop while the OLD
+  // canvas, still referenced by AvatarEffect.instances, never got a
+  // matching deactivateCanvasFx() call because it was destroyed via
+  // innerHTML wipe rather than being removed element-by-element. Those
+  // orphaned rAF loops just kept accumulating for the rest of the session,
+  // each one costing a tick + a draw every frame — which is exactly the
+  // kind of thing that would make the app measurably less smooth the more
+  // it's used (and adding threaded replies made comments update more
+  // often, so it got worse, not "just yesterday's imagination"). Reusing
+  // untouched comment elements avoids all of that: their canvases, cached
+  // decoration/font lookups, and reply click-handlers all stay exactly as
+  // they were, and only genuinely new/removed comments touch the DOM.
+  function reconcileKeyedList(listEl, items, getKey, createEl){
+    let keyedEls = listEl._keyedEls;
+    if (!keyedEls) { keyedEls = new Map(); listEl._keyedEls = keyedEls; }
+    const seen = new Set();
+    let prevNode = null;
+    items.forEach(item => {
+      const key = getKey(item);
+      seen.add(key);
+      let el = keyedEls.get(key);
+      if (!el) {
+        el = createEl(item);
+        keyedEls.set(key, el);
+      }
+      const afterNode = prevNode ? prevNode.nextSibling : listEl.firstChild;
+      if (afterNode !== el) listEl.insertBefore(el, afterNode);
+      prevNode = el;
+    });
+    keyedEls.forEach((el, key) => {
+      if (seen.has(key)) return;
+      deactivateCanvasFx(el); // stop any running particle-effect canvas before it's torn out
+      el.remove();
+      keyedEls.delete(key);
+    });
+  }
+
+  function renderCommentEl(data, onReply){
+    const el = document.createElement('div');
+    el.className = 'comment';
+    const replyQuote = data.replyToName
+      ? `<div class="comment-reply-quote"><span class="reply-connector"></span><span class="reply-quote-avatar">${commentAvatarHtml(data.replyToName, data.replyToAvatarUrl)}</span><span>Replying to <b>${escapeHtml(data.replyToName)}</b>: ${escapeHtml(data.replyToText || '')}</span></div>`
+      : '';
+    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span><button type="button" class="comment-reply-btn">Reply</button></div>`;
+    attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
+    attachDecoration(el.querySelector('.comment-avatar'), data.uid);
+    attachFont(el.querySelector('.comment-body b'), data.uid);
+    if (onReply) {
+      el.querySelector('.comment-reply-btn').addEventListener('click', () => {
+        // Truncated to keep the quoted snippet compact — matches how
+        // Discord's own reply preview clips long messages.
+        const snippet = (data.text || '').length > 80 ? data.text.slice(0, 80) + '…' : (data.text || '');
+        onReply(data.name || 'User', snippet, data.avatarUrl || null);
+      });
+    }
+    return el;
+  }
+
+  // ---------- comments: 2-visible preview + shared "see all" sheet ----------
+  // Every comment thread on the board (the hero matchup card, and each
+  // clip card) only ever shows its most recent 2 comments inline — full
+  // history lives one tap away in #commentsModalOverlay instead of pushing
+  // the whole feed down as a thread grows, which is what was making long
+  // posts feel heavy to scroll past.
+  const COMMENTS_PREVIEW_LIMIT = 2;
+  const commentsModalOverlay = document.getElementById('commentsModalOverlay');
+  const commentsModalList = document.getElementById('commentsModalList');
+  const commentsModalSub = document.getElementById('commentsModalSub');
+  const commentsModalForm = document.getElementById('commentsModalForm');
+  const commentsModalInput = document.getElementById('commentsModalInput');
+  const commentsModalClose = document.getElementById('commentsModalClose');
+  const commentsTabComments = document.getElementById('commentsTabComments');
+  const commentsTabReplies = document.getElementById('commentsTabReplies');
+  let openCommentsThread = null; // the thread object currently shown in the sheet, if any
+  // Which half of the sheet is showing — top-level comments, or replies
+  // (anything with a replyToName). Kept separate so a growing reply thread
+  // never lengthens the comments list the input sits under.
+  let commentsModalTab = 'comments';
+
+  function switchCommentsTab(tab){
+    commentsModalTab = tab;
+    commentsTabComments.classList.toggle('active', tab === 'comments');
+    commentsTabReplies.classList.toggle('active', tab === 'replies');
+    renderCommentsModalList();
+  }
+  commentsTabComments.addEventListener('click', () => switchCommentsTab('comments'));
+  commentsTabReplies.addEventListener('click', () => switchCommentsTab('replies'));
+
+  // `thread` is a small { type, commentsFor, label, docs } object owned by
+  // whoever's watching this comment collection (hero card or a clip card).
+  // Renders the capped preview into `listEl` and keeps `thread.docs`
+  // current so the sheet has the full list ready the moment it's opened.
+  // Stable identity for a comment doc, used to decide whether a snapshot
+  // update touches a given comment at all. Firestore's own doc id is used
+  // when present; the fallback only fires for stray callers that haven't
+  // been updated to carry `id` through (kept so a missing id degrades to
+  // "always re-render this one" instead of throwing).
+  function commentKey(data){
+    return data.id || `${data.uid || ''}:${data.createdAt?.toMillis?.() || ''}:${data.text || ''}`;
+  }
+
+  function renderCommentsPreview(listEl, docs, thread){
+    thread.docs = docs;
+    // Replying from the compact 2-comment preview opens the full sheet
+    // instead of composing right there — that tiny inline box is meant
+    // for a quick top-level comment, not for holding a quoted reply bar
+    // on top of an already-cramped card.
+    // Only top-level comments belong in this inline "Conversation" preview —
+    // replies live exclusively behind the Replies tab in the full sheet
+    // (see switchCommentsTab/renderCommentsModalList below). Without this
+    // filter, `docs` is the full comments+replies list, so whichever two
+    // items happened to be posted most recently could easily be replies,
+    // making them show up inline here even though they belong in their own
+    // tab — filter them out before slicing to the last two.
+    const preview = docs.filter(data => !data.replyToName).slice(-COMMENTS_PREVIEW_LIMIT);
+    reconcileKeyedList(listEl, preview, commentKey, data => renderCommentEl(data, (name, text, avatarUrl) => {
+      openCommentsModal(thread);
+      switchCommentsTab('replies');
+      setReplyTarget(commentsModalForm, { name, text, avatarUrl }, false);
+    }));
+    listEl.classList.remove('scrollable'); // capped at 2 — never tall enough to need its own scroll now
+    let moreBtn = listEl.nextElementSibling;
+    if (!moreBtn || !moreBtn.classList.contains('see-more-comments')) {
+      moreBtn = document.createElement('button');
+      moreBtn.type = 'button';
+      moreBtn.className = 'see-more-comments';
+      moreBtn.addEventListener('click', () => openCommentsModal(thread));
+      listEl.after(moreBtn);
+    }
+    if (docs.length > COMMENTS_PREVIEW_LIMIT) {
+      moreBtn.textContent = `See all ${docs.length} comments`;
+      moreBtn.style.display = '';
+    } else {
+      moreBtn.style.display = 'none';
+    }
+    // Sheet is already open on this exact thread (e.g. a new comment just
+    // streamed in) — keep it live instead of waiting for a re-open.
+    if (openCommentsThread === thread) renderCommentsModalList();
+  }
+
+  function renderCommentsModalList(){
+    const allDocs = openCommentsThread ? openCommentsThread.docs : [];
+    const docs = allDocs.filter(data => commentsModalTab === 'replies' ? !!data.replyToName : !data.replyToName);
+    if (!docs.length) {
+      // Empty state replaces the list wholesale — nothing here to preserve
+      // a diff against, and it also drops any stale keyed-element map from
+      // a previous non-empty render of this same list/tab.
+      commentsModalList._keyedEls?.forEach(el => deactivateCanvasFx(el));
+      commentsModalList._keyedEls = null;
+      commentsModalList.innerHTML = commentsModalTab === 'replies'
+        ? '<div class="comments-modal-empty">No replies yet.</div>'
+        : '<div class="comments-modal-empty">No comments yet — be the first.</div>';
+      return;
+    }
+    if (commentsModalList.querySelector('.comments-modal-empty')) commentsModalList.innerHTML = '';
+    // Only auto-stick to the bottom if the person was already reading the
+    // latest message (or the list just opened) — otherwise a comment
+    // landing elsewhere in a long thread would yank them away from
+    // whatever they were reading, on top of previously re-rendering the
+    // whole list every time.
+    const wasNearBottom = commentsModalList.scrollHeight - commentsModalList.scrollTop - commentsModalList.clientHeight < 60;
+    reconcileKeyedList(commentsModalList, docs, commentKey, data => renderCommentEl(data, (name, text, avatarUrl) => {
+      // Replying jumps to the Replies tab — that's where the composed
+      // reply will land once posted, and where the quote thread lives,
+      // instead of nesting it back into the comments list it was opened from.
+      switchCommentsTab('replies');
+      setReplyTarget(commentsModalForm, { name, text, avatarUrl });
+    }));
+    if (wasNearBottom) commentsModalList.scrollTop = commentsModalList.scrollHeight;
+  }
+
+  function openCommentsModal(thread){
+    openCommentsThread = thread;
+    commentsModalTab = 'comments';
+    commentsTabComments.classList.add('active');
+    commentsTabReplies.classList.remove('active');
+    commentsModalSub.textContent = thread.label || 'All comments on this post.';
+    commentsModalForm.dataset.commentsFor = thread.commentsFor || '';
+    commentsModalForm.dataset.commentsType = thread.type;
+    // Reading/replying in the full sheet shouldn't have the hero card
+    // switch to a different matchup underneath them — same pause as
+    // checking AI stats, for as long as the sheet is open on this thread.
+    if (thread.type === 'hero') { heroCommentsActive = true; scheduleHeroRotate(); }
+    // Show a spinner first, then swap in the real list a beat later —
+    // same loading-then-content pattern as the leaderboard sheet — instead
+    // of the list flashing in empty/blank while the sheet is still sliding up.
+    commentsModalList.innerHTML = '<div class="comments-modal-loading"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--accent);"></span>Loading comments…</div>';
+    commentsModalOverlay.classList.add('show');
+    requestAnimationFrame(() => requestAnimationFrame(renderCommentsModalList));
+    // Lock the page underneath while the sheet is open — same pattern as
+    // the reels player. Without this, focusing the input below pulls the
+    // still-scrollable page behind it along for the ride: the browser
+    // scrolls the nearest scroll container (.phone-scroll) to bring the
+    // input into view, which fights the sheet's own slide-up transform and
+    // leaves the sheet stranded near the top with a blank void beneath it.
+    document.querySelector('.phone-scroll').style.overflow = 'hidden';
+    // Wait for the .25s slide-up transition to finish before focusing —
+    // focusing mid-transition is what triggers that scroll fight, and it
+    // also pops the keyboard before the sheet has settled into place.
+    setTimeout(() => commentsModalInput.focus(), 300);
+  }
+  function closeCommentsModal(){
+    commentsModalOverlay.classList.remove('show');
+    openCommentsThread = null;
+    setReplyTarget(commentsModalForm, null);
+    document.querySelector('.phone-scroll').style.overflow = '';
+    // The sheet can close while its input still has focus (e.g. tapping
+    // "Back" right after typing) — blur() alone only starts an async
+    // focusout, so also force the docked-composer cleanup directly here
+    // rather than hoping that event lands. Without this, the input kept
+    // logical focus, the global focusout listener that undocks the
+    // composer never fired, and the fixed-position comment bar was left
+    // floating — at whatever height the keyboard last measured — on top
+    // of whatever screen opened next.
+    if (document.activeElement === commentsModalInput) commentsModalInput.blur();
+    document.body.classList.remove('keyboard-open');
+    undockCommentField(commentsModalForm);
+    // Done reading/replying — safe for the hero card to resume rotating
+    // again (no-op if this was a clip thread, since it was never paused).
+    heroCommentsActive = false;
+    scheduleHeroRotate();
+  }
+  commentsModalClose.addEventListener('click', closeCommentsModal);
+  commentsModalOverlay.addEventListener('click', event => {
+    if (event.target === commentsModalOverlay) closeCommentsModal();
+  });
+
+  // ---------- profile card (Discord-style) ----------
+  // Opened by tapping any comment or leaderboard avatar — shows that
+  // account's current picture, name, decoration, verified badge, and bio.
+  // Everything except the bio is already cached by the helpers above; the
+  // bio itself is fetched fresh each time the card opens since it's not
+  // otherwise kept in memory anywhere.
+  const userProfileOverlay = document.getElementById('userProfileOverlay');
+  const userProfileAvatar = document.getElementById('userProfileAvatar');
+  const userProfileNameText = document.getElementById('userProfileNameText');
+  const userProfileVerified = document.getElementById('userProfileVerified');
+  const userProfileHandle = document.getElementById('userProfileHandle');
+  const userProfileLoading = document.getElementById('userProfileLoading');
+  const userProfileBio = document.getElementById('userProfileBio');
+  const userProfileBioText = document.getElementById('userProfileBioText');
+
+  function closeUserProfileCard(){
+    userProfileOverlay.classList.remove('show');
+  }
+  document.getElementById('userProfileClose').addEventListener('click', closeUserProfileCard);
+  userProfileOverlay.addEventListener('click', event => {
+    if (event.target === userProfileOverlay) closeUserProfileCard();
+  });
+
+  // `fallback` carries whatever the triggering avatar already had on hand
+  // (name/avatarUrl from the comment or leaderboard row) so the card has
+  // something to show instantly, before the Firestore doc comes back.
+  function openUserProfileCard(uid, fallback){
+    if (!uid) return;
+    fallback = fallback || {};
+    // Set once, lazily, on first open — by now the rest of the script
+    // (including the VERIFIED_BADGE_SVG constant, declared further down)
+    // has finished running, so it's safe to read here.
+    if (!userProfileVerified.innerHTML) userProfileVerified.innerHTML = VERIFIED_BADGE_SVG;
+    userProfileAvatar.className = 'user-profile-avatar';
+    userProfileAvatar.innerHTML = commentAvatarHtml(fallback.name, fallback.avatarUrl);
+    userProfileNameText.textContent = fallback.name || 'User';
+    userProfileHandle.textContent = '';
+    userProfileVerified.style.display = 'none';
+    userProfileBio.hidden = true;
+    userProfileBioText.textContent = '';
+    userProfileLoading.style.display = 'block';
+    attachDecoration(userProfileAvatar, uid);
+    attachVerifiedBadge(userProfileVerified, uid);
+    userProfileOverlay.classList.add('show');
+    getDoc(doc(db, 'users', uid)).then(snap => {
+      if (!snap.exists()) { userProfileLoading.textContent = 'This account no longer exists.'; return; }
+      const data = snap.data();
+      userProfileLoading.style.display = 'none';
+      if (data.name) userProfileNameText.textContent = data.name;
+      if (data.handle) userProfileHandle.textContent = data.handle;
+      if (data.avatarUrl) userProfileAvatar.innerHTML = commentAvatarHtml(data.name, data.avatarUrl);
+      // Re-apply the decoration on top of the freshly-set avatar markup
+      // above, since setting .innerHTML just now would have wiped it out.
+      attachDecoration(userProfileAvatar, uid);
+      const bio = (data.bio || '').trim();
+      userProfileBio.hidden = false;
+      userProfileBioText.textContent = bio;
+      userProfileBioText.className = bio ? '' : 'user-profile-bio-empty';
+      if (!bio) userProfileBioText.textContent = 'No bio yet.';
+    }).catch(err => {
+      console.error('Profile card load failed', err);
+      userProfileLoading.textContent = 'Could not load this profile.';
+    });
+  }
+
+  // Event delegation — comments and leaderboard rows are re-rendered
+  // constantly (new comments streaming in, leaderboard refreshes), so
+  // binding once on a stable ancestor beats re-attaching a listener to
+  // every avatar every time the list redraws.
+  document.addEventListener('click', event => {
+    const avatar = event.target.closest('.comment-avatar[data-uid], .leaderboard-avatar[data-uid]');
+    if (!avatar || !avatar.dataset.uid) return;
+    openUserProfileCard(avatar.dataset.uid, { name: avatar.dataset.name, avatarUrl: avatar.dataset.avatar });
+  });
+  commentsModalForm.addEventListener('submit', event => {
+    event.preventDefault();
+    if (commentsModalForm.dataset.commentsType === 'hero') {
+      const text = commentsModalInput.value.trim();
+      if (!text) return;
+      commentsModalInput.value = '';
+      postHeroComment(text, commentsModalForm).catch(() => { commentsModalInput.value = text; });
+    } else {
+      // Clip threads: addComment() reads dataset.commentsFor plus the
+      // form's own input (reading, clearing, and restoring it on failure
+      // itself), so it works fine on this sheet's form even though it
+      // isn't nested inside a .clip-card.
+      addComment(commentsModalForm);
+    }
+  });
+
+  // Live-syncs one clip's comment thread from Firestore. Safe to call more
+  // than once for the same clipId/form pair (guarded by a flag on the form).
+  const wiredCommentForms = new WeakSet();
+  const commentUnsubscribes = new Map(); // clipId -> unsubscribe fn, closed on delete so it stops costing reads
+  function wireClipComments(clipId, form){
+    if (!clipId || wiredCommentForms.has(form)) return;
+    wiredCommentForms.add(form);
+    // Comments live in a wrapper just before the form, not loose in the
+    // card, so the preview-cap logic has a single element to render into —
+    // same pattern as the hero card.
+    let list = form.previousElementSibling;
+    if (!list || !list.classList.contains('hero-comments-list')) {
+      list = document.createElement('div');
+      list.className = 'hero-comments-list';
+      form.parentNode.insertBefore(list, form);
+    }
+    const thread = { type: 'clip', commentsFor: clipId, label: 'All comments on this clip.', docs: [], form };
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'movieClips', clipId, 'comments'), orderBy('createdAt', 'asc')),
+      snapshot => {
+        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderCommentsPreview(list, docs, thread);
+      },
+      err => console.error('Comments listener failed', err)
+    );
+    commentUnsubscribes.set(clipId, unsubscribe);
+  }
+
+  async function addComment(form){
+    const clipId = form.dataset.commentsFor;
+    const input = form.querySelector('input');
+    const text = input.value.trim();
+    if (!text) return;
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to comment'); return; }
+    const replyTarget = form._replyTarget || null;
+    input.value = '';
+    // Server-authoritative post via /api/clip-comment — verifies identity,
+    // pulls the poster's real profile fields server-side, and awards XP.
+    // Direct Firestore writes to this subcollection are rejected by the
+    // security rules.
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/clip-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ clipId, text, replyTo: replyTarget }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Comment failed');
+      setReplyTarget(form, null);
+      // Optimistic local bump so the progress bar feels live — the server
+      // already awarded the real +10 XP.
+      currentUserXp += 10;
+      currentUserWeeklyXp += 10;
+      renderVerifiedProgress();
+      showXpToast(data.xpAwarded, data.rank);
+    } catch (err) {
+      console.error('Comment post failed', err);
+      input.value = text;
+      showToast('Could not post comment — try again');
+    }
+  }
+
+  clipFeed.addEventListener('submit', event => {
+    event.preventDefault();
+    addComment(event.target);
+  });
+
+  // Wire up the three built-in demo clips' comment threads immediately.
+  clipFeed.querySelectorAll('.comment-form[data-comments-for]').forEach(form => {
+    wireClipComments(form.dataset.commentsFor, form);
+  });
+
+  // Same for their like/share buttons, seeded with a starting count each
+  // so they don't just read "0" before anyone's tapped one.
+  const CLIP_BASE_LIKES = { featured: 142, hallway: 89, twist: 203 };
+  clipFeed.querySelectorAll('.clip-card[data-clip-id]').forEach(card => {
+    const id = card.dataset.clipId;
+    wireClipSocial(id, card, CLIP_BASE_LIKES[id] || 0);
+  });
+
+  // Deep-link support: a shared clip URL looks like ?clip=<clipId>. Built-in
+  // demo clips are in the DOM immediately; community clips stream in async
+  // below, so this is safe to call repeatedly — it only acts once, then
+  // gets out of the way. Opens the Movies Hub (reusing the same nav-item
+  // click the person would use manually) and drops straight into the reels player.
+  let sharedClipHandled = false;
+  function tryOpenSharedClip(){
+    if (sharedClipHandled) return;
+    const id = new URLSearchParams(location.search).get('clip');
+    if (!id) { sharedClipHandled = true; return; }
+    const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
+    if (!card) return; // might still be streaming in (community clip) — try again on the next snapshot
+    const thumb = card.querySelector('.clip-thumb');
+    if (!thumb || !thumb.dataset.videoSrc) { sharedClipHandled = true; return; } // demo card, no real video yet
+    sharedClipHandled = true;
+    const moviesNav = document.querySelector('.nav-item[data-nav="Movies"]');
+    if (moviesNav) moviesNav.click();
+    openReelsPlayer(thumb);
+  }
+  tryOpenSharedClip(); // covers built-in demo clips, already in the DOM at this point
+
+  publishClip.addEventListener('click', async () => {
+    const rawLink = clipYoutubeUrl.value;
+    const parsed = parseClipLink(rawLink);
+    const title = clipTitle.value.trim();
+    const review = clipReview.value.trim();
+    if (!parsed) {
+      showToast('Paste a valid YouTube link first');
+      return;
+    }
+    if (!title || !review) {
+      showToast('Add a title and review');
+      return;
+    }
+    const identity = currentUserIdentity();
+    if (!identity) { requireSignIn('Sign in to post a clip'); return; }
+    withSpinner(publishClip, 'SUBMITTING…', () => {
+      // Goes to a review queue, not straight onto the public movieClips
+      // list (that collection now rejects direct client writes — see
+      // rules). An admin approves/rejects from the moderation panel in
+      // Account, which is what actually creates the live "movieClips" doc.
+      addDoc(collection(db, 'pendingClips'), {
+        title, review, videoPlatform: parsed.platform, videoId: parsed.id, isShort: !!parsed.isShort,
+        postedByUid: identity.uid, postedByName: identity.name, postedByAvatar: identity.avatarUrl,
+        createdAt: serverTimestamp()
+      })
+        .then(() => {
+          clipYoutubeUrl.value = '';
+          clipFileName.textContent = 'Paste a YouTube Shorts link for best results';
+          clipTitle.value = '';
+          clipReview.value = '';
+          clipUploaderOverlay.classList.remove('show');
+          showToast('Clip submitted — pending review');
+        })
+        .catch(err => {
+          console.error('Clip submission failed', err);
+          showToast('Could not submit that clip — check your connection and try again');
+        });
+    }, 500);
+  });
+
+  // Real-time: community-posted clips (from any browser) render here,
+  // newest first, above the three built-in demo clips.
+  const renderedClipIds = new Set();
+  const HIDDEN_CLIPS_KEY = 'fictionClashHiddenClips'; // clips (including built-in demo ones) this browser chose to hide
+  const hiddenClipIds = new Set(JSON.parse(localStorage.getItem(HIDDEN_CLIPS_KEY) || '[]'));
+  // The 3 built-in demo clips have no Firestore doc, so apply any
+  // previously-hidden choice for them directly against their markup.
+  hiddenClipIds.forEach(id => {
+    const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
+    if (card) card.remove();
+  });
+
+  // 2 shimmering placeholder cards shown until the first clip streams in —
+  // there's no hardcoded seed video anymore, so without this the Movies
+  // Hub would just be blank on a fresh load. Cleared the moment either a
+  // real clip arrives or the listener finishes synced-and-empty.
+  const CLIP_SKELETON_HTML = `<article class="clip-card skeleton" data-skeleton="1">
+      <div class="skel-thumb skeleton-block"></div>
+      <h3 class="skel-h3 skeleton-block"></h3>
+      <div class="skel-p skeleton-block"></div>
+      <div class="skel-p short skeleton-block"></div>
+    </article>`;
+  clipFeed.insertAdjacentHTML('beforeend', CLIP_SKELETON_HTML + CLIP_SKELETON_HTML);
+  function clearClipSkeletons(){
+    clipFeed.querySelectorAll('.clip-card.skeleton').forEach(el => el.remove());
+  }
+
+  let clipsSynced = false; // true once the initial replay-everything snapshot has finished
+  const clipFeedLoadingMore = document.getElementById('clipFeedLoadingMore');
+  clipFeedLoadingMore.classList.add('show'); // visible until the first snapshot resolves, however fast that is
+  onSnapshot(
+    query(collection(db, 'movieClips'), orderBy('createdAt', 'desc')),
+    snapshot => {
+      const changes = snapshot.docChanges();
+      if (changes.some(c => c.type === 'added')) clearClipSkeletons();
+      changes.filter(c => c.type === 'removed').forEach(change => {
+        const id = change.doc.id;
+        renderedClipIds.delete(id);
+        const card = clipFeed.querySelector(`.clip-card[data-clip-id="${id}"]`);
+        if (card) { deactivateCanvasFx(card); card.remove(); } // stop any comment avatar's particle-effect canvas before the card goes
+        const unsubscribe = commentUnsubscribes.get(id);
+        if (unsubscribe) { unsubscribe(); commentUnsubscribes.delete(id); }
+      });
+      // The query is already newest-first, but clipFeed.prepend() puts
+      // each new card at the very top as it's processed — so looping
+      // through an "added" batch in query order (newest → oldest) ends up
+      // flipping the visual order, since the oldest one in the batch gets
+      // prepended LAST and lands above everything else. Reversing the
+      // batch before prepending fixes it: the oldest of the batch goes in
+      // first, then progressively newer ones land on top of it, so the
+      // final stack reads newest-first exactly like the query intended.
+      changes.filter(c => c.type === 'added').reverse().forEach(change => {
+        const id = change.doc.id;
+        if (renderedClipIds.has(id)) return;
+        {
+          const data = change.doc.data();
+          // Same TTL workaround as matchups — no Blaze plan means no
+          // Firestore-side auto-delete, so just don't render clips
+          // that are already past their expiresAt.
+          if (data.expiresAt && data.expiresAt.toMillis() < Date.now()) return;
+          // This browser hid this clip before — Firestore still has it
+          // for everyone else, we just don't render it here.
+          if (hiddenClipIds.has(id)) return;
+          const card = document.createElement('article');
+          card.className = 'clip-card';
+          card.dataset.clipId = id;
+          // videoPlatform/videoId is the current field pair; youtubeId is
+          // kept as a fallback so clips posted before this field existed
+          // still render correctly.
+          const platform = data.videoPlatform || (data.youtubeId ? 'youtube' : '');
+          const videoId = escapeHtml(data.videoId || data.youtubeId || '');
+          const posterStyle = platform === 'youtube'
+            ? ` style="background-image:url('https://img.youtube.com/vi/${videoId}/hqdefault.jpg')"`
+            : '';
+          card.innerHTML = `
+            <div class="clip-thumb" data-video-type="${platform}" data-video-src="${videoId}" data-is-short="${!!data.isShort}"${posterStyle}>
+              <button type="button" class="clip-play-btn" aria-label="Play video">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </button>
+            </div>
+            <h3>${escapeHtml(data.title || '')}</h3>
+            <p class="clip-review">${escapeHtml(data.review || '')}</p>
+            <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><button type="button" class="clip-delete-btn" data-hide-clip="${id}">Hide</button></div>
+            <div class="social-row">
+              <button class="social-btn like-btn" type="button" aria-label="Like this clip">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+                <span class="like-count">0</span>
+              </button>
+              <button class="social-btn share-btn" type="button" aria-label="Share this clip">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+                <span>Share</span>
+              </button>
+            </div>
+            <div class="comments-title">Conversation</div>
+            <div class="hero-comments-list"></div>
+            <form class="comment-form" data-comments-for="${id}">
+              <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
+              <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
+            </form>`;
+          clipFeed.prepend(card);
+          wireClipComments(id, card.querySelector('.comment-form'));
+          wireClipSocial(id, card, 0);
+          renderedClipIds.add(id);
+          if (clipsSynced) pushNotification('clip', 'New clip posted', data.title || 'A new clip', id);
+        }
+      });
+      clipsSynced = true;
+      clipFeedLoadingMore.classList.remove('show');
+      if (renderedClipIds.size === 0) {
+        clearClipSkeletons();
+        if (!clipFeed.querySelector('.clips-empty-state')) {
+          clipFeed.insertAdjacentHTML('beforeend', '<div class="comments-modal-empty clips-empty-state">No clips yet — be the first to post one.</div>');
+        }
+      } else {
+        clipFeed.querySelector('.clips-empty-state')?.remove();
+      }
+      tryOpenSharedClip();
+    },
+    err => console.error('Movie clips listener failed', err)
+  );
+
+  // "Hide" only affects this browser — it removes the card locally and
+  // remembers the choice in localStorage, but never touches Firestore, so
+  // the clip stays fully visible to everyone else.
+  // No hardcoded clips exist anymore (every clip has a real Firestore doc),
+  // so this stays empty — kept only so the admin-delete branch below still
+  // has somewhere to check, in case built-ins ever come back.
+  const BUILT_IN_CLIP_IDS = new Set();
+  clipFeed.addEventListener('click', event => {
+    const btn = event.target.closest('[data-hide-clip]');
+    if (!btn) return;
+    const clipId = btn.dataset.hideClip;
+    if (isAdmin() && !BUILT_IN_CLIP_IDS.has(clipId)) {
+      // Admin account, community clip — actually deletes the doc from
+      // Firestore, so the clip disappears for every visitor, not just this browser.
+      if (!confirm('Delete this clip for everyone? This can\'t be undone.')) return;
+      deleteDoc(doc(db, 'movieClips', clipId)).catch(err => {
+        console.error('Clip delete failed', err);
+        showToast('Could not delete — try again');
+      });
+      // Card removal + comment-listener cleanup happen via the onSnapshot 'removed' handler.
+      return;
+    }
+    if (isAdmin() && BUILT_IN_CLIP_IDS.has(clipId)) {
+      // Admin account, built-in clip — there's no Firestore doc to delete
+      // (it's hardcoded in the app), so instead its id gets added to the
+      // shared hiddenBuiltins doc. Every client, including this one, is
+      // listening to that doc and will remove the card — a real
+      // delete-for-everyone, not just a local hide.
+      if (!confirm('Remove this clip for everyone? This is a built-in clip, so it\'ll be hidden from all users everywhere, not just this device. This can\'t be undone.')) return;
+      setDoc(doc(db, 'appConfig', 'hiddenBuiltins'), { clipIds: arrayUnion(clipId) }, { merge: true }).catch(err => {
+        console.error('Global hide failed', err);
+        showToast('Could not remove — try again');
+      });
+      // The card removes itself once the hiddenBuiltins listener picks this up.
+      return;
+    }
+    if (!confirm("Hide this clip from your feed? It'll stay visible to everyone else.")) return;
+    hiddenClipIds.add(clipId);
+    localStorage.setItem(HIDDEN_CLIPS_KEY, JSON.stringify([...hiddenClipIds]));
+    const card = clipFeed.querySelector(`.clip-card[data-clip-id="${clipId}"]`);
+    if (card) { deactivateCanvasFx(card); card.remove(); }
+    renderedClipIds.delete(clipId);
+    // Stop listening to this clip's comments on this browser too, since we
+    // don't need live updates for something we're not showing anymore.
+    const unsubscribe = commentUnsubscribes.get(clipId);
+    if (unsubscribe) { unsubscribe(); commentUnsubscribes.delete(clipId); }
+    showToast('Hidden from your feed');
+  });
+
+
+  // ---------- news hub ----------
+  const newsSection = document.getElementById('newsSection');
+  const newsDateEl = document.getElementById('newsDate');
+  if (newsDateEl) {
+    const today = new Date();
+    const weekday = today.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+    const month = today.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+    newsDateEl.innerHTML = `${weekday}<br>${month} ${today.getDate()}`;
+  }
+  const newsFeed = document.getElementById('newsFeed');
+  const newsFeedHeading = document.getElementById('newsFeedHeading');
+
+  // Used as: (1) an offline/error fallback if /api/news fails, and
+  // (2) what's shown instantly while the real fetch is in flight, so the
+  // tab never looks empty. Real stories, once loaded, replace these.
+  const fallbackNewsStories = {
+    'Music': [
+      { tag: 'MUSIC · NEW RELEASE', title: "The albums bringing a little more colour to this week's playlist", time: '2H', url: null },
+      { tag: 'MUSIC · CULTURE', title: 'Why intimate live sessions are having a moment again', time: '5H', url: null }
+    ],
+    'Latest Movies': [
+      { tag: 'LATEST MOVIES · TRAILERS', title: 'The new trailers turning heads this week', time: '1H', url: null },
+      { tag: 'LATEST MOVIES · WATCHLIST', title: 'Five new releases to add to your weekend watchlist', time: '4H', url: null }
+    ],
+    'Football': [
+      { tag: 'FOOTBALL · TRANSFERS', title: 'The moves reshaping the season before kickoff', time: '38M', url: null },
+      { tag: 'FOOTBALL · MATCHDAY', title: 'Three fixtures that could define the weekend', time: '3H', url: null }
+    ],
+    'Discovery': [
+      { tag: 'DISCOVERY · PEOPLE', title: 'The creators turning curiosity into a daily practice', time: '2H', url: null },
+      { tag: 'DISCOVERY · PLACES', title: 'A different way to explore the city this weekend', time: '6H', url: null }
+    ]
+  };
+
+  const newsCache = {}; // category -> stories array, so switching tabs back and forth doesn't re-fetch
+
+  function timeAgo(isoLike){
+    if (!isoLike) return '';
+    // NewsData.io returns "YYYY-MM-DD HH:MM:SS" (UTC, no "Z") — make it parseable.
+    const date = new Date(isoLike.includes('T') ? isoLike : `${isoLike.replace(' ', 'T')}Z`);
+    if (Number.isNaN(date.getTime())) return '';
+    const minutes = Math.max(1, Math.round((Date.now() - date.getTime()) / 60000));
+    if (minutes < 60) return `${minutes}M`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}H`;
+    return `${Math.round(hours / 24)}D`;
+  }
+
+  function renderNewsStories(stories){
+    newsFeed.innerHTML = stories.map(story => {
+      const inner = `
+        <div style="flex:1;min-width:0;">
+          <div class="story-tag">${escapeHtml(story.tag)}</div>
+          <h4>${escapeHtml(story.title)}</h4>
+        </div>
+        <div class="story-time">${escapeHtml(story.time)}</div>`;
+      return story.url
+        ? `<a class="news-story" href="${escapeHtml(story.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`
+        : `<article class="news-story">${inner}</article>`;
+    }).join('');
+  }
+
+  async function loadNewsCategory(name){
+    if (newsCache[name]) {
+      renderNewsStories(newsCache[name]);
+      return;
+    }
+    // Show fallback immediately so the tab isn't blank while the real fetch runs.
+    renderNewsStories(fallbackNewsStories[name] || []);
+    try {
+      const res = await fetch(`/api/news?category=${encodeURIComponent(name)}`);
+      if (!res.ok) throw new Error('News request failed: ' + res.status);
+      const data = await res.json();
+      const stories = Array.isArray(data.stories) ? data.stories : [];
+      if (stories.length === 0) throw new Error('No stories returned');
+      const formatted = stories.map(s => ({ tag: s.tag, title: s.title, url: s.url, time: timeAgo(s.publishedAt) || '' }));
+      newsCache[name] = formatted;
+      // Only swap in the real stories if the user hasn't since switched tabs.
+      if (newsFeedHeading.textContent === name) renderNewsStories(formatted);
+    } catch (err) {
+      console.warn(`News unavailable for "${name}", showing offline stories:`, err);
+      // Fallback is already rendered above — nothing further to do.
+    }
+  }
+
+  document.querySelectorAll('.news-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const name = tab.dataset.newsCategory;
+      document.querySelectorAll('.news-tab').forEach(item => item.classList.remove('selected'));
+      tab.classList.add('selected');
+      newsFeedHeading.textContent = name;
+      loadNewsCategory(name);
+    });
+  });
+  loadNewsCategory('Music'); // matches the tab marked "selected" by default in the HTML
+
+  // ---------- team builder ----------
+  const teamSection = document.getElementById('teamSection');
+  const teamAlphaList = document.getElementById('teamAlphaList');
+  const teamOmegaList = document.getElementById('teamOmegaList');
+  const teamPickHint = document.getElementById('teamPickHint');
+  const teamResult = document.getElementById('teamResult');
+  const aiFeatsForm = document.getElementById('aiFeatsForm');
+  const aiFeatsQuestion = document.getElementById('aiFeatsQuestion');
+  const aiFeatsResult = document.getElementById('aiFeatsResult');
+  const aiFeatsCreditsEl = document.getElementById('aiFeatsCredits');
+  const shareAiFeatsCardBtn = document.getElementById('shareAiFeatsCard');
+  const characterSearch = document.getElementById('characterSearch');
+  const characterSearchInput = document.getElementById('characterSearchInput');
+  const characterSearchNote = document.getElementById('characterSearchNote');
+  const teams = { alpha: [], omega: [] };
+  // The AI verdict card needs the exact roster + wording from the last
+  // successful analysis — kept separate from `teams` so editing the roster
+  // afterwards doesn't let a stale verdict get shared against a build it
+  // was never actually run on (see renderTeams(), which clears this).
+  let lastAiFeatsReport = null;
+
+  // Each AI feat check is a real Gemini call, so this caps it at 3 PER
+  // ACCOUNT PER DAY — not per team roster, since swapping a fighter
+  // shouldn't reset the clock. Tracked in Firestore, not a local JS
+  // variable, so refreshing the page can't reset it: the count lives on
+  // users/{uid}/featCredits/{YYYY-MM-DD} (UTC date), one doc per day, and
+  // Firestore rules (not just this client code) enforce the +1-per-write,
+  // max-3 ceiling server-side.
+  const AI_FEATS_CREDIT_LIMIT = 3;
+  function todayKey(){
+    return new Date().toISOString().slice(0, 10); // UTC date — same reset moment for everyone, no timezone edge cases
+  }
+  // Reads today's used count without spending a credit — used to paint
+  // the counter correctly on load/sign-in without every glance at the
+  // screen costing a write.
+  async function peekAiFeatsCredits(){
+    if (!auth.currentUser) return AI_FEATS_CREDIT_LIMIT;
+    try {
+      const snap = await getDoc(doc(db, 'users', auth.currentUser.uid, 'featCredits', todayKey()));
+      const used = snap.exists() ? (snap.data().count || 0) : 0;
+      return Math.max(0, AI_FEATS_CREDIT_LIMIT - used);
+    } catch (err) {
+      console.error('Could not read AI feat check credits', err);
+      return AI_FEATS_CREDIT_LIMIT; // fail open on read errors — the write-time check below is the real gate
+    }
+  }
+  // Attempts to spend one of today's credits. Returns true if allowed
+  // (and already recorded the spend), false if today's quota is used up.
+  // The Firestore rules only accept a write that increments by exactly 1
+  // and never exceeds the limit, so this can't be spoofed from devtools.
+  async function spendAiFeatsCredit(){
+    const ref = doc(db, 'users', auth.currentUser.uid, 'featCredits', todayKey());
+    const snap = await getDoc(ref);
+    const used = snap.exists() ? (snap.data().count || 0) : 0;
+    if (used >= AI_FEATS_CREDIT_LIMIT) return false;
+    if (snap.exists()) {
+      await updateDoc(ref, { count: used + 1 });
+    } else {
+      await setDoc(ref, { count: 1 });
+    }
+    return true;
+  }
+  let activeTeam = 'alpha';
+  const featProfiles = {
+    'Gojo Satoru':'Infinity-level defense, limitless space manipulation, and domain expansion.',
+    'Saitama':'Overwhelming physical strength, extreme speed, and near-limitless durability.',
+    'Goku':'Ultra-fast combat reactions, energy projection, and transformations that scale dramatically.',
+    'Vegeta':'Relentless power growth, energy blasts, and elite hand-to-hand technique.',
+    'Naruto':'Large chakra reserves, shadow clones, sensory abilities, and high battle adaptability.',
+    'Sasuke Uchiha':'Sharingan precognition, elemental jutsu, and lightning-fast strikes.',
+    'Itachi Uchiha':'Genjutsu mastery, tactical foresight, and precise long-range ninjutsu.',
+    'Kakashi Hatake':'Copied techniques, sharp battlefield reading, and versatile jutsu repertoire.',
+    'Monkey D. Luffy':'Elastic-body combat, escalating gear transformations, and relentless resolve.',
+    'Roronoa Zoro':'Three-blade swordsmanship, immense pain tolerance, and disciplined focus.',
+    'Ichigo Kurosaki':'Spirit-blade combat, rapid power escalation, and hybrid fighting forms.',
+    'Levi Ackerman':'Elite close-quarters technique, extraordinary agility, and precision under pressure.',
+    'Eren Yeager':'Titan transformations, immense raw power, and unpredictable tactics.',
+    'All Might':'Explosive superhuman strength, high-speed strikes, and commanding battlefield presence.',
+    'Izuku Midoriya':'Inherited power scaling, full-body enhancement, and creative technique combos.',
+    'Light Yagami':'Manipulation, long-term planning, and a supernatural killing method rather than brute force.',
+    'Edward Elric':'Instant alchemical construction, adaptable tactics, and reinforced prosthetic limb combat.',
+    'Natsu Dragneel':'Fire-based offense, high heat resistance, and escalating dragon-force power.',
+    'Killua Zoldyck':'Electrified speed, assassin-trained reflexes, and precise close-range strikes.',
+    'Gon Freecss':'Enhanced strength bursts, sharp instincts, and rapid on-the-fly power growth.',
+    'Meliodas':'Counter-based power scaling, demon-form strength, and near-unkillable resilience.',
+    'Rimuru Tempest':'Shape-shifting, skill absorption, and adaptable elemental and physical combat.',
+    'Spider-Man':'Wall-crawling agility, precognitive "spider-sense," and enhanced strength-to-size ratio.',
+    'Iron Man':'Advanced powered armor, versatile weapon systems, and rapid tactical engineering.',
+    'Thor':'Godly strength, lightning manipulation, and a legendary enchanted hammer.',
+    'Hulk':'Escalating rage-fueled strength, near-limitless durability, and regeneration.',
+    'Captain America':'Peak human physicality, elite tactics, and a nearly indestructible shield.',
+    'Wolverine':'Rapid healing factor, retractable claws, and heightened animal senses.',
+    'Deadpool':'Extreme regeneration, unpredictable combat style, and high pain tolerance.',
+    'Thanos':'Immense raw strength, durability, and reality-altering artifact combat.',
+    'Doctor Strange':'Reality-bending magic, dimensional travel, and precognitive strategy.',
+    'Scarlet Witch':'Reality-warping chaos magic and telekinetic-level power output.',
+    'Magneto':'Mastery over magnetism, metal manipulation, and large-scale battlefield control.',
+    'Venom':'Symbiote-enhanced strength, shape-shifting attacks, and rapid regeneration.',
+    'Batman':'Peak human conditioning, tactical preparation, detective skill, and specialized gear.',
+    'Superman':'Near-invulnerability, flight, immense strength, and multiple energy-based powers.',
+    'Wonder Woman':'Superhuman strength and speed, combat mastery, and exceptional resilience.',
+    'The Flash':'Extreme superhuman speed, rapid reflexes, and time-bending movement.',
+    'Joker':'Unpredictable tactics, psychological manipulation, and improvised weaponry.',
+    'Aquaman':'Ocean-scale strength, aquatic command, and enhanced durability underwater.',
+    'Darkseid':'Godlike strength, Omega Beam attacks, and near-absolute durability.',
+    'Green Lantern':'Willpower-fueled energy constructs and versatile ring-based offense.',
+    'Master Chief':'Powered exosuit strength, elite tactical training, and heavy weapon proficiency.',
+    'Kratos':'Godly strength, brutal weapon mastery, and relentless close-combat aggression.',
+    'Link':'Versatile arsenal, precise swordplay, and resourceful puzzle-driven combat.',
+    'Sephiroth':'Blade mastery, powerful magic, and overwhelming speed in close combat.',
+    'Dante':'Stylish acrobatic combat, demon-hunting weaponry, and rapid weapon-switching.',
+    'Geralt of Rivia':'Monster-hunting swordplay, alchemical potions, and tactical magic signs.',
+    'Solid Snake':'Elite stealth tactics, tactical espionage skill, and improvised field equipment.',
+    'Doom Slayer':'Overwhelming heavy weaponry, relentless aggression, and demon-killing endurance.',
+    'John Wick':'Exceptional accuracy, close-combat skill, endurance, and tactical improvisation.',
+    'Jack Sparrow':'Unpredictable improvisation, cunning escapes, and surprisingly sharp swordplay.',
+    'Neo':'Reality-bending martial arts, enhanced perception, and rapid combat adaptation.',
+    'Darth Vader':'Powerful telekinetic Force abilities and disciplined lightsaber combat.',
+    'Yoda':'Masterful Force control, agile lightsaber technique, and centuries of tactical wisdom.',
+    'James Bond':'Elite marksmanship, sharp improvisation, and high-stakes tactical composure.',
+    'The Terminator':'Relentless durability, precise combat programming, and mechanical strength.',
+    'Ellen Ripley':'Resourceful survival instincts, heavy equipment use, and steady nerve under pressure.',
+    'Rocky Balboa':'Elite boxing endurance, powerful punching output, and relentless will to keep fighting.'
+  };
+
+  function renderTeams(){
+    // Roster just changed, so any previously generated AI verdict no longer
+    // matches — hide its share button rather than let someone share a
+    // verdict for fighters that are no longer in the build.
+    lastAiFeatsReport = null;
+    shareAiFeatsCardBtn.hidden = true;
+    const render = (list, team) => {
+      list.innerHTML = teams[team].map((name, index) =>
+        `<li><span class="team-character"><img data-char-photo="${escapeHtml(name)}" src="${avatarUrl(name, name.split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase())}" alt=""><span>${escapeHtml(name)}</span></span><button type="button" data-remove-team="${team}" data-remove-index="${index}" aria-label="Remove ${escapeHtml(name)}">×</button></li>`
+      ).join('');
+      hydrateCharacterPhotos(list);
+    };
+    render(teamAlphaList, 'alpha');
+    render(teamOmegaList, 'omega');
+    document.querySelectorAll('.character-chip').forEach(chip => {
+      chip.classList.toggle('used', teams.alpha.includes(chip.dataset.character) || teams.omega.includes(chip.dataset.character));
+    });
+    teamPickHint.textContent = activeTeam === 'alpha' ? 'Adding to Alpha' : 'Adding to Omega';
+    refreshAiFeatsCreditsDisplay();
+  }
+
+  // Repaints the credits line/button state for today's account-level
+  // quota. Read-only — never spends a credit itself. Doesn't depend on
+  // the current team roster anymore (limit is per account per day now).
+  async function refreshAiFeatsCreditsDisplay(){
+    if (!aiFeatsCreditsEl) return;
+    const submitBtn = aiFeatsForm?.querySelector('button[type="submit"]');
+    if (!auth.currentUser) {
+      aiFeatsCreditsEl.textContent = `Sign in to use AI feat checks (${AI_FEATS_CREDIT_LIMIT} per day)`;
+      aiFeatsCreditsEl.classList.remove('exhausted');
+      if (submitBtn) submitBtn.disabled = false; // let the submit handler prompt sign-in rather than blocking here
+      return;
+    }
+    const remaining = await peekAiFeatsCredits();
+    aiFeatsCreditsEl.textContent = remaining > 0
+      ? `${remaining} of ${AI_FEATS_CREDIT_LIMIT} AI checks left today`
+      : `No AI checks left today — resets at midnight UTC`;
+    aiFeatsCreditsEl.classList.toggle('exhausted', remaining === 0);
+    if (submitBtn) submitBtn.disabled = remaining === 0;
+  }
+
+  characterSearch.addEventListener('submit', event => {
+    event.preventDefault();
+    const query = characterSearchInput.value.trim();
+    const normalized = query.toLowerCase();
+    document.querySelectorAll('.character-chip').forEach(chip => {
+      chip.style.display = !normalized || chip.dataset.character.toLowerCase().includes(normalized) ? '' : 'none';
+    });
+    if (!query) {
+      characterSearchNote.textContent = 'Search the presets or type any character name to add your own.';
+      return;
+    }
+    if (teams[activeTeam].length >= 3) {
+      showToast('Each team can have up to 3 fighters');
+      return;
+    }
+    const preset = [...document.querySelectorAll('.character-chip')].find(chip => chip.dataset.character.toLowerCase() === normalized);
+    const character = preset ? preset.dataset.character : query;
+    if (teams.alpha.concat(teams.omega).some(name => name.toLowerCase() === character.toLowerCase())) {
+      showToast('That character is already selected');
+      return;
+    }
+    teams[activeTeam].push(character);
+    characterSearchInput.value = '';
+    characterSearchNote.textContent = `${character} added to ${activeTeam === 'alpha' ? 'Team Alpha' : 'Team Omega'}.`;
+    document.querySelectorAll('.character-chip').forEach(chip => chip.style.display = '');
+    renderTeams();
+  });
+
+  document.querySelectorAll('.team-slot').forEach((slot, index) => {
+    slot.addEventListener('click', event => {
+      if (event.target.closest('button')) return;
+      activeTeam = index === 0 ? 'alpha' : 'omega';
+      document.querySelectorAll('.team-slot').forEach(item => item.classList.remove('active'));
+      slot.classList.add('active');
+      renderTeams();
+    });
+  });
+  document.querySelector('.team-slot').classList.add('active');
+
+  document.querySelectorAll('.character-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      if (teams[activeTeam].length >= 3) {
+        showToast('Each team can have up to 3 fighters');
+        return;
+      }
+      teams[activeTeam].push(chip.dataset.character);
+      renderTeams();
+    });
+  });
+
+  document.getElementById('teamBuilder')?.addEventListener('click', event => {
+    const button = event.target.closest('[data-remove-team]');
+    if (!button) return;
+    const team = button.dataset.removeTeam;
+    teams[team].splice(Number(button.dataset.removeIndex), 1);
+    renderTeams();
+  });
+
+  const shareTeamCardBtn = document.getElementById('shareTeamCard');
+  document.getElementById('assembleTeams').addEventListener('click', () => {
+    if (!teams.alpha.length || !teams.omega.length) {
+      showToast('Choose fighters for both teams');
+      return;
+    }
+    teamResult.hidden = false;
+    teamResult.innerHTML = `<strong>${teams.alpha.join(' · ')} vs ${teams.omega.join(' · ')}</strong>Matchup assembled. Tap the cards above to keep editing your lineups.`;
+    shareTeamCardBtn.hidden = false;
+  });
+  document.getElementById('clearTeams').addEventListener('click', () => {
+    teams.alpha.length = 0;
+    teams.omega.length = 0;
+    teamResult.hidden = true;
+    shareTeamCardBtn.hidden = true;
+    renderTeams(); // also refreshes the credits line for the now-empty roster
+  });
+
+  let teamCardBusy = false;
+  shareTeamCardBtn.addEventListener('click', async () => {
+    if (!teams.alpha.length || !teams.omega.length || teamCardBusy) return;
+    teamCardBusy = true;
+    const shareTeamCardLabel = shareTeamCardBtn.querySelector('span');
+    const original = shareTeamCardLabel.textContent;
+    shareTeamCardLabel.textContent = 'BUILDING CARD…';
+    try {
+      // Custom team builds aren't saved matchups, so there's no deep-link
+      // for them — the card links back to the app itself, which is the
+      // whole point (the image does the promoting, the link brings people
+      // in to build their own).
+      const url = new URL(location.href);
+      url.search = '';
+      url.hash = '';
+      const shareUrl = url.toString();
+      const canvas = await buildTeamBattleCard(teams, shareUrl);
+      const customId = `${teams.alpha.join('+')}-vs-${teams.omega.join('+')}`;
+      await shareOrDownloadCard(canvas, {
+        filename: 'fictionclash-custom-matchup.png',
+        title: 'My custom matchup — Fiction Clash',
+        text: `${teams.alpha.join(' & ')} vs ${teams.omega.join(' & ')} — build your own matchup on Fiction Clash.`,
+        url: shareUrl,
+        onShared: () => awardShareXp('matchup', customId)
+      });
+    } catch (err) {
+      console.error('Team battle card failed', err);
+      showToast('Could not build the battle card — try again');
+    } finally {
+      shareTeamCardLabel.textContent = original;
+      teamCardBusy = false;
+    }
+  });
+
+  aiFeatsForm.addEventListener('submit', event => {
+    event.preventDefault();
+    const question = aiFeatsQuestion.value.trim() || 'Compare the strongest feats from both teams.';
+    if (!teams.alpha.length || !teams.omega.length) {
+      showToast('Choose fighters for both teams first');
+      return;
+    }
+    if (!auth.currentUser) {
+      requireSignIn('Sign in to use AI feat checks');
+      return;
+    }
+    const analyseBtn = aiFeatsForm.querySelector('button[type="submit"]');
+    withSpinner(analyseBtn, 'ANALYSING…', async () => {
+      const allNames = [...teams.alpha, ...teams.omega];
+      let credited;
+      try {
+        credited = await spendAiFeatsCredit();
+      } catch (err) {
+        console.error('Could not check AI feat check credits', err);
+        showToast('Could not verify AI check credits — try again');
+        return;
+      }
+      if (!credited) {
+        showToast('No AI checks left today — resets at midnight UTC');
+        refreshAiFeatsCreditsDisplay();
+        return;
+      }
+      refreshAiFeatsCreditsDisplay();
+      const data = await fetchCharacterAnalysis(allNames, question);
+      const profile = name => {
+        const entry = data && data.characters && data.characters[name];
+        if (entry && entry.analysis) return entry.analysis;
+        return featProfiles[name] || 'No verified profile loaded yet — evaluate this character from the specific source and version you mean.';
+      };
+      const alpha = teams.alpha.map(name => `<b>${escapeHtml(name)}</b>: ${escapeHtml(profile(name))}`).join('<br>');
+      const omega = teams.omega.map(name => `<b>${escapeHtml(name)}</b>: ${escapeHtml(profile(name))}`).join('<br>');
+      const rawVerdict = (data && data.verdict)
+        ? data.verdict
+        : 'AI analysis is unavailable right now — showing saved profiles where available. Verdict depends on versions, conditions, and whether cross-universe abilities are equalized.';
+      const verdict = escapeHtml(rawVerdict);
+      aiFeatsResult.hidden = false;
+      aiFeatsResult.innerHTML = `<strong>AI feat check</strong><span><b>Question:</b> ${escapeHtml(question)}</span><br><br><b>Team Alpha</b><br>${alpha}<br><br><b>Team Omega</b><br>${omega}<br><br><span style="color:var(--muted)">${verdict}</span>`;
+      // Snapshot the exact roster this verdict was generated for, so the
+      // share button can't be used after the roster's been edited further.
+      lastAiFeatsReport = { alpha: [...teams.alpha], omega: [...teams.omega], verdict: rawVerdict };
+      shareAiFeatsCardBtn.hidden = false;
+    }, 300);
+  });
+
+  let aiFeatsCardBusy = false;
+  shareAiFeatsCardBtn.addEventListener('click', async () => {
+    if (!lastAiFeatsReport || aiFeatsCardBusy) return;
+    aiFeatsCardBusy = true;
+    const shareAiFeatsCardLabel = shareAiFeatsCardBtn.querySelector('span');
+    const original = shareAiFeatsCardLabel.textContent;
+    shareAiFeatsCardLabel.textContent = 'BUILDING CARD…';
+    try {
+      const url = new URL(location.href);
+      url.search = '';
+      url.hash = '';
+      const shareUrl = url.toString();
+      const canvas = await buildTeamBattleCard(
+        { alpha: lastAiFeatsReport.alpha, omega: lastAiFeatsReport.omega },
+        shareUrl,
+        lastAiFeatsReport
+      );
+      const customId = `${lastAiFeatsReport.alpha.join('+')}-vs-${lastAiFeatsReport.omega.join('+')}`;
+      await shareOrDownloadCard(canvas, {
+        filename: 'fictionclash-ai-verdict.png',
+        title: 'AI Power Scout verdict — Fiction Clash',
+        text: `${lastAiFeatsReport.alpha.join(' & ')} vs ${lastAiFeatsReport.omega.join(' & ')} — see who the AI picked on Fiction Clash.`,
+        url: shareUrl,
+        onShared: () => awardShareXp('matchup', customId)
+      });
+    } catch (err) {
+      console.error('AI verdict card failed', err);
+      showToast('Could not build the battle card — try again');
+    } finally {
+      shareAiFeatsCardLabel.textContent = original;
+      aiFeatsCardBusy = false;
+    }
+  });
+
+  renderTeams();
+
+  // ---------- app theme ----------
+  const accentThemes = {
+    gold:  { ember:'#E4A929', emberDim:'#6B4A0E', navy:'#141008', navyGlow:'#2a2214' },
+    blue:  { ember:'#1E4FE0', emberDim:'#0F1D6B', navy:'#0A1454', navyGlow:'#16225e' },
+    green: { ember:'#2E9E5B', emberDim:'#155C32', navy:'#0A1F12', navyGlow:'#15351f' },
+    red:   { ember:'#D6432E', emberDim:'#7A241A', navy:'#1A0A08', navyGlow:'#331410' },
+    cyan:  { ember:'#22D3D8', emberDim:'#0E5C60', navy:'#04191b', navyGlow:'#0d2e30' },
+    purple:{ ember:'#9B4FE0', emberDim:'#4B1F73', navy:'#160A24', navyGlow:'#2b1442' },
+    crimson:{ ember:'#FF1414', emberDim:'#5C0000', navy:'#180000', navyGlow:'#330000' },
+    // Fire & Ice keeps --ember/--ember-dim on the warm side (borders, the
+    // "hi" avatar ring, anywhere a single accent still applies) while the
+    // theme-fireice body class above swaps --accent-bg to the two-tone
+    // gradient and --accent to the fused blend. --ember-dim borrows the
+    // cyan theme's dim tone so the "lo" side of paired UI (e.g. the second
+    // avatar in a matchup) reads as the cool half of the pairing.
+    fireice:{ ember:'#E4A929', emberDim:'#0E5C60', navy:'#0d1f1f', navyGlow:'#1c2e2e' },
+    // Mono needs separate light/dark accents — a near-white accent disappears
+    // on the light theme's cream background, and a near-black one would
+    // disappear on the dark theme's black background.
+    mono: {
+      dark:  { ember:'#E5E5E5', emberDim:'#4A4A4A', navy:'#141414', navyGlow:'#2a2a2a' },
+      light: { ember:'#2A2A2A', emberDim:'#8A8A8A', navy:'#1c1c1c', navyGlow:'#3a3a3a' }
+    }
+  };
+  const themeSwatchRow = document.getElementById('themeSwatchRow');
+  let currentThemeName = 'mono';
+  function applyTheme(name){
+    currentThemeName = name;
+    const isLight = document.body.classList.contains('light');
+    const entry = accentThemes[name] || accentThemes.gold;
+    const theme = name === 'mono' ? (isLight ? entry.light : entry.dark) : entry;
+    const root = document.documentElement.style;
+    root.setProperty('--ember', theme.ember);
+    root.setProperty('--ember-dim', theme.emberDim);
+    root.setProperty('--navy', theme.navy);
+    document.body.classList.toggle('theme-fireice', name === 'fireice');
+    document.querySelectorAll('.theme-swatch').forEach(sw => sw.classList.toggle('active', sw.dataset.theme === name));
+    if (nonEssentialStorageAllowed()) localStorage.setItem('fictionClashTheme', name);
+  }
+  themeSwatchRow.addEventListener('click', event => {
+    const swatch = event.target.closest('.theme-swatch');
+    if (!swatch) return;
+    applyTheme(swatch.dataset.theme);
+    showToast(`${swatch.title} theme applied`);
+  });
+  applyTheme(localStorage.getItem('fictionClashTheme') || 'mono');
+
+  // ---------- account ----------
+  const accountSection = document.getElementById('accountSection');
+  const accountAvatar = document.getElementById('accountAvatar');
+  const accountDisplayName = document.getElementById('accountDisplayNameText');
+  const accountDisplayHandle = document.getElementById('accountDisplayHandle');
+  const themeStoreOverlay = document.getElementById('themeStoreOverlay');
+  const themeStoreLauncher = document.getElementById('themeStoreLauncher');
+  const themeStoreClose = document.getElementById('themeStoreClose');
+  themeStoreLauncher.addEventListener('click', () => themeStoreOverlay.classList.add('show'));
+  document.getElementById('themeStoreTeaserBtn')?.addEventListener('click', () => themeStoreOverlay.classList.add('show'));
+  themeStoreClose.addEventListener('click', () => themeStoreOverlay.classList.remove('show'));
+  themeStoreOverlay.addEventListener('click', event => {
+    if (event.target === themeStoreOverlay) themeStoreOverlay.classList.remove('show');
+  });
+
+  // Settings — gear icon on the Account page opens the full-page settings
+  // screen everything else (sign-in, notifications, personalize, content
+  // & privacy, admin tools) now lives in. Same open/close pattern as
+  // every other modal-sheet-full in the app.
+  const settingsOverlay = document.getElementById('settingsOverlay');
+  const settingsLauncher = document.getElementById('settingsLauncher');
+  const settingsClose = document.getElementById('settingsClose');
+  settingsLauncher.addEventListener('click', () => settingsOverlay.classList.add('show'));
+  settingsClose.addEventListener('click', () => settingsOverlay.classList.remove('show'));
+  settingsOverlay.addEventListener('click', event => {
+    if (event.target === settingsOverlay) settingsOverlay.classList.remove('show');
+  });
+
+  // Avatar Store — shop icon on the Account page opens the decorations/
+  // fonts store in its own full-page screen.
+  const avatarStoreOverlay = document.getElementById('avatarStoreOverlay');
+  const avatarStoreLauncher = document.getElementById('avatarStoreLauncher');
+  const avatarStoreClose = document.getElementById('avatarStoreClose');
+  avatarStoreLauncher.addEventListener('click', () => avatarStoreOverlay.classList.add('show'));
+  avatarStoreClose.addEventListener('click', () => avatarStoreOverlay.classList.remove('show'));
+  avatarStoreOverlay.addEventListener('click', event => {
+    if (event.target === avatarStoreOverlay) avatarStoreOverlay.classList.remove('show');
+  });
+
+  // Tapping the badge or the progress line explains how to earn/keep it.
+  const verifiedInfoOverlay = document.getElementById('verifiedInfoOverlay');
+  const verifiedInfoClose = document.getElementById('verifiedInfoClose');
+  function openVerifiedInfo(){ verifiedInfoOverlay.classList.add('show'); }
+  document.getElementById('accountVerifiedBadge').addEventListener('click', openVerifiedInfo);
+  document.getElementById('verifiedProgressText').addEventListener('click', openVerifiedInfo);
+  verifiedInfoClose.addEventListener('click', () => verifiedInfoOverlay.classList.remove('show'));
+  // Paid verified-badge renewal: priced at a real $3.61/week (the current
+  // conversion of the 5,000 NGN/week Nidi quoted). The backend converts
+  // that $3.61 to naira at the live rate at checkout time and charges
+  // that (see api/create-payment.js).
+  document.getElementById('verifiedRenewBuy').addEventListener('click', async () => {
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to renew your verified badge'); return; }
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(`${PAYMENT_API_BASE}/api/create-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ itemType: 'badge', returnUrl: location.href.split('?')[0] }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast('Could not start checkout'); return; }
+      location.href = data.authorization_url;
+    } catch (err) {
+      console.error('Badge renewal purchase failed', err);
+      showToast('Could not start checkout');
+    }
+  });
+  verifiedInfoOverlay.addEventListener('click', event => {
+    if (event.target === verifiedInfoOverlay) verifiedInfoOverlay.classList.remove('show');
+  });
+  const accountEmail = document.getElementById('accountEmail');
+  const profileName = document.getElementById('profileName');
+  const profileHandle = document.getElementById('profileHandle');
+  const profileBio = document.getElementById('profileBio');
+  const avatarEditBtn = document.getElementById('avatarEditBtn');
+  const avatarFile = document.getElementById('avatarFile');
+  const removeAvatarBtn = document.getElementById('removeAvatarBtn');
+  let avatarDataUrl = '';
+  let coverPhotoDataUrl = '';
+  let clashPoints = 0;
+  let seasonShards = 0; // standalone currency for the active season's exclusive decorations — see SEASONS
+  let shareCount = 0;
+  let unlockedDecorations = [];
+  let unlockedFonts = [];
+  let equippedDecoration = null;
+  let equippedFont = null;
+  // Per-character decoration overrides for the CURRENT viewer only — keyed
+  // the same way as character avatar photos (avatarOverrideKey: name, or
+  // "name|version" for a versioned character like Base Goku vs Ultra
+  // Instinct Goku). A key that's absent means "inherit whatever's globally
+  // equipped"; a key present with value 'none' means "explicitly no
+  // decoration on this character even if one is equipped globally" — those
+  // are different states, so absence and 'none' can't be collapsed into one.
+  let characterDecorations = {};
+
+  // ---------- canvas-based avatar FX effects ----------
+  // Ported verbatim from avatar-effects-canvas-preview.html (the standalone
+  // particle-physics preview) — the AvatarEffect class itself is unchanged.
+  // Each instance owns one <canvas> and joins a single shared
+  // requestAnimationFrame loop (AvatarEffect._globalTick) so having many
+  // decorated avatars on screen at once (feed, comments, store grid) still
+  // costs only one rAF callback, not one per avatar.
+  class AvatarEffect {
+    static instances = new Set();
+    static rafId = null;
+    static lastTime = 0;
+
+    static _globalTick(timestamp) {
+      if (!AvatarEffect.lastTime) AvatarEffect.lastTime = timestamp;
+      const dt = Math.min((timestamp - AvatarEffect.lastTime) / 1000, 0.1);
+      AvatarEffect.lastTime = timestamp;
+
+      for (const instance of AvatarEffect.instances) {
+        if (instance.active) {
+          instance._update(dt);
+          instance._draw();
+        }
+      }
+
+      if (AvatarEffect.instances.size > 0) {
+        AvatarEffect.rafId = requestAnimationFrame(AvatarEffect._globalTick);
+      } else {
+        AvatarEffect.rafId = null;
+      }
+    }
+
+    constructor(canvas, type, options = {}) {
+      this.canvas = canvas;
+      this.ctx = canvas.getContext('2d');
+      this.type = type;
+      this.active = true;
+
+      this.width = canvas.width || 80;
+      this.height = canvas.height || 80;
+      this.center = { x: this.width / 2, y: this.height / 2 };
+      // sized so effects sit right at (and slightly overlap) the avatar edge, like Discord's own decorations
+      this.radius = options.radius || Math.min(this.width, this.height) * 0.32;
+
+      this.maxParticles = options.maxParticles || 26;
+      this.particles = [];
+      this.time = Math.random() * 10;
+      this._initParticles();
+
+      AvatarEffect.instances.add(this);
+      if (!AvatarEffect.rafId) {
+        AvatarEffect.lastTime = performance.now();
+        AvatarEffect.rafId = requestAnimationFrame(AvatarEffect._globalTick);
+      }
+    }
+
+    _initParticles() {
+      for (let i = 0; i < this.maxParticles; i++) {
+        const p = this._createParticle(i);
+        if (Number.isFinite(p.maxAge)) p.age = Math.random() * p.maxAge;
+        this.particles.push(p);
+      }
+    }
+
+    // ---------- particle creation ----------
+    _createParticle(index) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = this.radius + (Math.random() - 0.5) * 4;
+      const x = this.center.x + Math.cos(angle) * r;
+      const y = this.center.y + Math.sin(angle) * r;
+
+      switch (this.type) {
+        case 'flame': {
+          // emitted all the way around the ring — real fire boils up from every side and gathers/overlaps toward the top
+          const fa = Math.random() * Math.PI * 2;
+          const fx = this.center.x + Math.cos(fa) * this.radius;
+          const fy = this.center.y + Math.sin(fa) * this.radius;
+          const outwardSpeed = 1.5 + Math.random() * 2.5;
+          const vx = Math.cos(fa) * outwardSpeed + (Math.random() - 0.5) * 3;
+          const vy = -(10 + Math.random() * 14) + Math.sin(fa) * 2;
+          return { x: fx, y: fy, vx, vy, size: 5 + Math.random() * 6, maxAge: 0.6 + Math.random() * 0.55, age: 0,
+            swirl: (Math.random() - 0.5) * 16, flickerSeed: Math.random() * Math.PI * 2, flickerFreq: 9 + Math.random() * 8 };
+        }
+        case 'air': {
+          const angularSpeed = (0.6 + Math.random() * 0.5) * (Math.random() > 0.5 ? 1 : -1);
+          return { angle, angularSpeed, baseRadius: this.radius + (Math.random() - 0.5) * 10,
+            wobbleAmp: 4 + Math.random() * 5, wobbleFreq: 2 + Math.random() * 2, wobblePhase: Math.random() * Math.PI * 2,
+            streak: 8 + Math.random() * 10, size: 1 + Math.random(), maxAge: 1 + Math.random() * 1.2, age: 0,
+            prevX: x, prevY: y, x, y };
+        }
+        case 'energy': {
+          const isBolt = Math.random() > 0.85;
+          if (isBolt) {
+            const pts = [];
+            const steps = 4;
+            for (let i = 0; i <= steps; i++) {
+              const rr = (this.radius * i) / steps;
+              pts.push({ x: this.center.x + Math.cos(angle) * rr + (Math.random() - 0.5) * 6, y: this.center.y + Math.sin(angle) * rr + (Math.random() - 0.5) * 6 });
+            }
+            return { subType: 'bolt', points: pts, maxAge: 0.12 + Math.random() * 0.1, age: 0, x, y };
+          }
+          const outwardSpeed = 14 + Math.random() * 16;
+          return { subType: 'spark', x, y, vx: Math.cos(angle) * outwardSpeed, vy: Math.sin(angle) * outwardSpeed,
+            size: 1.5 + Math.random() * 2.5, maxAge: 0.25 + Math.random() * 0.35, age: 0 };
+        }
+        case 'toxic': {
+          const isDrip = Math.random() > 0.75;
+          return { subType: isDrip ? 'drip' : 'bubble', x, y,
+            vx: (Math.random() - 0.5) * 3, vy: isDrip ? 10 + Math.random() * 8 : -(6 + Math.random() * 8),
+            wobbleFreq: 3 + Math.random() * 2, wobblePhase: Math.random() * Math.PI * 2,
+            size: isDrip ? 2 + Math.random() * 2 : 2.5 + Math.random() * 3.5, maxAge: 0.8 + Math.random() * 0.8, age: 0 };
+        }
+        case 'portal': {
+          return { angle, angularSpeed: 2 + Math.random() * 2, startRadius: this.radius + Math.random() * 6,
+            size: 1.5 + Math.random() * 2, maxAge: 0.9 + Math.random() * 0.6, age: 0, x, y };
+        }
+        case 'reaper': {
+          const orbitSpeed = (0.35 + Math.random() * 0.3) * (Math.random() > 0.5 ? 1 : -1);
+          return { subType: 'skull', angle, orbitSpeed, orbitRadius: this.radius + (Math.random() - 0.5) * 8,
+            bobPhase: Math.random() * Math.PI * 2, bobFreq: 0.8 + Math.random() * 0.8, bobAmp: 2.5 + Math.random() * 3,
+            size: 5 + Math.random() * 3.5, maxAge: 2.4 + Math.random() * 2, age: 0, x, y };
+        }
+        case 'dragonballs': {
+          const idx = (typeof index === 'number') ? index : Math.floor(Math.random() * 7);
+          const baseAngle = (idx / 7) * Math.PI * 2;
+          const orbitRadius = this.radius * (1.08 + (idx % 2 === 0 ? 0.06 : -0.05));
+          return { subType: 'ball', angle: baseAngle, orbitSpeed: 0.45 + (idx % 3) * 0.05,
+            orbitRadius, bobPhase: idx * 0.9, bobAmp: 2 + (idx % 3), size: 7,
+            starCount: idx + 1, age: 0, maxAge: Infinity, x, y };
+        }
+        case 'star_struck': {
+          const isCloud = Math.random() > 0.7;
+          if (isCloud) {
+            return { subType: 'cloud', angle, angularSpeed: 0.05 + Math.random() * 0.05,
+              orbitRadius: this.radius * (1.1 + Math.random() * 0.12), size: 5 + Math.random() * 4,
+              wobblePhase: Math.random() * Math.PI * 2, age: 0, maxAge: Infinity, x, y };
+          }
+          return { subType: 'star', angle, orbitRadius: this.radius * (0.75 + Math.random() * 0.45),
+            size: 1 + Math.random() * 1.4, twinklePhase: Math.random() * Math.PI * 2,
+            twinkleFreq: 2 + Math.random() * 3, age: 0, maxAge: Infinity, x, y };
+        }
+        default:
+          return { x, y, vx: 0, vy: 0, size: 3, maxAge: 1, age: 0 };
+      }
+    }
+
+    // ---------- physics update ----------
+    _update(dt) {
+      this.time += dt;
+      for (let i = 0; i < this.particles.length; i++) {
+        const p = this.particles[i];
+        p.age += dt;
+        if (p.age >= p.maxAge) { this.particles[i] = this._createParticle(); continue; }
+
+        switch (this.type) {
+          case 'flame':
+            p.vy -= 14 * dt; // buoyancy — accelerates upward as it rises, like real convective fire
+            p.x += (p.vx + Math.sin(p.age * 7 + p.flickerSeed) * (p.swirl * 0.5)) * dt;
+            p.y += p.vy * dt;
+            break;
+          case 'air': {
+            p.prevX = p.x; p.prevY = p.y;
+            p.angle += p.angularSpeed * dt;
+            const r = p.baseRadius + Math.sin(p.age * p.wobbleFreq + p.wobblePhase) * p.wobbleAmp;
+            p.x = this.center.x + Math.cos(p.angle) * r;
+            p.y = this.center.y + Math.sin(p.angle) * r;
+            break;
+          }
+          case 'energy':
+            if (p.subType === 'spark') { p.vx *= 0.9; p.vy *= 0.9; p.x += p.vx * dt; p.y += p.vy * dt; }
+            break;
+          case 'toxic':
+            p.x += (p.vx + Math.sin(p.age * p.wobbleFreq + p.wobblePhase) * 6) * dt;
+            p.y += p.vy * dt;
+            break;
+          case 'portal': {
+            p.angle += p.angularSpeed * dt;
+            const t = p.age / p.maxAge;
+            const r = p.startRadius * (1 - t);
+            p.x = this.center.x + Math.cos(p.angle) * r;
+            p.y = this.center.y + Math.sin(p.angle) * r;
+            break;
+          }
+          case 'reaper': {
+            p.angle += p.orbitSpeed * dt;
+            const r = p.orbitRadius + Math.sin(p.age * p.bobFreq + p.bobPhase) * p.bobAmp;
+            p.x = this.center.x + Math.cos(p.angle) * r;
+            p.y = this.center.y + Math.sin(p.angle) * r;
+            break;
+          }
+          case 'dragonballs': {
+            p.angle += p.orbitSpeed * dt;
+            const r = p.orbitRadius + Math.sin(p.age * 1.3 + p.bobPhase) * p.bobAmp;
+            p.x = this.center.x + Math.cos(p.angle) * r;
+            p.y = this.center.y + Math.sin(p.angle) * r;
+            break;
+          }
+          case 'star_struck': {
+            if (p.subType === 'cloud') {
+              p.angle += p.angularSpeed * dt;
+              const r = p.orbitRadius + Math.sin(p.age * 0.5 + p.wobblePhase) * 3;
+              p.x = this.center.x + Math.cos(p.angle) * r;
+              p.y = this.center.y + Math.sin(p.angle) * r;
+            } else {
+              p.angle += 0.035 * dt;
+              p.x = this.center.x + Math.cos(p.angle) * p.orbitRadius;
+              p.y = this.center.y + Math.sin(p.angle) * p.orbitRadius;
+              p.twinklePhase += dt * p.twinkleFreq;
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    // ---------- drawing ----------
+    _draw() {
+      const ctx = this.ctx;
+      ctx.clearRect(0, 0, this.width, this.height);
+
+      if (this.type === 'star_struck') { this._drawStarStruckRing(); }
+      if (this.type === 'flame') { this._drawFlameGlow(); }
+
+      ctx.globalCompositeOperation = (this.type === 'reaper' || this.type === 'dragonballs') ? 'source-over' : 'lighter';
+
+      for (const p of this.particles) {
+        const progress = p.age / p.maxAge;
+        const fade = Math.sin(Math.min(progress, 1) * Math.PI);
+
+        switch (this.type) {
+          case 'flame': {
+            const coolFade = 1 - Math.min(progress, 1);
+            const flicker = 0.7 + 0.3 * Math.sin(p.age * p.flickerFreq + p.flickerSeed);
+            const size = Math.max(0.4, p.size * (1 - progress * 0.55) * flicker);
+            const g = Math.max(0, 200 - progress * 160);
+            const b = Math.max(0, 80 - progress * 80);
+            const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, size);
+            grad.addColorStop(0, `rgba(255,${250 - progress * 60},${200 - progress * 180},${coolFade * 0.95})`);
+            grad.addColorStop(0.45, `rgba(255,${g},${b},${coolFade * 0.75})`);
+            grad.addColorStop(1, 'rgba(200,20,40,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(p.x, p.y, size, 0, Math.PI * 2); ctx.fill();
+            break;
+          }
+          case 'air': {
+            ctx.strokeStyle = `rgba(235,240,247,${fade * 0.5})`;
+            ctx.lineWidth = p.size;
+            ctx.beginPath(); ctx.moveTo(p.prevX, p.prevY); ctx.lineTo(p.x, p.y); ctx.stroke();
+            break;
+          }
+          case 'energy':
+            if (p.subType === 'bolt') { ctx.strokeStyle = `rgba(255,246,207,${1 - progress})`; ctx.lineWidth = 1.4; ctx.beginPath(); p.points.forEach((pt, i) => i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y)); ctx.stroke(); }
+            else this._softCircle(p.x, p.y, p.size * (1 - progress * 0.5), `rgba(255,210,61,${fade})`);
+            break;
+          case 'toxic':
+            if (p.subType === 'drip') this._filledCircle(p.x, p.y, p.size, `rgba(150,200,60,${(1 - progress) * 0.8})`);
+            else { this._ringCircle(p.x, p.y, p.size, `rgba(200,255,138,${fade * 0.8})`); }
+            break;
+          case 'portal':
+            this._filledCircle(p.x, p.y, p.size * (1 - progress * 0.4), `rgba(217,194,255,${fade * 0.9})`);
+            break;
+          case 'reaper':
+            this._drawSkull(p.x, p.y, p.size, fade * 0.85);
+            break;
+          case 'dragonballs':
+            this._drawDragonBall(p.x, p.y, p.size, p.starCount, 1);
+            break;
+          case 'star_struck':
+            if (p.subType === 'cloud') this._softCircle(p.x, p.y, p.size, 'rgba(210,225,245,0.35)');
+            else {
+              const tw = 0.4 + 0.6 * Math.abs(Math.sin(p.twinklePhase));
+              this._diamond(p.x, p.y, p.size * (0.8 + tw * 0.4), `rgba(255,255,255,${tw})`);
+            }
+            break;
+        }
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // ---------- draw helpers ----------
+    _filledCircle(x, y, r, color) { const ctx = this.ctx; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2); ctx.fill(); }
+    _softCircle(x, y, r, color) { const ctx = this.ctx; const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, color); g.addColorStop(1, color.replace(/[\d.]+\)$/, '0)')); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+    _ringCircle(x, y, r, color) { const ctx = this.ctx; ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.25, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); }
+    _diamond(x, y, size, color) { const ctx = this.ctx; ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(x, y - size * 1.5); ctx.lineTo(x + size * 0.8, y); ctx.lineTo(x, y + size * 1.5); ctx.lineTo(x - size * 0.8, y); ctx.closePath(); ctx.fill(); }
+
+    _drawFlameGlow() {
+      const ctx = this.ctx;
+      const cx = this.center.x, cy = this.center.y;
+      // slow "breathing" pulse so the fire's light swells and settles instead of sitting static
+      const pulse = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(this.time * 1.4));
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      this._softCircle(cx, cy, this.radius * 1.2 * pulse, `rgba(255,110,30,${0.16 * pulse})`);
+      this._softCircle(cx, cy - this.radius * 0.35, this.radius * 0.95 * pulse, `rgba(255,190,70,${0.13 * pulse})`);
+
+      // hot base glow right at the avatar edge, like coals underneath the flame
+      for (let pass = 0; pass < 3; pass++) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, this.radius * (0.97 - pass * 0.04), 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,200,120,${0.2 - pass * 0.05})`;
+        ctx.lineWidth = 2 + pass * 2;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    _drawStarStruckRing() {
+      const ctx = this.ctx;
+      const cx = this.center.x, cy = this.center.y;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      this._softCircle(cx, cy, this.radius * 1.5, 'rgba(140,150,210,0.10)');
+
+      // crescent moon fixed near the top of the ring, like a badge on the frame, overlapping the avatar edge
+      const moonR = this.radius * 0.3;
+      const moonX = cx, moonY = cy - this.radius * 0.92;
+      this._softCircle(moonX, moonY, moonR * 1.9, 'rgba(255,255,240,0.28)');
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#f5f3e8';
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // punch out a crescent by cutting a shifted circle from the moon disc
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.arc(moonX + moonR * 0.55, moonY - moonR * 0.18, moonR * 0.92, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+    }
+
+    _drawSkull(x, y, size, alpha) {
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+      ctx.fillStyle = '#e7e7f0';
+      ctx.beginPath();
+      ctx.arc(x, y - size * 0.1, size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y + size * 0.5, size * 0.5, 0, Math.PI);
+      ctx.fill();
+      ctx.fillStyle = '#141018';
+      ctx.beginPath();
+      ctx.arc(x - size * 0.36, y - size * 0.15, size * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x + size * 0.36, y - size * 0.15, size * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x, y + size * 0.05);
+      ctx.lineTo(x - size * 0.11, y + size * 0.32);
+      ctx.lineTo(x + size * 0.11, y + size * 0.32);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    _drawDragonBall(x, y, size, starCount, alpha) {
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      // soft glow behind the orb
+      this._softCircle(x, y, size * 1.8, 'rgba(255,150,40,0.16)');
+
+      // glossy orange sphere body
+      const grad = ctx.createRadialGradient(x - size * 0.35, y - size * 0.4, size * 0.1, x, y, size);
+      grad.addColorStop(0, '#fff3d6');
+      grad.addColorStop(0.28, '#ffb347');
+      grad.addColorStop(0.7, '#ff8c1a');
+      grad.addColorStop(1, '#c85e00');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(140,55,0,0.45)';
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+
+      // red star cluster at center, count matches the ball's number (1-7)
+      ctx.fillStyle = '#df2130';
+      for (const pos of this._starClusterPositions(starCount, size * 0.34)) {
+        this._tinyStar(x + pos.x, y + pos.y, size * 0.17);
+      }
+
+      ctx.restore();
+    }
+
+    _tinyStar(x, y, r) {
+      const ctx = this.ctx;
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const outerA = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+        const innerA = outerA + Math.PI / 5;
+        const ox = x + Math.cos(outerA) * r, oy = y + Math.sin(outerA) * r;
+        const ix = x + Math.cos(innerA) * r * 0.45, iy = y + Math.sin(innerA) * r * 0.45;
+        i === 0 ? ctx.moveTo(ox, oy) : ctx.lineTo(ox, oy);
+        ctx.lineTo(ix, iy);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    _starClusterPositions(count, spread) {
+      if (count <= 1) return [{ x: 0, y: 0 }];
+      const pts = [];
+      for (let i = 0; i < count; i++) {
+        const a = (Math.PI * 2 * i) / count;
+        pts.push({ x: Math.cos(a) * spread * 0.6, y: Math.sin(a) * spread * 0.6 });
+      }
+      return pts;
+    }
+
+    destroy() { this.active = false; AvatarEffect.instances.delete(this); this.ctx.clearRect(0, 0, this.width, this.height); }
+  }
+
+  // Finds any not-yet-activated canvas.avatar-fx-canvas elements under root
+  // and starts their AvatarEffect. Safe to call repeatedly — canvases that
+  // already have a running effect (canvas._avatarFx) are skipped.
+  function activateCanvasFx(root){
+    if (!root) return;
+    root.querySelectorAll('canvas.avatar-fx-canvas').forEach(canvas => {
+      if (canvas._avatarFx || !canvas.dataset.fxType) return;
+      const opts = {};
+      const mp = Number(canvas.dataset.fxParticles);
+      if (mp) opts.maxParticles = mp;
+      canvas._avatarFx = new AvatarEffect(canvas, canvas.dataset.fxType, opts);
+    });
+  }
+  // Stops and detaches any running AvatarEffect under root before its
+  // canvas gets removed/replaced — otherwise the shared rAF loop keeps
+  // ticking an instance whose canvas is no longer in the document.
+  function deactivateCanvasFx(root){
+    if (!root) return;
+    root.querySelectorAll('canvas.avatar-fx-canvas').forEach(canvas => {
+      if (canvas._avatarFx) { canvas._avatarFx.destroy(); canvas._avatarFx = null; }
+    });
+  }
+
+  // Profile cosmetics are deliberately a closed, built-in catalogue. The
+  // item IDs are also mirrored in firestore_rules so a browser cannot redeem
+  // arbitrary values or bypass the point prices.
+  // Premium items are paid in real money via Paystack rather than Clash
+  // Points. `cash.usd` is the real, canonical price (a genuine current-rate
+  // conversion of the naira price Nidi quoted — not an inflated relabel).
+  // At checkout, the backend converts cash.usd to naira using the live
+  // exchange rate at that moment and charges that NGN amount — the naira
+  // figure is NOT fixed here because FX moves over time. `cash.ngnRef` is
+  // only kept as a reference for what the item was priced at when set.
+  const PROFILE_DECORATIONS = [
+    { id:'hellflame', name:'Hellflame', category:'Anime', rarity:'Legendary', cost:100, fx:true },
+    { id:'web-trap', name:'Web Trap', category:'Gothic', rarity:'Epic', cost:90, fx:true, premium:true, cash:{ usd:0.43, ngnRef:600 } },
+    { id:'voltage', name:'Voltage', category:'Mecha', rarity:'Epic', cost:90, fx:true, premium:true, cash:{ usd:0.51, ngnRef:700 } },
+    { id:'frostbite', name:'Frostbite', category:'Elemental', rarity:'Epic', cost:90, fx:true },
+    { id:'bloodfang', name:'Bloodfang', category:'Gothic', rarity:'Legendary', cost:100, fx:true },
+    { id:'solar-orbit', name:'Solar Orbit', category:'Cosmic', rarity:'Legendary', cost:100, fx:true, premium:true, cash:{ usd:0.65, ngnRef:900 } },
+    { id:'web-slinger', name:'Web-Slinger', category:'Heroes', rarity:'Epic', cost:90, fx:true },
+    { id:'kryptonian-flight', name:'Kryptonian Flight', category:'Heroes', rarity:'Legendary', cost:100, fx:true, premium:true, cash:{ usd:0.36, ngnRef:500 } },
+    { id:'dark-knight', name:'Dark Knight', category:'Heroes', rarity:'Legendary', cost:100, fx:true, premium:true, cash:{ usd:0.36, ngnRef:500 } },
+    { id:'thunderstrike', name:'Thunderstrike', category:'Elemental', rarity:'Epic', cost:90, fx:true, premium:true, cash:{ usd:0.36, ngnRef:500 } },
+    // Canvas-particle effects (fx:'canvas') — rendered by AvatarEffect rather
+    // than static/animated SVG. canvasType is the literal AvatarEffect type
+    // string; fxParticles mirrors the maxParticles override each effect used
+    // in the source preview (avatar-effects-canvas-preview.html).
+    { id:'real-flame', name:'Real Flame', category:'Elemental', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', fxParticles:60, premium:true, cash:{ usd:0.87, ngnRef:1200 } },
+    { id:'air-elemental', name:'Air Elemental', category:'Elemental', rarity:'Rare', cost:80, fx:'canvas', canvasType:'air', season:'anime' },
+    { id:'overdrive-aura', name:'Overdrive Aura', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'energy', premium:true, cash:{ usd:0.65, ngnRef:900 } },
+    { id:'toxic-bloom', name:'Toxic Bloom', category:'Mystic', rarity:'Rare', cost:85, fx:'canvas', canvasType:'toxic', season:'anime' },
+    { id:'spirit-portal', name:'Spirit Portal', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', season:'anime' },
+    { id:'skeletal-reaper', name:'Skeletal Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6, premium:true, cash:{ usd:0.72, ngnRef:1000 } },
+    { id:'dragon-balls', name:'Dragon Balls', category:'Legendary', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'dragonballs', fxParticles:7, season:'anime' },
+    { id:'star-struck', name:'Star Struck', category:'Discord Picks', rarity:'Epic', cost:90, fx:'canvas', canvasType:'star_struck', fxParticles:14, season:'anime' }
+  ];
+  const PROFILE_FONTS = [
+    { id:'bangers', name:'Bangers', category:'Comic', cls:'profile-font-bangers' },
+    { id:'luckiest', name:'Luckiest Guy', category:'Comic', cls:'profile-font-luckiest' },
+    { id:'marker', name:'Permanent Marker', category:'Artistic', cls:'profile-font-marker' },
+    { id:'creepster', name:'Creepster', category:'Comic', cls:'profile-font-creepster' },
+    { id:'russo', name:'Russo One', category:'Anime', cls:'profile-font-russo' },
+    { id:'cinzel', name:'Cinzel Decorative', category:'Artistic', cls:'profile-font-cinzel' },
+    { id:'bungee', name:'Bungee', category:'Comic', cls:'profile-font-bungee' },
+    { id:'orbitron', name:'Orbitron Edge', category:'Anime', cls:'profile-font-orbitron' }
+  ];
+  const decorationById = id => PROFILE_DECORATIONS.find(item => item.id === id);
+  const fontById = id => PROFILE_FONTS.find(item => item.id === id);
+
+  // Each fx decoration can appear more than once at a time on the page
+  // (e.g. the same equipped decoration on a comment avatar AND the account
+  // header), so any internal SVG ids (gradients/filters/<use> targets) get
+  // a per-call suffix — otherwise the browser resolves url(#id) against
+  // whichever element with that id happens to come first in the DOM.
+  let fxUidCounter = 0;
+  const nextFxUid = () => `fx${Date.now().toString(36)}${(fxUidCounter++).toString(36)}`;
+
+  const DECORATION_FX_BUILDERS = {
+    hellflame(uid){
+      const grad = `flameGrad-${uid}`, filt = `fireTurbulence-${uid}`;
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130"><circle cx="65" cy="65" r="42" fill="#ff5b1f" opacity="0.25" filter="blur(6px)"/></svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <defs>
+            <linearGradient id="${grad}" x1="0%" y1="100%" x2="0%" y2="0%">
+              <stop offset="0%" stop-color="#ff5b1f"/><stop offset="100%" stop-color="#ffd873"/>
+            </linearGradient>
+            <filter id="${filt}" x="-40%" y="-40%" width="180%" height="180%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.01 0.06" numOctaves="2" seed="4" result="noise">
+                <animate attributeName="baseFrequency" dur="3.5s" values="0.01 0.05;0.015 0.07;0.01 0.05" repeatCount="indefinite"/>
+              </feTurbulence>
+              <feDisplacementMap in="SourceGraphic" in2="noise" scale="6" xChannelSelector="R" yChannelSelector="G"/>
+            </filter>
+          </defs>
+          <g style="filter:url(#${filt})">
+            <g class="flame-t1"><path class="tongue-back" d="M65,44 C74,32 79,14 65,4 C51,14 56,32 65,44 Z"/></g>
+            <g class="flame-t2" transform="rotate(60 65 65)"><path class="tongue-front" style="fill:url(#${grad})" d="M65,45 C72,35 76,20 65,10 C54,20 58,35 65,45 Z"/></g>
+            <g class="flame-t3" transform="rotate(140 65 65)"><path class="tongue-front" style="fill:url(#${grad})" d="M65,44 C71,35 74,22 65,12 C56,22 59,35 65,44 Z"/></g>
+            <g class="flame-t4" transform="rotate(220 65 65)"><path class="tongue-back" d="M65,45 C73,34 78,17 65,5 C52,17 57,34 65,45 Z"/></g>
+            <g class="flame-t2" transform="rotate(290 65 65)"><path class="tongue-front" style="fill:url(#${grad})" d="M65,44 C72,34 75,19 65,9 C55,19 58,34 65,44 Z"/></g>
+          </g>
+        </svg>
+      </span>`;
+    },
+    'web-trap'(uid){
+      const CX = 41, CY = 41, SPOKE_COUNT = 10, OUTER_R = 39;
+      const spokeAngles = Array.from({length: SPOKE_COUNT}, (_, i) => (i / SPOKE_COUNT) * 2 * Math.PI);
+      const spokes = spokeAngles.map(a =>
+        `<line class="web-strand" x1="${CX}" y1="${CY}" x2="${(CX + OUTER_R * Math.cos(a)).toFixed(1)}" y2="${(CY + OUTER_R * Math.sin(a)).toFixed(1)}"/>`
+      ).join('');
+      const scallops = [9, 16, 23, 30, 37].map(r => {
+        const pts = spokeAngles.map(a => `${(CX + r * Math.cos(a)).toFixed(1)},${(CY + r * Math.sin(a)).toFixed(1)}`).join(' ');
+        return `<polygon class="web-scallop" points="${pts}"/>`;
+      }).join('');
+      const spiderAngle = spokeAngles[2];
+      const spiderX = (CX + 32 * Math.cos(spiderAngle)).toFixed(1), spiderY = (CY + 32 * Math.sin(spiderAngle)).toFixed(1);
+      return `<span class="profile-deco-fx-web" aria-hidden="true">
+        <svg class="web-sway" viewBox="0 0 82 82">
+          <g>${spokes}</g>
+          <g>${scallops}</g>
+          <g transform="translate(${spiderX},${spiderY})">
+            <ellipse class="spider-body" cx="0" cy="0" rx="3.4" ry="4.2"/>
+            <circle class="spider-body" cx="0" cy="-5" r="2"/>
+            <line class="spider-leg" x1="-2.6" y1="-1.6" x2="-7.6" y2="-5"/>
+            <line class="spider-leg" x1="-2.6" y1="1" x2="-8.4" y2="1.6"/>
+            <line class="spider-leg" x1="2.6" y1="-1.6" x2="7.6" y2="-5"/>
+            <line class="spider-leg" x1="2.6" y1="1" x2="8.4" y2="1.6"/>
+          </g>
+        </svg>
+      </span>`;
+    },
+    voltage(){
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130"><circle class="ring-charge" cx="65" cy="65" r="41"/></svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <path class="bolt bolt-a" d="M65,20 L58,44 L68,44 L52,72 L62,50 L54,50 Z"/>
+          <path class="bolt bolt-b" transform="rotate(140 65 65)" d="M65,18 L57,42 L67,42 L50,70 L60,48 L52,48 Z"/>
+          <path class="bolt bolt-c" transform="rotate(250 65 65)" d="M65,22 L59,45 L69,45 L54,71 L63,51 L55,51 Z"/>
+        </svg>
+      </span>`;
+    },
+    frostbite(uid){
+      const shape = `snowflakeShape-${uid}`;
+      const flakes = [
+        [28, 0, '8px', 1], [55, 0, '-6px', .7], [80, 0, '10px', 1],
+        [100, 0, '-8px', .6], [40, 0, '5px', .8], [65, 0, '-10px', .65]
+      ];
+      const uses = flakes.map(([x, y, sway, scale], i) =>
+        `<use class="snow-${i + 1}" href="#${shape}" x="${x}" y="${y}" style="--sway:${sway};transform:scale(${scale})"/>`
+      ).join('');
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130"><circle class="frost-glass" cx="65" cy="65" r="42"/></svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <defs>
+            <g id="${shape}">
+              <line class="snowflake" x1="0" y1="-6" x2="0" y2="6"/>
+              <line class="snowflake" x1="-5.2" y1="-3" x2="5.2" y2="3"/>
+              <line class="snowflake" x1="-5.2" y1="3" x2="5.2" y2="-3"/>
+              <line class="snowflake" x1="0" y1="-6" x2="-1.6" y2="-3.6"/>
+              <line class="snowflake" x1="0" y1="-6" x2="1.6" y2="-3.6"/>
+              <line class="snowflake" x1="0" y1="6" x2="-1.6" y2="3.6"/>
+              <line class="snowflake" x1="0" y1="6" x2="1.6" y2="3.6"/>
+            </g>
+          </defs>
+          ${uses}
+        </svg>
+      </span>`;
+    },
+    bloodfang(){
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130"><ellipse class="blood-mist" cx="65" cy="65" rx="46" ry="46"/></svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <circle class="vein" cx="65" cy="65" r="42" stroke-dasharray="3 10"/>
+          <path class="blood-drip drip-1" d="M50,102 C50,106 46,110 46,114 C46,117 54,117 54,114 C54,110 50,106 50,102 Z"/>
+          <path class="blood-drip drip-2" d="M65,105 C65,109 61,113 61,117 C61,120 69,120 69,117 C69,113 65,109 65,105 Z"/>
+          <path class="blood-drip drip-3" d="M80,102 C80,106 76,110 76,114 C76,117 84,117 84,114 C84,110 80,106 80,102 Z"/>
+        </svg>
+      </span>`;
+    },
+    'solar-orbit'(){
+      // Ported from a 340px canvas mockup (avatar-planets.html) into native
+      // SVG: nine orbiting bodies, radii/sizes/periods compressed to read
+      // clearly at avatar scale (32–56px) rather than kept to the mockup's
+      // literal proportions. Each body gets its own <animateTransform> orbit
+      // instead of a rAF redraw loop, so it's a static markup + CSS effect
+      // like every other fx decoration, not a running script per instance.
+      const CX = 65, CY = 65;
+      const PLANETS = [
+        { name:'mercury', color:'#b3a99a', r:44.0, size:1.4, period:4.4, angle:11  },
+        { name:'venus',   color:'#e8c98a', r:46.4, size:2.0, period:5.8, angle:80  },
+        { name:'earth',   color:'#5b9bd5', r:48.8, size:2.2, period:7.5, angle:166 },
+        { name:'mars',    color:'#c1633b', r:51.1, size:1.8, period:9.5, angle:235 },
+        { name:'jupiter', color:'#d8b98a', r:53.5, size:3.6, period:15,  angle:40  },
+        { name:'saturn',  color:'#e3d3a5', r:55.9, size:3.2, period:19,  angle:206, ring:true },
+        { name:'uranus',  color:'#9fd8db', r:58.3, size:2.6, period:26,  angle:298 },
+        { name:'neptune', color:'#5f7fd8', r:60.6, size:2.5, period:35,  angle:109 },
+        { name:'pluto',   color:'#c9b9a8', r:63.0, size:1.1, period:48,  angle:269 }
+      ];
+      const orbitRings = PLANETS.map(p => `<circle class="orbit-ring" cx="${CX}" cy="${CY}" r="${p.r}"/>`).join('');
+      const bodies = PLANETS.map((p, i) => {
+        const rad = p.angle * Math.PI / 180;
+        const x = (CX + p.r * Math.cos(rad)).toFixed(2);
+        const y = (CY + p.r * Math.sin(rad)).toFixed(2);
+        const ring = p.ring ? `<ellipse class="planet-ring" cx="${x}" cy="${y}" rx="${(p.size*1.9).toFixed(2)}" ry="${(p.size*0.7).toFixed(2)}" transform="rotate(29 ${x} ${y})"/>` : '';
+        return `<g>
+          <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 ${CX} ${CY}" to="360 ${CX} ${CY}" dur="${p.period}s" repeatCount="indefinite"/>
+          ${ring}
+          <circle class="planet-body" cx="${x}" cy="${y}" r="${p.size}" fill="${p.color}" style="animation-delay:${(i * 0.35).toFixed(2)}s"/>
+        </g>`;
+      }).join('');
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130">${orbitRings}</svg>
+        <svg class="fx-front" viewBox="0 0 130 130">${bodies}</svg>
+      </span>`;
+    },
+    'web-slinger'(){
+      // Color-swapped, un-clipped cousin of Web Trap: red/blue instead of
+      // gothic black/white, plus three "shot" strands that fire past the
+      // rim (Web Trap deliberately stays inside the circle; this one
+      // bleeds outward like a sling in motion).
+      const CX = 65, CY = 65, SPOKES = 8, OUTER_R = 40;
+      const angles = Array.from({length: SPOKES}, (_, i) => (i / SPOKES) * 2 * Math.PI);
+      const spokes = angles.map(a =>
+        `<line class="webslinger-strand" x1="${CX}" y1="${CY}" x2="${(CX + OUTER_R * Math.cos(a)).toFixed(1)}" y2="${(CY + OUTER_R * Math.sin(a)).toFixed(1)}"/>`
+      ).join('');
+      const scallops = [12, 24, 34].map(r => {
+        const pts = angles.map(a => `${(CX + r * Math.cos(a)).toFixed(1)},${(CY + r * Math.sin(a)).toFixed(1)}`).join(' ');
+        return `<polygon class="webslinger-scallop" points="${pts}"/>`;
+      }).join('');
+      const shots = [angles[1], angles[4], angles[6]].map((a, i) =>
+        `<line class="webslinger-shot ws-shot-${i + 1}" x1="${(CX + OUTER_R * 0.8 * Math.cos(a)).toFixed(1)}" y1="${(CY + OUTER_R * 0.8 * Math.sin(a)).toFixed(1)}" x2="${(CX + 62 * Math.cos(a)).toFixed(1)}" y2="${(CY + 62 * Math.sin(a)).toFixed(1)}"/>`
+      ).join('');
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130"><circle class="webslinger-ring ws-pulse" cx="${CX}" cy="${CY}" r="41"/></svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <g>${spokes}</g>
+          <g>${scallops}</g>
+          <g>${shots}</g>
+        </svg>
+      </span>`;
+    },
+    'kryptonian-flight'(){
+      // Red/blue flight-trail streaks plus a generic pulsing heraldic
+      // diamond at the chest position — deliberately a plain rhombus
+      // rather than any specific crest, so it reads as "Kryptonian" in
+      // spirit without reproducing a trademarked emblem.
+      const streakPaths = [
+        'M20,50 C35,45 50,48 62,58',
+        'M108,42 C93,40 78,46 66,56',
+        'M30,95 C42,86 55,80 65,72'
+      ];
+      const streaks = streakPaths.map((d, i) => `<path class="kryptonian-streak k-streak-${i + 1}" d="${d}" stroke-dasharray="10 30"/>`).join('');
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130">
+          <ellipse class="kryptonian-glow-blue" cx="65" cy="48" rx="44" ry="30"/>
+          <ellipse class="kryptonian-glow-red" cx="65" cy="86" rx="44" ry="30"/>
+        </svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          ${streaks}
+          <path class="kryptonian-emblem" d="M65,50 L78,65 L65,80 L52,65 Z"/>
+        </svg>
+      </span>`;
+    },
+    'dark-knight'(uid){
+      // Two bat silhouettes on independent slow orbits (opposite
+      // directions, different periods so they never lock into sync) plus
+      // a spotlight wedge sweeping back and forth like a signal scanning
+      // the sky, and a low purple mist underneath.
+      const beamGrad = `darkknightBeam-${uid}`;
+      const bat = `<g class="bat-wing">
+          <ellipse cx="0" cy="0" rx="2.4" ry="4"/>
+          <path d="M0,-1 L-14,-6 L-6,1 L-11,5 L-2,3 Z"/>
+          <path d="M0,-1 L14,-6 L6,1 L11,5 L2,3 Z"/>
+        </g>`;
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130">
+          <defs>
+            <linearGradient id="${beamGrad}" x1="50%" y1="100%" x2="50%" y2="0%">
+              <stop offset="0%" stop-color="#ffdf82" stop-opacity="0.32"/>
+              <stop offset="100%" stop-color="#ffdf82" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <ellipse class="darkknight-mist" cx="65" cy="65" rx="46" ry="46"/>
+          <path fill="url(#${beamGrad})" d="M65,65 L40,4 L90,4 Z">
+            <animateTransform attributeName="transform" type="rotate" values="-35 65 65;35 65 65;-35 65 65" dur="6s" repeatCount="indefinite"/>
+          </path>
+        </svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <g>
+            <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 65 65" to="360 65 65" dur="14s" repeatCount="indefinite"/>
+            <g class="bat-bob" transform="translate(65,26)">${bat}</g>
+          </g>
+          <g>
+            <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="360 65 65" to="0 65 65" dur="18s" repeatCount="indefinite"/>
+            <g class="bat-bob" transform="translate(65,104) rotate(180)">${bat}</g>
+          </g>
+        </svg>
+      </span>`;
+    },
+    thunderstrike(){
+      // Storm-cousin of Voltage: same strobing zigzag-bolt technique, but
+      // with clouds, more branching bolts at varied angles, and an
+      // irregular whole-avatar flash synced loosely to the bolt timing.
+      return `<span class="profile-deco-fx" aria-hidden="true">
+        <svg class="fx-back" viewBox="0 0 130 130">
+          <ellipse class="storm-cloud" cx="46" cy="26" rx="26" ry="12"/>
+          <ellipse class="storm-cloud" cx="84" cy="22" rx="22" ry="10"/>
+          <circle class="storm-flash storm-flash-anim" cx="65" cy="65" r="46"/>
+        </svg>
+        <svg class="fx-front" viewBox="0 0 130 130">
+          <path class="storm-bolt storm-bolt-a" d="M50,20 L60,45 L48,45 L66,80 L58,52 L70,52 Z"/>
+          <path class="storm-bolt storm-bolt-b" transform="rotate(150 65 65)" d="M52,18 L62,44 L50,44 L67,78 L59,50 L71,50 Z"/>
+          <path class="storm-bolt storm-bolt-c" transform="rotate(255 65 65)" d="M48,22 L58,46 L46,46 L64,79 L56,53 L68,53 Z"/>
+        </svg>
+      </span>`;
+    }
+  };
+
+  function profileDecorationMarkup(id){
+    const item = decorationById(id);
+    if (!item) return '';
+    if (item.fx === 'canvas') {
+      return `<span class="profile-deco-canvas" aria-hidden="true"><canvas class="avatar-fx-canvas" width="130" height="130" data-fx-type="${item.canvasType}"${item.fxParticles ? ` data-fx-particles="${item.fxParticles}"` : ''}></canvas></span>`;
+    }
+    const builder = item.fx && DECORATION_FX_BUILDERS[item.id];
+    if (builder) return builder(nextFxUid());
+    return `<span class="profile-deco profile-deco-${item.id}" aria-hidden="true"></span>`;
+  }
+
+  function initialsForProfile(name){
+    return (name || 'Your account').trim().split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase() || 'YU';
+  }
+
+  function applyProfileNameFont(){
+    if (!accountDisplayName) return;
+    PROFILE_FONTS.forEach(font => accountDisplayName.classList.remove(font.cls));
+    const font = fontById(equippedFont);
+    if (font) accountDisplayName.classList.add(font.cls);
+  }
+
+  function renderCustomizationStore(){
+    const pointsEl = document.getElementById('clashPointsDisplay');
+    const shareEl = document.getElementById('profileShareCount');
+    if (pointsEl) pointsEl.textContent = String(clashPoints);
+    if (shareEl) shareEl.textContent = `${shareCount} share${shareCount === 1 ? '' : 's'}`;
+
+    const decorationGrid = document.getElementById('decorationStoreGrid');
+    const seasonSection = document.getElementById('decorationSeasonSection');
+    const fontGrid = document.getElementById('fontStoreGrid');
+    if (!decorationGrid || !fontGrid || !seasonSection) return;
+
+    deactivateCanvasFx(decorationGrid);
+    deactivateCanvasFx(seasonSection);
+
+    // Season items only ever show while their own season is the active
+    // one — that's the "one active season at a time" behavior. Anything
+    // already owned keeps working via decorationById() everywhere else
+    // (equip/render), this just controls what's purchasable right now.
+    const activeSeason = activeSeasonId ? SEASONS[activeSeasonId] : null;
+    const seasonItems = activeSeason ? PROFILE_DECORATIONS.filter(item => item.season === activeSeasonId) : [];
+    const evergreenItems = PROFILE_DECORATIONS.filter(item => !item.season);
+
+    // The glowing sakura petal (their supplied artwork) is the Shards
+    // currency icon — shown wherever a Shards cost or balance appears.
+    function shardsIconHtml(){
+      return `<img src="/public/seasons/anime/shard-icon.png" alt="" class="shards-currency-icon" style="width:16px;height:16px;object-fit:contain;vertical-align:-3px;margin-right:3px;">`;
+    }
+
+    function decorationCardHtml(item, currency, balance){
+      const owned = unlockedDecorations.includes(item.id);
+      const equipped = equippedDecoration === item.id;
+      const isPremium = !!item.premium;
+      const buttonLabel = equipped ? 'Equipped' : owned ? 'Equip' : (isPremium ? 'Buy' : 'Redeem');
+      const costHtml = owned ? '' : isPremium
+        ? `$${item.cash.usd.toFixed(2)}`
+        : `${currency === 'shards' ? shardsIconHtml() : ''}${item.cost} ${currency}`;
+      return `<div class="profile-store-item${owned ? ' owned' : ''}${isPremium ? ' premium' : ''}">
+        ${owned ? '<span class="profile-owned-tag">OWNED</span>' : ''}
+        ${!owned && isPremium ? '<span class="profile-premium-tag">PREMIUM</span>' : ''}
+        <div class="profile-store-preview">${initialsForProfile(profileName?.value)}${profileDecorationMarkup(item.id)}</div>
+        <h4>${item.name}</h4>
+        <p class="profile-store-cat">${item.category}</p>
+        <span class="profile-store-rarity ${item.rarity.toLowerCase()}">${item.rarity}</span>
+        <div class="profile-store-cost">${costHtml}</div>
+        <button class="profile-store-action${equipped ? ' equipped' : ''}${isPremium && !owned ? ' premium' : ''}" type="button" data-decoration-action="${item.id}" ${!owned && !isPremium && balance < item.cost ? 'disabled' : ''}>${buttonLabel}</button>
+      </div>`;
+    }
+
+    seasonSection.innerHTML = (activeSeason && seasonItems.length) ? `
+      <div class="profile-store-season">
+        <div class="profile-store-season-banner">
+          <span class="profile-store-season-label">${activeSeason.label}</span>
+          <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${shardsIconHtml()}${seasonShards} available)</div>
+        </div>
+        <div class="profile-store-season-grid">
+          ${seasonItems.map(item => decorationCardHtml(item, activeSeason.currencyLabel.toLowerCase(), seasonShards)).join('')}
+        </div>
+      </div>` : '';
+
+    decorationGrid.innerHTML = evergreenItems.map(item => decorationCardHtml(item, 'pts', clashPoints)).join('');
+
+    fontGrid.innerHTML = PROFILE_FONTS.map(item => {
+      const owned = unlockedFonts.includes(item.id);
+      const equipped = equippedFont === item.id;
+      const buttonLabel = equipped ? 'Equipped' : owned ? 'Equip' : 'Redeem';
+      return `<div class="profile-store-item${owned ? ' owned' : ''}">
+        ${owned ? '<span class="profile-owned-tag">OWNED</span>' : ''}
+        <div class="profile-store-preview ${item.cls}">Aa</div>
+        <h4>${item.name}</h4>
+        <p class="profile-store-cat">${item.category}</p>
+        <div class="profile-store-cost">${owned ? '' : '70 pts'}</div>
+        <button class="profile-store-action${equipped ? ' equipped' : ''}" type="button" data-font-action="${item.id}" ${!owned && clashPoints < 70 ? 'disabled' : ''}>${buttonLabel}</button>
+      </div>`;
+    }).join('');
+
+    activateCanvasFx(decorationGrid);
+    activateCanvasFx(seasonSection);
+    [decorationGrid, seasonSection].forEach(grid => {
+      grid.querySelectorAll('[data-decoration-action]').forEach(button => {
+        button.addEventListener('click', () => handleCustomizationAction('decoration', button.dataset.decorationAction));
+      });
+    });
+    fontGrid.querySelectorAll('[data-font-action]').forEach(button => {
+      button.addEventListener('click', () => handleCustomizationAction('font', button.dataset.fontAction));
+    });
+  }
+
+  // Premium (real-money) decorations are NOT unlocked by writing straight
+  // to Firestore from the client the way point-redeemed items are — that
+  // would let anyone grant themselves a paid item for free. They go through
+  // Paystack instead, and the server verifies the payment before the item
+  // is added to unlockedDecorations. That verification endpoint is the
+  // "backend for the monetization" piece — not built yet, so this just
+  // opens the checkout intent for now.
+  // Paystack appends ?reference=xxx&trxref=xxx to whatever returnUrl we
+  // sent it (see create-payment.js). onAuthStateChanged calls this on
+  // every sign-in, so `paymentReturnHandled` stops it from re-verifying
+  // (and re-showing a toast for) the same reference on a later auth event
+  // in the same page load — verify-payment.js is idempotent regardless,
+  // this just avoids a duplicate toast.
+  let paymentReturnHandled = false;
+  async function handlePaymentReturn(){
+    if (paymentReturnHandled) return;
+    const params = new URLSearchParams(location.search);
+    const reference = params.get('reference') || params.get('trxref');
+    if (!reference) return;
+    paymentReturnHandled = true;
+    history.replaceState(null, '', location.pathname);
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(`${PAYMENT_API_BASE}/api/verify-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ reference }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.itemType === 'decoration') {
+          if (!unlockedDecorations.includes(data.itemId)) unlockedDecorations.push(data.itemId);
+          renderCustomizationStore();
+          const item = decorationById(data.itemId);
+          showToast(`${item ? item.name : 'Decoration'} unlocked!`);
+        } else if (data.itemType === 'badge') {
+          verifiedUntilCache[user.uid] = null; // force a fresh read next time it's checked
+          showToast('Verified badge renewed!');
+        }
+      } else {
+        showToast('Payment could not be confirmed — contact support if you were charged');
+      }
+    } catch (err) {
+      console.error('Payment return check failed', err);
+      showToast('Payment could not be confirmed — contact support if you were charged');
+    }
+  }
+
+  async function handlePremiumPurchase(item){
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to buy this decoration'); return; }
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(`${PAYMENT_API_BASE}/api/create-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ itemType: 'decoration', itemId: item.id, returnUrl: location.href.split('?')[0] }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error === 'You already own this decoration' ? 'Already in your collection' : 'Could not start checkout');
+        return;
+      }
+      location.href = data.authorization_url;
+    } catch (err) {
+      console.error('Premium purchase failed', err);
+      showToast('Could not start checkout');
+    }
+  }
+
+  async function handleCustomizationAction(type, id){
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to use the Avatar Store'); return; }
+    const item = type === 'decoration' ? decorationById(id) : fontById(id);
+    if (!item) return;
+    const ownedList = type === 'decoration' ? unlockedDecorations : unlockedFonts;
+    if (item.premium && !ownedList.includes(id)) { handlePremiumPurchase(item); return; }
+    const cost = type === 'decoration' ? item.cost : 70;
+    // Season-tagged decorations spend seasonShards instead of clashPoints —
+    // a completely separate balance/field, never mixed with the evergreen
+    // currency (see awardXp in api/lib/xp.js for where shards come from).
+    const usesShards = type === 'decoration' && !!item.season;
+    const currencyField = usesShards ? 'seasonShards' : 'clashPoints';
+    const currencyLabel = usesShards ? (SEASONS[item.season]?.currencyLabel || 'Shards') : 'Clash Points';
+    const userRef = doc(db, 'users', user.uid);
+
+    try {
+      if (ownedList.includes(id)) {
+        const field = type === 'decoration' ? 'equippedDecoration' : 'equippedFont';
+        const nextValue = (type === 'decoration' ? equippedDecoration : equippedFont) === id ? null : id;
+        await updateDoc(userRef, { [field]: nextValue });
+        if (type === 'decoration') equippedDecoration = nextValue;
+        else equippedFont = nextValue;
+        updateAccountHeader();
+        showToast(nextValue ? `${item.name} equipped` : `${item.name} unequipped`);
+        return;
+      }
+
+      const localBalance = usesShards ? seasonShards : clashPoints;
+      if (localBalance < cost) {
+        showToast(`You need ${cost - localBalance} more ${currencyLabel}`);
+        return;
+      }
+      await runTransaction(db, async transaction => {
+        const snap = await transaction.get(userRef);
+        const data = snap.exists() ? snap.data() : {};
+        const remoteBalance = Number(data[currencyField] || 0);
+        const remoteOwned = type === 'decoration'
+          ? (Array.isArray(data.unlockedDecorations) ? data.unlockedDecorations : [])
+          : (Array.isArray(data.unlockedFonts) ? data.unlockedFonts : []);
+        if (remoteOwned.includes(id)) throw new Error('already-owned');
+        if (remoteBalance < cost) throw new Error('not-enough-points');
+        transaction.set(userRef, {
+          [currencyField]: remoteBalance - cost,
+          [type === 'decoration' ? 'unlockedDecorations' : 'unlockedFonts']: arrayUnion(id),
+          [type === 'decoration' ? 'lastRedeemedDecoration' : 'lastRedeemedFont']: id
+        }, { merge: true });
+      });
+      if (usesShards) seasonShards -= cost; else clashPoints -= cost;
+      ownedList.push(id);
+      renderCustomizationStore();
+      showToast(`${item.name} redeemed`);
+    } catch (err) {
+      if (err.message === 'not-enough-points') showToast(`Not enough ${currencyLabel}`);
+      else if (err.message === 'already-owned') showToast('Already in your collection');
+      else {
+        console.error('Avatar Store action failed', err);
+        showToast('Could not update your Avatar Store');
+      }
+    }
+  }
+
+  let shareRewardInFlight = false;
+  async function rewardAppSharePoints(){
+    const user = auth.currentUser;
+    if (!user || shareRewardInFlight) return;
+    shareRewardInFlight = true;
+    const userRef = doc(db, 'users', user.uid);
+    const creditId = `app-share-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const creditRef = doc(db, 'users', user.uid, 'shareCredits', creditId);
+    try {
+      await runTransaction(db, async transaction => {
+        const snap = await transaction.get(userRef);
+        const data = snap.exists() ? snap.data() : {};
+        transaction.set(creditRef, {
+          type: 'appShare',
+          points: 5,
+          creditedAt: serverTimestamp()
+        });
+        transaction.set(userRef, {
+          clashPoints: Number(data.clashPoints || 0) + 5,
+          shareCount: Number(data.shareCount || 0) + 1,
+          lastShareCreditId: creditId
+        }, { merge: true });
+      });
+      clashPoints += 5;
+      shareCount += 1;
+      renderCustomizationStore();
+      showToast('App shared · +5 Clash Points');
+    } catch (err) {
+      console.error('Share reward failed', err);
+      showToast('Shared, but points could not be saved');
+    } finally {
+      shareRewardInFlight = false;
+    }
+  }
+
+  const profileShareBtn = document.getElementById('profileShareBtn');
+  profileShareBtn.addEventListener('click', () => {
+    if (!auth.currentUser) { requireSignIn('Sign in to earn Clash Points'); return; }
+    shareLink({
+      title: 'Fiction Clash',
+      text: 'Vote on the characters and stories you love on Fiction Clash.',
+      url: buildShareUrl('app', 'profile'),
+      onShared: rewardAppSharePoints
+    });
+  });
+  document.querySelectorAll('[data-store-tab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const decorationsActive = tab.dataset.storeTab === 'decorations';
+      document.querySelectorAll('[data-store-tab]').forEach(item => item.classList.toggle('active', item === tab));
+      document.getElementById('decorationStoreGrid').hidden = !decorationsActive;
+      document.getElementById('fontStoreGrid').hidden = decorationsActive;
+    });
+  });
+
+  // ---------- topbar sign-in icon <-> avatar ----------
+  const signinBtn = document.getElementById('signinBtn');
+  const SIGNIN_DEFAULT_ICON = signinBtn.innerHTML;
+
+  function syncTopbarAvatar(){
+    const user = window.firebaseAuth && window.firebaseAuth.currentUser;
+    if (user) {
+      signinBtn.classList.add('is-avatar');
+      signinBtn.classList.remove('has-decoration');
+      signinBtn.setAttribute('aria-label', 'Account menu');
+      signinBtn.title = 'Account';
+      if (avatarDataUrl) {
+        signinBtn.innerHTML = `<img src="${avatarDataUrl}" alt="Profile picture">`;
+      } else {
+        const name = profileName.value.trim() || user.displayName || (user.email ? user.email.split('@')[0] : '') || 'Your account';
+        signinBtn.innerHTML = `${escapeHtml(name === 'Your account' ? 'YU' : name.trim().charAt(0).toUpperCase())}`;
+      }
+    } else {
+      signinBtn.classList.remove('is-avatar');
+      signinBtn.setAttribute('aria-label', 'Sign in');
+      signinBtn.title = 'Sign in';
+      signinBtn.innerHTML = SIGNIN_DEFAULT_ICON;
+    }
+  }
+
+  function renderAvatar(){
+    accountAvatar.classList.toggle('has-decoration', !!decorationById(equippedDecoration));
+    accountAvatar.dataset.decoration = equippedDecoration || '';
+    deactivateCanvasFx(accountAvatar);
+    if (avatarDataUrl) {
+      accountAvatar.innerHTML = `<img src="${avatarDataUrl}" alt="Profile picture">${profileDecorationMarkup(equippedDecoration)}`;
+      removeAvatarBtn.hidden = false;
+    } else {
+      const name = profileName.value.trim() || 'Your account';
+      accountAvatar.innerHTML = `<span class="avatar-initials">${escapeHtml(initialsForProfile(name))}</span>${profileDecorationMarkup(equippedDecoration)}`;
+      removeAvatarBtn.hidden = true;
+    }
+    activateCanvasFx(accountAvatar);
+    syncTopbarAvatar();
+  }
+
+  // ---------- verified badge (earned via XP: votes, comments, contributions) ----------
+  // A user earns a "verified" badge for 3 days each time their cumulative
+  // `xp` crosses a new multiple of 1000. xp only ever goes up and is only
+  // ever written server-side (via /api/vote and /api/comment — see
+  // /api/lib/xp.js), so this can't be farmed by scripting client writes.
+  const VERIFIED_XP_THRESHOLD = 1000;
+  const VERIFIED_BADGE_DAYS = 3;
+  let currentUserVerifiedUntil = null; // Firestore Timestamp or null
+  let currentUserXp = 0; // progress toward the next badge
+  let currentUserWeeklyXp = 0; // resets to 0 every Monday — see /api/reset-weekly-xp
+
+  // Same seal shape used everywhere the badge shows up.
+  const VERIFIED_BADGE_SVG = '<svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg>';
+
+  // Live badge status for OTHER people's comments — deliberately NOT based
+  // on a "verified" flag saved onto the comment at post time, so that (a)
+  // an account that becomes verified after a comment was posted still
+  // shows the badge on that old comment, and (b) the badge disappears
+  // from it again the moment that 1-month window runs out, same as
+  // everywhere else. verifiedUntilCache holds each uid's expiry (in ms,
+  // or null) fetched at most once per uid — cheap on reads since the
+  // value itself rarely changes — and a periodic sweep below just
+  // re-compares each visible badge's cached expiry against the clock.
+  const verifiedUntilCache = {}; // uid -> millis | null
+  const liveVerifiedBadges = []; // { el, uid } for every badge currently on screen
+  async function getVerifiedUntilMillis(uid){
+    if (uid in verifiedUntilCache) return verifiedUntilCache[uid];
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      const vu = snap.exists() && snap.data().verifiedUntil ? snap.data().verifiedUntil.toMillis() : null;
+      verifiedUntilCache[uid] = vu;
+      return vu;
+    } catch (err) {
+      console.error('Verified status lookup failed', err);
+      return null;
+    }
+  }
+  // Wires one badge element to a uid: shows/hides it now (once the lookup
+  // resolves) and registers it for the periodic expiry sweep.
+  function attachVerifiedBadge(badgeEl, uid){
+    if (!badgeEl || !uid) return;
+    const entry = { el: badgeEl, uid };
+    liveVerifiedBadges.push(entry);
+    getVerifiedUntilMillis(uid).then(() => recomputeVerifiedBadge(entry));
+  }
+  function recomputeVerifiedBadge(entry){
+    const vu = verifiedUntilCache[entry.uid];
+    entry.el.style.display = (typeof vu === 'number' && vu > Date.now()) ? 'inline-flex' : 'none';
+  }
+  // Every minute, re-check every badge currently on screen against its
+  // already-cached expiry — no extra Firestore reads, just a clock
+  // comparison, so a badge disappears from old comments right on
+  // schedule even if the page has been open the whole month.
+  // liveVerifiedBadges only ever grew before — nothing removed an entry
+  // when its comment/leaderboard row scrolled out of the preview cap or
+  // its list got torn down (switching matchups, closing a sheet, etc.), so
+  // a long session would build up thousands of stale entries pointing at
+  // detached elements, each one still getting a style write every sweep.
+  // Pruning disconnected elements here (rather than at every removal call
+  // site) self-heals regardless of which code path removed the element.
+  setInterval(() => {
+    for (let i = liveVerifiedBadges.length - 1; i >= 0; i--) {
+      if (!liveVerifiedBadges[i].el.isConnected) { liveVerifiedBadges.splice(i, 1); continue; }
+      recomputeVerifiedBadge(liveVerifiedBadges[i]);
+    }
+  }, 60000);
+  setInterval(renderVerifiedBadge, 60000);
+
+  // ---------- equipped decoration (shown on OTHER accounts' comments) ----------
+  // Same idea as the verified badge above: a comment only stores who posted
+  // it (uid), and the decoration actually shown is looked up live from that
+  // account's current profile. That way, if someone changes or unequips
+  // their decoration, it updates everywhere their name appears — including
+  // on comments they posted before the change — instead of being frozen to
+  // whatever was equipped at post time.
+  const equippedDecorationCache = {}; // uid -> decorationId | null
+  async function getEquippedDecorationId(uid){
+    if (uid in equippedDecorationCache) return equippedDecorationCache[uid];
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      const id = snap.exists() && decorationById(snap.data().equippedDecoration) ? snap.data().equippedDecoration : null;
+      equippedDecorationCache[uid] = id;
+      return id;
+    } catch (err) {
+      console.error('Decoration lookup failed', err);
+      return null;
+    }
+  }
+  // Wires one avatar container (e.g. a .comment-avatar) to a uid: fetches
+  // that account's current decoration and applies it to the container.
+  function attachDecoration(container, uid){
+    if (!container || !uid) return;
+    getEquippedDecorationId(uid).then(id => applyDecorationToContainer(container, id));
+  }
+  function applyDecorationToContainer(container, id){
+    const item = decorationById(id);
+    container.classList.toggle('has-decoration', !!item);
+    // Remove ANY previous decoration markup before adding the new one —
+    // fx-style decorations (hellflame, web-trap, voltage, frostbite,
+    // bloodfang) render as .profile-deco-fx / .profile-deco-fx-web spans
+    // rather than .profile-deco, so only clearing .profile-deco left the
+    // old fx overlay stacked on top of the new decoration whenever either
+    // side of the swap was an fx one.
+    // canvas-based fx (real-flame, dragon-balls, etc.) run a live rAF loop
+    // per canvas — stop it before its element is torn out, or the shared
+    // AvatarEffect loop keeps ticking an instance nothing shows anymore.
+    deactivateCanvasFx(container);
+    container.querySelectorAll('.profile-deco, .profile-deco-fx, .profile-deco-fx-web, .profile-deco-canvas').forEach(el => el.remove());
+    if (item) container.insertAdjacentHTML('beforeend', profileDecorationMarkup(id));
+    activateCanvasFx(container);
+  }
+
+  // ---------- equipped font (shown on OTHER accounts' comment names) ----------
+  // Same live-lookup pattern as the decoration above: a comment's name is
+  // rendered in that account's current equipped font, fetched from their
+  // profile rather than baked in at post time.
+  const equippedFontCache = {}; // uid -> fontId | null
+  async function getEquippedFontId(uid){
+    if (uid in equippedFontCache) return equippedFontCache[uid];
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      const id = snap.exists() && fontById(snap.data().equippedFont) ? snap.data().equippedFont : null;
+      equippedFontCache[uid] = id;
+      return id;
+    } catch (err) {
+      console.error('Font lookup failed', err);
+      return null;
+    }
+  }
+  function attachFont(nameEl, uid){
+    if (!nameEl || !uid) return;
+    getEquippedFontId(uid).then(id => {
+      PROFILE_FONTS.forEach(font => nameEl.classList.remove(font.cls));
+      const font = fontById(id);
+      if (font) nameEl.classList.add(font.cls);
+    });
+  }
+
+  function isCurrentlyVerified(){
+    return !!(currentUserVerifiedUntil && currentUserVerifiedUntil.toMillis() > Date.now());
+  }
+
+  function renderVerifiedBadge(){
+    const el = document.getElementById('accountVerifiedBadge');
+    if (el) el.style.display = isCurrentlyVerified() ? 'inline-flex' : 'none';
+    renderVerifiedProgress();
+  }
+
+  // Shows "X/20 to verified badge" while someone's working toward it, or
+  // a days-left countdown once they've earned it. Hidden entirely when
+  // signed out, since progress is meaningless without an account to save it to.
+  function renderVerifiedProgress(){
+    const el = document.getElementById('verifiedProgressText');
+    if (!el) return;
+    if (!auth.currentUser) { el.style.display = 'none'; return; }
+    if (isCurrentlyVerified()) {
+      const daysLeft = Math.max(1, Math.ceil((currentUserVerifiedUntil.toMillis() - Date.now()) / (24 * 60 * 60 * 1000)));
+      el.textContent = `✓ Verified · ${daysLeft}d left · tap to learn more`;
+    } else {
+      el.textContent = `${currentUserXp % VERIFIED_XP_THRESHOLD}/${VERIFIED_XP_THRESHOLD} points to verified badge · tap to learn more`;
+    }
+    el.style.display = 'block';
+  }
+
+  // Verified-badge progress is now driven entirely by server-side XP
+  // awards (see /api/lib/xp.js) — votes and comments call /api/vote and
+  // /api/comment, which bump `xp` and set `verifiedUntil` directly via
+  // the Admin SDK when a new 1000-point threshold is crossed. There's no
+  // client-side action to record anymore; loadCloudProfile() and the
+  // vote/comment response handlers keep currentUserXp and
+  // currentUserVerifiedUntil in sync with what the server already wrote.
+
+  // Discord-style "Member Since" line on the profile — Firebase Auth
+  // already tracks account-creation time per user, so this needs no new
+  // backend field, just reading user.metadata.creationTime when signed in.
+  function renderMemberSince(user){
+    const el = document.getElementById('accountMemberSince');
+    if (!el) return;
+    if (!user || !user.metadata || !user.metadata.creationTime) { el.style.display = 'none'; return; }
+    const joined = new Date(user.metadata.creationTime);
+    const joinedLabel = joined.toLocaleDateString(undefined, {month:'long', year:'numeric'});
+    el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span>Member since ${joinedLabel}</span>`;
+    el.style.display = 'flex';
+  }
+
+  function updateAccountHeader(){
+    const name = profileName.value.trim() || 'Your account';
+    const handle = profileHandle.value.trim() || 'Sign in to save your clashes';
+    accountDisplayName.textContent = name;
+    accountDisplayHandle.textContent = handle;
+    const bioEl = document.getElementById('accountDisplayBio');
+    if (bioEl) {
+      const bio = profileBio.value.trim();
+      bioEl.textContent = bio;
+      bioEl.style.display = bio ? 'block' : 'none';
+    }
+    applyProfileNameFont();
+    renderAvatar();
+    if (typeof renderCoverPhoto === 'function') renderCoverPhoto();
+    renderCustomizationStore();
+    renderVerifiedBadge();
+    renderHeroCharacterCosmetics();
+  }
+
+  function persistProfile(){
+    const profile = {name:profileName.value.trim(), handle:profileHandle.value.trim(), bio:profileBio.value.trim(), avatar:avatarDataUrl, cover:coverPhotoDataUrl};
+    localStorage.setItem('fictionClashProfile', JSON.stringify(profile));
+    // Also sync to Firestore when signed in, so the name/handle/bio/picture
+    // show up the same way on any other browser this account signs into.
+    // Only sync the picture once it's small (a compressed data URL, or an
+    // http(s) URL) — an uncompressed FileReader preview can be several MB,
+    // which is both wasteful and can exceed Firestore's 1MB document limit.
+    const user = auth.currentUser;
+    if (user) {
+      const smallEnough = !profile.avatar || profile.avatar.startsWith('http') || profile.avatar.length < 400000;
+      const coverSmallEnough = !profile.cover || profile.cover.startsWith('http') || profile.cover.length < 500000;
+      setDoc(doc(db, 'users', user.uid), {
+        name: profile.name, handle: profile.handle, bio: profile.bio,
+        avatarUrl: smallEnough ? profile.avatar : '',
+        coverPhotoUrl: coverSmallEnough ? profile.cover : '',
+        updatedAt: serverTimestamp()
+      }, { merge: true }).catch(err => console.error('Profile sync failed', err));
+    }
+  }
+
+  // Loads this account's profile from Firestore (if any) so it shows up
+  // the same way it does on the browser it was set up on. Local fields
+  // already populated (e.g. from localStorage) are kept as a fallback.
+  function loadCloudProfile(uid){
+    getDoc(doc(db, 'users', uid)).then(snap => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (data.name) profileName.value = data.name;
+      if (data.handle) profileHandle.value = data.handle;
+      if (data.bio) profileBio.value = data.bio;
+      if (data.avatarUrl) avatarDataUrl = data.avatarUrl;
+      if (data.coverPhotoUrl) coverPhotoDataUrl = data.coverPhotoUrl;
+      clashPoints = Number(data.clashPoints || 0);
+      seasonShards = Number(data.seasonShards || 0);
+      shareCount = Number(data.shareCount || 0);
+      unlockedDecorations = Array.isArray(data.unlockedDecorations) ? [...data.unlockedDecorations] : [];
+      unlockedFonts = Array.isArray(data.unlockedFonts) ? [...data.unlockedFonts] : [];
+      equippedDecoration = decorationById(data.equippedDecoration) ? data.equippedDecoration : null;
+      equippedFont = fontById(data.equippedFont) ? data.equippedFont : null;
+      characterDecorations = (data.characterDecorations && typeof data.characterDecorations === 'object') ? { ...data.characterDecorations } : {};
+      currentUserVerifiedUntil = data.verifiedUntil || null;
+      currentUserXp = Number(data.xp || 0);
+      currentUserWeeklyXp = Number(data.weeklyXp || 0);
+      verifiedUntilCache[uid] = currentUserVerifiedUntil ? currentUserVerifiedUntil.toMillis() : null;
+      updateAccountHeader();
+    }).catch(err => console.error('Profile load failed', err));
+  }
+
+  avatarEditBtn.addEventListener('click', () => avatarFile.click());
+
+  avatarFile.addEventListener('change', () => {
+    const file = avatarFile.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please choose an image file');
+      avatarFile.value = '';
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      showToast('Image must be under 4MB');
+      avatarFile.value = '';
+      return;
+    }
+    const originalHTML = accountAvatar.innerHTML;
+    accountAvatar.innerHTML = '<span class="btn-spinner avatar-spinner"></span>';
+    const reader = new FileReader();
+    reader.onload = () => {
+      // Instant local preview while the compressed copy (below) is
+      // prepared in the background and synced to Firestore.
+      avatarDataUrl = reader.result;
+      renderAvatar();
+      avatarFile.value = '';
+      compressImageToDataUrl(file)
+        .then(compressed => {
+          avatarDataUrl = compressed;
+          renderAvatar();
+          persistProfile();
+          showToast(auth.currentUser ? 'Profile picture updated' : 'Profile picture updated (sign in to sync it everywhere)');
+        })
+        .catch(err => {
+          console.error('Avatar compression failed', err);
+          persistProfile(); // keeps the uncompressed preview at least local-only
+          showToast('Saved here, but sync to other browsers failed');
+        });
+    };
+    reader.onerror = () => {
+      accountAvatar.innerHTML = originalHTML;
+      showToast('Could not read that image');
+    };
+    reader.readAsDataURL(file);
+  });
+
+  removeAvatarBtn.addEventListener('click', () => {
+    avatarDataUrl = '';
+    renderAvatar();
+    persistProfile();
+    showToast('Profile picture removed');
+  });
+
+  const accountBanner = document.getElementById('accountBanner');
+  const coverEditBtn = document.getElementById('coverEditBtn');
+  const coverFile = document.getElementById('coverFile');
+  function renderCoverPhoto(){
+    // Inline style always wins over the .account-banner CSS rule (default
+    // collage art, or a season reskin's background-image) — a user's own
+    // cover photo takes priority over both, same treatment as avatarUrl
+    // already gets versus season/theme art elsewhere.
+    accountBanner.style.backgroundImage = coverPhotoDataUrl
+      ? `linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 45%, var(--surface-veil) 100%), url('${coverPhotoDataUrl}')`
+      : '';
+  }
+
+  coverEditBtn.addEventListener('click', () => coverFile.click());
+
+  coverFile.addEventListener('change', () => {
+    const file = coverFile.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please choose an image file');
+      coverFile.value = '';
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      showToast('Image must be under 4MB');
+      coverFile.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      // Instant local preview while the compressed copy (below) is
+      // prepared in the background and synced to Firestore.
+      coverPhotoDataUrl = reader.result;
+      renderCoverPhoto();
+      coverFile.value = '';
+      // Wider aspect ratio than the avatar, so a larger max dimension —
+      // still well under Firestore's 1MB document limit at this quality.
+      compressImageToDataUrl(file, 640, 0.7)
+        .then(compressed => {
+          coverPhotoDataUrl = compressed;
+          renderCoverPhoto();
+          persistProfile();
+          showToast(auth.currentUser ? 'Cover photo updated' : 'Cover photo updated (sign in to sync it everywhere)');
+        })
+        .catch(err => {
+          console.error('Cover photo compression failed', err);
+          persistProfile(); // keeps the uncompressed preview at least local-only
+          showToast('Saved here, but sync to other browsers failed');
+        });
+    };
+    reader.onerror = () => showToast('Could not read that image');
+    reader.readAsDataURL(file);
+  });
+
+  try {
+    const savedProfile = JSON.parse(localStorage.getItem('fictionClashProfile') || 'null');
+    if (savedProfile) {
+      profileName.value = savedProfile.name || '';
+      profileHandle.value = savedProfile.handle || '';
+      profileBio.value = savedProfile.bio || '';
+      avatarDataUrl = savedProfile.avatar || '';
+      coverPhotoDataUrl = savedProfile.cover || '';
+      renderCoverPhoto();
+      updateAccountHeader();
+    }
+  } catch (error) {}
+
+  // ---------- firebase auth ----------
+  const accountPassword = document.getElementById('accountPassword');
+  const signedOutView = document.getElementById('signedOutView');
+  const signedInView = document.getElementById('signedInView');
+  const signedInEmail = document.getElementById('signedInEmail');
+  const signOutBtn = document.getElementById('signOutBtn');
+
+  function authErrorMessage(error){
+    switch (error.code) {
+      case 'auth/invalid-email': return 'That email address looks invalid';
+      case 'auth/missing-password':
+      case 'auth/weak-password': return 'Password must be at least 6 characters';
+      case 'auth/email-already-in-use': return 'That email is already in use — check your password';
+      case 'auth/wrong-password':
+      case 'auth/invalid-credential': return 'Incorrect email or password';
+      case 'auth/popup-closed-by-user': return 'Sign-in popup closed';
+      case 'auth/popup-blocked': return 'Pop-up blocked — check your browser\'s pop-up settings';
+      case 'auth/unauthorized-domain': return 'This domain isn\'t authorized for Google sign-in yet';
+      case 'auth/cancelled-popup-request': return 'Sign-in already in progress';
+      default: return 'Something went wrong — please try again';
+    }
+  }
+
+  // Immediate (non-delayed) button loading helper — used for popup-based sign-in
+  // so the call to signInWithPopup happens synchronously inside the click handler.
+  // Wrapping it in a setTimeout (like withSpinner does) breaks the "user gesture"
+  // requirement and causes browsers to silently block the Google popup.
+  function beginLoading(btn, loadingLabel){
+    if (btn.disabled) return null;
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="btn-spinner"></span><span>${loadingLabel}</span>`;
+    return () => { btn.innerHTML = original; btn.disabled = false; };
+  }
+
+  function googleSignIn(btn, onSuccess){
+    const endLoading = beginLoading(btn, 'CONNECTING…');
+    if (!endLoading) return;
+    signInWithPopup(auth, googleProvider)
+      .then(() => { endLoading(); onSuccess(); })
+      .catch((error) => {
+        // If the popup itself couldn't open (blocked, or unsupported in this
+        // environment, e.g. an embedded/sandboxed webview), fall back to a
+        // full-page redirect flow instead of failing silently.
+        if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
+          signInWithRedirect(auth, googleProvider).catch((redirectError) => {
+            endLoading();
+            showToast(authErrorMessage(redirectError));
+          });
+          return;
+        }
+        endLoading();
+        showToast(authErrorMessage(error));
+      });
+  }
+
+  // Handle the case where signInWithPopup fell back to signInWithRedirect —
+  // the result comes back here after the page reloads.
+  getRedirectResult(auth).then((result) => {
+    if (result && result.user) showToast('Signed in with Google');
+  }).catch((error) => showToast(authErrorMessage(error)));
+
+  async function emailSignInOrSignUp(email, password){
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  // Tracks which account's data is currently on screen, so switching to a
+  // *different* signed-in account doesn't leave the previous account's
+  // name/handle/bio/picture visible until the cloud profile finishes loading.
+  let lastSignedInUid = null;
+
+  onAuthStateChanged(auth, (user) => {
+    hideAppLoadingScreen();
+    if (user) {
+      signedOutView.hidden = true;
+      signedInView.hidden = false;
+      signedInEmail.textContent = user.email || user.displayName || 'Signed in';
+      if (lastSignedInUid !== user.uid) {
+        // New account this session — start from this account's own
+        // defaults rather than whatever the previous account/guest left on screen.
+        profileName.value = user.displayName || (user.email ? user.email.split('@')[0] : '');
+        profileHandle.value = user.email ? `@${user.email.split('@')[0]}` : '';
+        profileBio.value = '';
+        avatarDataUrl = user.photoURL || '';
+        coverPhotoDataUrl = '';
+         clashPoints = 0;
+         seasonShards = 0;
+         shareCount = 0;
+         unlockedDecorations = [];
+         unlockedFonts = [];
+         equippedDecoration = null;
+         equippedFont = null;
+         characterDecorations = {};
+      }
+      lastSignedInUid = user.uid;
+      renderMemberSince(user);
+      updateAccountHeader();
+      loadCloudProfile(user.uid); // overwrites the above with synced data, if any exists
+      renderAllLikeButtons(); // this account's like state may differ from the previous one's
+      getDocs(collection(db, 'characterAvatars')).then(renderAdminReports).catch(() => {}); // admin card may now apply
+      refreshModerationListeners(); // admin's pending queues, if this is the admin account
+      renderSeasonAdminControls(); // season toggle card, if this is the admin account
+      refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
+      handlePaymentReturn(); // no-op unless the URL has a Paystack reference (see definition below)
+    } else {
+      lastSignedInUid = null;
+      renderMemberSince(null);
+      signedOutView.hidden = false;
+      signedInView.hidden = true;
+      signedInEmail.textContent = '';
+      // Clear the previous account's profile out of memory — otherwise it
+      // lingers in these fields (even though the signed-in card is hidden)
+      // until a new account's data happens to overwrite it.
+      profileName.value = '';
+      profileHandle.value = '';
+      profileBio.value = '';
+      avatarDataUrl = '';
+      coverPhotoDataUrl = '';
+       clashPoints = 0;
+       seasonShards = 0;
+       shareCount = 0;
+       unlockedDecorations = [];
+       unlockedFonts = [];
+       equippedDecoration = null;
+       equippedFont = null;
+       characterDecorations = {};
+      currentUserVerifiedUntil = null;
+      currentUserXp = 0;
+      currentUserWeeklyXp = 0;
+      updateAccountHeader();
+      syncTopbarAvatar();
+      closeAccountDropdown();
+      renderAllLikeButtons(); // signed out — nothing should show as "liked" now
+      refreshAiFeatsCreditsDisplay(); // back to "sign in to use AI feat checks"
+      refreshModerationListeners(); // detaches the admin queue listeners (isAdmin() is now false)
+      updateSeasonCardVisibility(); // hides the season toggle card (isAdmin() is now false)
+    }
+  });
+
+  signOutBtn.addEventListener('click', () => {
+    signOut(auth).then(() => showToast('Signed out'));
+  });
+
+  const googleSignInBtn = document.getElementById('googleSignIn');
+  googleSignInBtn.addEventListener('click', () => {
+    googleSignIn(googleSignInBtn, () => showToast('Signed in with Google'));
+  });
+  const emailSignInBtn = document.getElementById('emailSignIn');
+  emailSignInBtn.addEventListener('click', () => {
+    const email = accountEmail.value.trim();
+    const password = accountPassword.value;
+    if (!email || !email.includes('@')) {
+      accountEmail.style.borderColor = '#c0392b';
+      showToast('Enter a valid email');
+      return;
+    }
+    if (!password || password.length < 6) {
+      accountPassword.style.borderColor = '#c0392b';
+      showToast('Password must be at least 6 characters');
+      return;
+    }
+    withSpinner(emailSignInBtn, 'SIGNING IN…', () => {
+      emailSignInOrSignUp(email, password)
+        .then(() => {
+          accountEmail.style.borderColor = '';
+          accountPassword.style.borderColor = '';
+          accountPassword.value = '';
+          showToast('Signed in with email');
+        })
+        .catch((error) => showToast(authErrorMessage(error)));
+    });
+  });
+  document.getElementById('saveProfile').addEventListener('click', () => {
+    // persistProfile() writes to localStorage AND, when signed in, syncs
+    // name/handle/bio/avatar to Firestore under this account's uid so it
+    // shows up the same way on any other browser signed into that account.
+    persistProfile();
+    updateAccountHeader();
+    showToast(auth.currentUser ? 'Profile saved and synced' : 'Profile saved (sign in to sync it everywhere)');
+  });
+
+  // Auto-save on blur (tapping away from a field) as a safety net — so
+  // forgetting to tap "SAVE PROFILE" after editing name/handle/bio can't
+  // silently lose changes. No toast here, to avoid spamming one on every
+  // single field tap; the explicit Save button still shows a toast.
+  [profileName, profileHandle, profileBio].forEach(field => {
+    field.addEventListener('blur', () => {
+      persistProfile();
+      updateAccountHeader();
+    });
+  });
+
+  // ---------- bottom nav ----------
+  // The topbar icon + wordmark are the actual brand mark, so they're
+  // reserved for the Matchups home page only — every other section swaps
+  // in that section's own nav icon (same ones already used in the bottom
+  // nav, so it stays visually consistent) and its name instead, the way
+  // most apps only show the full brand lockup on the home tab.
+  const topbarIconWrap = document.querySelector('.logo-badge');
+  const topbarWordmark = document.querySelector('.wordmark span');
+  const BRAND_ICON_SVG = topbarIconWrap.innerHTML;
+  const BRAND_WORDMARK_HTML = topbarWordmark.innerHTML;
+  const SECTION_HEADERS = {
+    Movies: {
+      icon: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+      wordmark: '<b>Movies Hub</b><small class="brand-small">SCENES &amp; BREAKDOWNS</small>'
+    },
+    News: {
+      icon: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h13a3 3 0 013 3v13H7a3 3 0 01-3-3V4z"/><path d="M4 4v13a3 3 0 003 3"/><path d="M9 8h7M9 12h7M9 16h4"/></svg>',
+      wordmark: '<b>News</b><small class="brand-small">LATEST DROPS</small>'
+    },
+    Team: {
+      icon: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z"/></svg>',
+      wordmark: '<b>Team Builder</b><small class="brand-small">BUILD YOUR ROSTER</small>'
+    },
+    Account: {
+      icon: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+      wordmark: '<b>Account</b><small class="brand-small">YOUR PROFILE</small>'
+    }
+  };
+  function applyTopbarForSection(section){
+    const cfg = SECTION_HEADERS[section];
+    topbarIconWrap.innerHTML = cfg ? cfg.icon : BRAND_ICON_SVG;
+    topbarWordmark.innerHTML = cfg ? cfg.wordmark : BRAND_WORDMARK_HTML;
+  }
+  const navItems = document.querySelectorAll('.nav-item');
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      navItems.forEach(n => n.classList.remove('active'));
+      item.classList.add('active');
+      const section = item.dataset.nav;
+      applyTopbarForSection(section);
+      const matchupSections = document.querySelectorAll('.quick-actions, .hero, .section-head, .trend-scroll');
+      const isMovies = section === 'Movies';
+      const isNews = section === 'News';
+      const isTeam = section === 'Team';
+      const isAccount = section === 'Account';
+      matchupSections.forEach(element => element.style.display = (isMovies || isNews || isTeam || isAccount) ? 'none' : '');
+      moviesSection.classList.toggle('hidden', !isMovies);
+      newsSection.classList.toggle('hidden', !isNews);
+      teamSection.classList.toggle('hidden', !isTeam);
+      accountSection.classList.toggle('hidden', !isAccount);
+      document.querySelector('.phone-scroll').scrollTo({ top: 0, behavior: 'instant' });
+      if (section !== 'Matchups' && !isMovies && !isNews && !isTeam && !isAccount) showToast(`${section} — coming soon`);
+    });
+  });
+
+  // ---------- sign-in modal ----------
+  const signinOverlay = document.getElementById('signinOverlay');
+  const signinCancel = document.getElementById('signinCancel');
+  const signinSubmit = document.getElementById('signinSubmit');
+  const signinEmail = document.getElementById('signinEmail');
+  const signinPassword = document.getElementById('signinPassword');
+
+  // ---------- first-visit intro ----------
+  // Shown once, ever, per browser — never blocks browsing (someone landing
+  // on a shared matchup link from TikTok/Reddit/Discord should see the
+  // matchup immediately, not a wall). Closing it any way (X, "Continue
+  // browsing", or actually signing in) all count as having seen it.
+  const INTRO_SEEN_KEY = 'fictionClashIntroSeen';
+  const introOverlay = document.getElementById('introOverlay');
+  const introCloseBtn = document.getElementById('introCloseBtn');
+  const introContinueBtn = document.getElementById('introContinueBtn');
+  const introGoogleSignIn = document.getElementById('introGoogleSignIn');
+  const introEmail = document.getElementById('introEmail');
+  const introPassword = document.getElementById('introPassword');
+  const introEmailSubmit = document.getElementById('introEmailSubmit');
+  function dismissIntro(){
+    introOverlay.classList.remove('show');
+    if (nonEssentialStorageAllowed()) localStorage.setItem(INTRO_SEEN_KEY, '1');
+  }
+  if (!localStorage.getItem(INTRO_SEEN_KEY)) {
+    introOverlay.classList.add('show');
+  }
+  introContinueBtn.addEventListener('click', dismissIntro);
+  introCloseBtn.addEventListener('click', dismissIntro);
+  introGoogleSignIn.addEventListener('click', () => {
+    googleSignIn(introGoogleSignIn, () => {
+      dismissIntro();
+      showToast('Signed in with Google');
+    });
+  });
+  introEmailSubmit.addEventListener('click', () => {
+    const email = introEmail.value.trim();
+    const password = introPassword.value;
+    if (!email || !email.includes('@')) {
+      introEmail.style.borderColor = '#c0392b';
+      return;
+    }
+    if (!password || password.length < 6) {
+      introPassword.style.borderColor = '#c0392b';
+      showToast('Password must be at least 6 characters');
+      return;
+    }
+    withSpinner(introEmailSubmit, 'CONTINUE', () => {
+      emailSignInOrSignUp(email, password)
+        .then(() => {
+          dismissIntro();
+          showToast('Signed in — welcome!');
+          introEmail.value = '';
+          introPassword.value = '';
+          introEmail.style.borderColor = '';
+          introPassword.style.borderColor = '';
+        })
+        .catch((error) => showToast(authErrorMessage(error)));
+    }, 700);
+  });
+
+  // ---------- topbar account menu ----------
+  const accountMenuWrap = document.getElementById('accountMenuWrap');
+  const accountDropdown = document.getElementById('accountDropdown');
+  const dropdownAccountBtn = document.getElementById('dropdownAccountBtn');
+  const dropdownSignOutBtn = document.getElementById('dropdownSignOutBtn');
+
+  function closeAccountDropdown(){ accountDropdown.hidden = true; }
+  function toggleAccountDropdown(){ accountDropdown.hidden = !accountDropdown.hidden; }
+
+  signinBtn.addEventListener('click', (e) => {
+    if (auth.currentUser) {
+      e.stopPropagation();
+      toggleAccountDropdown();
+    } else {
+      signinOverlay.classList.add('show');
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!accountDropdown.hidden && !accountMenuWrap.contains(e.target)) closeAccountDropdown();
+  });
+  dropdownAccountBtn.addEventListener('click', () => {
+    closeAccountDropdown();
+    const accountNavItem = document.querySelector('.nav-item[data-nav="Account"]');
+    if (accountNavItem) accountNavItem.click();
+  });
+  dropdownSignOutBtn.addEventListener('click', () => {
+    closeAccountDropdown();
+    signOut(auth).then(() => showToast('Signed out'));
+  });
+
+  // ---------- notifications ----------
+  // Lightweight, locally-persisted feed of "new matchup" / "new clip"
+  // events. Firestore's onSnapshot replays every existing document as an
+  // 'added' change the first time it connects, so each listener below
+  // only starts actually creating notifications once its own first sync
+  // has finished — otherwise opening the app for the first time would
+  // dump a notification for every matchup and clip that already existed.
+  const NOTIFS_KEY = 'fictionClashNotifications';
+  const NOTIFS_SEEN_KEY = 'fictionClashNotificationsSeenAt';
+  let notifications = JSON.parse(localStorage.getItem(NOTIFS_KEY) || '[]');
+  const notifBtn = document.getElementById('notifBtn');
+  const notifMenuWrap = document.getElementById('notifMenuWrap');
+  const notifDropdown = document.getElementById('notifDropdown');
+  const notifBadge = document.getElementById('notifBadge');
+  const notifList = document.getElementById('notifList');
+
+  function saveNotifications(){
+    notifications = notifications.slice(0, 30); // cap so localStorage doesn't grow forever
+    if (nonEssentialStorageAllowed()) localStorage.setItem(NOTIFS_KEY, JSON.stringify(notifications));
+  }
+
+  function notifTimeAgo(ts){
+    const seconds = Math.floor((Date.now() - ts) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  }
+
+  // Same stroke-based icon used in the bottom nav for each section, so a
+  // notification visually matches where tapping it will take you.
+  const NOTIF_TYPE_ICON = {
+    matchup: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L20 4"/><path d="M2 18L6 22"/><path d="M20 20L4 4"/><path d="M18 22L22 18"/></svg>',
+    clip: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
+  };
+
+  function renderNotifications(){
+    const lastSeen = Number(localStorage.getItem(NOTIFS_SEEN_KEY) || 0);
+    const unreadCount = notifications.filter(n => n.at > lastSeen).length;
+    notifBadge.hidden = unreadCount === 0;
+    notifBadge.textContent = unreadCount > 9 ? '9+' : String(unreadCount);
+    if (!notifications.length) {
+      notifList.innerHTML = '<div class="notif-empty">You\'re all caught up</div>';
+      return;
+    }
+    notifList.innerHTML = notifications.map(n => `
+      <button type="button" class="notif-item ${n.at <= lastSeen ? 'read' : ''}" data-notif-type="${n.type}" data-notif-target="${escapeHtml(n.target || '')}">
+        <span class="notif-item-icon">${NOTIF_TYPE_ICON[n.type] || ''}<span class="notif-item-dot"></span></span>
+        <span class="notif-item-body"><b>${escapeHtml(n.title)}</b><span>${escapeHtml(n.body)}</span><br><span class="notif-item-time">${notifTimeAgo(n.at)}</span></span>
+      </button>`).join('');
+  }
+
+  // ---------- real device push, via OneSignal ----------
+  // Goes through /api/send-push (a Vercel serverless function) instead of
+  // calling OneSignal's REST API directly — that keeps the REST API key
+  // server-side only, never exposed in this page's source.
+  //
+  // Only ever called from the code that actually CREATES a matchup/clip
+  // (the poster's own browser, once), not from the onSnapshot listener
+  // that watches for new ones — that listener fires in every connected
+  // visitor's browser, so calling a real push send from inside it would
+  // mean N people with the app open = N duplicate pushes blasted to
+  // every subscriber. pushNotification() below (the in-app bell/dropdown
+  // list) is fine to run per-viewer since that only updates their own
+  // local list — it's the real device push that has to stay singular.
+  function sendOneSignalPush(title, body){
+    fetch('/api/send-push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body })
+    })
+      .then(async res => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          console.error('Push send rejected:', res.status, data);
+          alert('Push send failed (' + res.status + '): ' + JSON.stringify(data));
+          return;
+        }
+        console.log('Push send result:', data);
+        if (data.skipped) {
+          alert('Push skipped: ' + data.reason);
+        } else {
+          alert('Push response:\n' + JSON.stringify(data.raw || data, null, 2));
+        }
+      })
+      .catch(err => {
+        console.error('Push send failed', err);
+        alert('Push send network error: ' + err.message);
+      });
+  }
+
+  function pushNotification(type, title, body, target){
+    notifications.unshift({ type, title, body, target: target || '', at: Date.now() });
+    saveNotifications();
+    renderNotifications();
+  }
+
+  const enablePushBtn = document.getElementById('enablePushBtn');
+  const pushStatusText = document.getElementById('pushStatusText');
+  // Reflects an already-opted-in state in the UI. Called right after a
+  // successful opt-in, and also at load time below — otherwise a reload
+  // shows "ENABLE NOTIFICATIONS" again for someone who already turned it on.
+  function showPushOptedInUI(){
+    pushStatusText.textContent = "You're set — you'll get notified on this device.";
+    enablePushBtn.textContent = 'NOTIFICATIONS ON';
+    enablePushBtn.disabled = true;
+  }
+  enablePushBtn.addEventListener('click', async () => {
+    if (typeof OneSignal === 'undefined') {
+      showToast('Notifications are still loading — try again in a moment');
+      return;
+    }
+    try {
+      await OneSignal.User.PushSubscription.optIn();
+      if (OneSignal.User.PushSubscription.optedIn) {
+        showPushOptedInUI();
+      } else {
+        showToast('Notifications permission was not granted');
+      }
+    } catch (err) {
+      console.error('Push opt-in failed', err);
+      showToast('Could not enable notifications — check browser permissions');
+    }
+  });
+  // Load-time sync: this is a module script, so it can't reach into the
+  // classic <script> that calls OneSignal.init() up in <head> to ask it
+  // directly. Instead it pushes its own callback onto the same
+  // OneSignalDeferred queue — that queue is exactly what lets any number of
+  // scripts register work to run once the SDK's ready, in whatever order
+  // they happen to load in.
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  window.OneSignalDeferred.push(function(OneSignal) {
+    if (OneSignal.User.PushSubscription.optedIn) showPushOptedInUI();
+    // Covers permission being granted/revoked from the browser's own site
+    // settings UI, outside of a click on our button.
+    OneSignal.User.PushSubscription.addEventListener('change', event => {
+      if (event.current.optedIn) showPushOptedInUI();
+    });
+  });
+
+  function closeNotifDropdown(){ notifDropdown.hidden = true; }
+  function toggleNotifDropdown(){
+    notifDropdown.hidden = !notifDropdown.hidden;
+    if (!notifDropdown.hidden) {
+      // Give them a beat to see which ones were unread before the dots clear.
+      setTimeout(() => {
+        if (nonEssentialStorageAllowed()) localStorage.setItem(NOTIFS_SEEN_KEY, String(Date.now()));
+        renderNotifications();
+      }, 1200);
+    }
+  }
+  notifBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleNotifDropdown();
+  });
+  document.addEventListener('click', (e) => {
+    if (!notifDropdown.hidden && !notifMenuWrap.contains(e.target)) closeNotifDropdown();
+  });
+  notifList.addEventListener('click', (e) => {
+    const item = e.target.closest('.notif-item');
+    if (!item) return;
+    closeNotifDropdown();
+    if (item.dataset.notifType === 'clip') {
+      document.querySelector('.nav-item[data-nav="Movies"]')?.click();
+      setTimeout(() => {
+        clipFeed.querySelector(`.clip-card[data-clip-id="${item.dataset.notifTarget}"]`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    } else if (item.dataset.notifType === 'matchup') {
+      document.querySelector('.nav-item[data-nav="Matchups"]')?.click();
+      // Jump straight to the matchup this notification is about, not just
+      // whichever card happened to already be active.
+      const targetIdx = matchups.findIndex(m => m.docId === item.dataset.notifTarget);
+      if (targetIdx !== -1) {
+        activeIdx = targetIdx;
+        renderHero();
+        renderTrendScroll();
+      }
+    }
+  });
+  renderNotifications();
+
+  signinCancel.addEventListener('click', () => signinOverlay.classList.remove('show'));
+  signinOverlay.addEventListener('click', (e) => {
+    if (e.target === signinOverlay) signinOverlay.classList.remove('show');
+  });
+  const modalGoogleSignIn = document.getElementById('modalGoogleSignIn');
+  modalGoogleSignIn.addEventListener('click', () => {
+    googleSignIn(modalGoogleSignIn, () => {
+      signinOverlay.classList.remove('show');
+      showToast('Signed in with Google');
+    });
+  });
+  signinSubmit.addEventListener('click', () => {
+    const email = signinEmail.value.trim();
+    const password = signinPassword.value;
+    if (!email || !email.includes('@')) {
+      signinEmail.style.borderColor = '#c0392b';
+      return;
+    }
+    if (!password || password.length < 6) {
+      signinPassword.style.borderColor = '#c0392b';
+      showToast('Password must be at least 6 characters');
+      return;
+    }
+    withSpinner(signinSubmit, 'CONTINUE', () => {
+      emailSignInOrSignUp(email, password)
+        .then(() => {
+          signinOverlay.classList.remove('show');
+          showToast('Signed in — welcome!');
+          signinEmail.value = '';
+          signinPassword.value = '';
+          signinEmail.style.borderColor = '';
+          signinPassword.style.borderColor = '';
+        })
+        .catch((error) => showToast(authErrorMessage(error)));
+    }, 700);
+  });
+
+  renderHero();
