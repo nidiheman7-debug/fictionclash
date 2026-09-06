@@ -2819,6 +2819,14 @@ Contact: fictionclash.app@gmail.com</div>
   const auth = getAuth(app);
   const db = getFirestore(app);
 
+  // Payment endpoints (create-payment, verify-payment, and the Paystack
+  // webhook) moved off Vercel to Render — firebase-admin's dependency
+  // tree was too heavy for Vercel's serverless function size limit.
+  // Everything else (vote, comment, like, etc.) stays on Vercel and
+  // uses relative paths as before; only these two calls need the full
+  // Render URL.
+  const PAYMENT_API_BASE = 'https://fictionclash-backend.onrender.com';
+
   // Exposed for the rest of the page's module script to use
   window.firebaseApp = app;
   window.firebaseAnalytics = analytics;
@@ -6861,7 +6869,7 @@ Contact: fictionclash.app@gmail.com</div>
     if (!user) { requireSignIn('Sign in to renew your verified badge'); return; }
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/create-payment', {
+      const res = await fetch(`${PAYMENT_API_BASE}/api/create-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
         body: JSON.stringify({ itemType: 'badge', returnUrl: location.href.split('?')[0] }),
@@ -7776,7 +7784,7 @@ Contact: fictionclash.app@gmail.com</div>
     if (!user) return;
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/verify-payment', {
+      const res = await fetch(`${PAYMENT_API_BASE}/api/verify-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
         body: JSON.stringify({ reference }),
@@ -7806,7 +7814,7 @@ Contact: fictionclash.app@gmail.com</div>
     if (!user) { requireSignIn('Sign in to buy this decoration'); return; }
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/create-payment', {
+      const res = await fetch(`${PAYMENT_API_BASE}/api/create-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
         body: JSON.stringify({ itemType: 'decoration', itemId: item.id, returnUrl: location.href.split('?')[0] }),
