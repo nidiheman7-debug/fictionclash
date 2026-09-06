@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
+<title>Fiction Clash — Character Matchups</title>
+<meta name="description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
+<link rel="canonical" href="https://fictionclash.vercel.app/">
+
+<!-- Google Search Console ownership verification.
+     Get your own <meta> tag from search.google.com/search-console →
+     Add property → URL prefix → "HTML tag" method, then paste it here
+     in place of this comment. -->
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1c1d23">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fiction Clash">
+<link rel="icon" type="image/png" href="/icons/favicon-32.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+
+<!-- Open Graph / social sharing -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Fiction Clash — Character Matchups">
+<meta property="og:description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
+<meta property="og:image" content="https://fictionclash.vercel.app/icons/og-image.png">
+<meta property="og:url" content="https://fictionclash.vercel.app/">
+<meta property="og:site_name" content="Fiction Clash">
+
+<!-- Twitter card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Fiction Clash — Character Matchups">
+<meta name="twitter:description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
+<meta name="twitter:image" content="https://fictionclash.vercel.app/icons/og-image.png">
+
+<!-- Structured data — tells Google what kind of site this is -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Fiction Clash",
+  "url": "https://fictionclash.vercel.app/",
+  "description": "Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins."
+}
+</script>
+
+<link rel="stylesheet" href="styles.css">
+<!-- OneSignal Web Push SDK. Loaded with `defer` so it never blocks the
+     page from rendering. -->
+<script defer src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js"></script>
+<script src="js/onesignal-init.js"></script>
+</head>
+<body>
+<script>
+  // Apply the saved (or system) theme synchronously, before anything below
+  // paints. Without this, the page always renders once with the hardcoded
+  // defaults baked into the stylesheet — dark background, gold accent —
+  // and only switches to the real saved theme once the main script runs
+  // further down, which is what caused that brief "gold flash" on load.
+  (function(){
+    try {
+      var accentThemes = {
+        gold:{ember:'#E4A929',emberDim:'#6B4A0E',navy:'#141008'},
+        blue:{ember:'#1E4FE0',emberDim:'#0F1D6B',navy:'#0A1454'},
+        green:{ember:'#2E9E5B',emberDim:'#155C32',navy:'#0A1F12'},
+        red:{ember:'#D6432E',emberDim:'#7A241A',navy:'#1A0A08'},
+        cyan:{ember:'#22D3D8',emberDim:'#0E5C60',navy:'#04191b'},
+        purple:{ember:'#9B4FE0',emberDim:'#4B1F73',navy:'#160A24'},
+        crimson:{ember:'#FF1414',emberDim:'#5C0000',navy:'#180000'},
+        mono:{
+          dark:{ember:'#E5E5E5',emberDim:'#4A4A4A',navy:'#141414'},
+          light:{ember:'#2A2A2A',emberDim:'#8A8A8A',navy:'#1c1c1c'}
+        }
+      };
+      var savedLight = localStorage.getItem('fictionClashLight');
+      // No saved choice yet — default to the device's own light/dark
+      // setting instead of always forcing dark.
+      var isLight = savedLight === null
+        ? window.matchMedia('(prefers-color-scheme: light)').matches
+        : savedLight === '1';
+      if (isLight) document.body.classList.add('light');
+      var name = localStorage.getItem('fictionClashTheme') || 'mono';
+      var entry = accentThemes[name] || accentThemes.mono;
+      var theme = name === 'mono' ? (isLight ? entry.light : entry.dark) : entry;
+      var root = document.documentElement.style;
+      root.setProperty('--ember', theme.ember);
+      root.setProperty('--ember-dim', theme.emberDim);
+      root.setProperty('--navy', theme.navy);
+    } catch(e) {}
+  })();
+</script>
+
+<div id="appLoadingScreen" aria-hidden="true">
+  <span id="appLoadingText">Fiction Clash</span>
+</div>
+
+<div class="phone">
+  <div class="phone-scroll">
+
+  <div class="topbar">
+    <div class="wordmark">
+      <div class="logo-badge">
+        <svg viewBox="0 0 24 24" class="logo-hilt" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 1.2c-.7 0-1.3.4-1.6 1C6.7 2.7 4 5.4 4 9c0 .9.2 1.7.5 2.5l-2.3 5.1c-.3.7.2 1.4 1 1.4h1.9c.4 1.7 2 3 3.9 3 .8 0 1.5-.6 1.5-1.4v-3.1c0-.8.7-1.5 1.5-1.5s1.5.7 1.5 1.5v3.1c0 .8.7 1.4 1.5 1.4 1.9 0 3.5-1.3 3.9-3h1.9c.8 0 1.3-.7 1-1.4L19.5 11.5c.3-.8.5-1.6.5-2.5 0-3.6-2.7-6.3-6.4-6.8-.3-.6-.9-1-1.6-1z"/>
+        </svg>
+      </div>
+      <span>Fiction<br><b>Clash</b><small class="brand-small">CHARACTER MATCHUPS</small></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button class="theme-toggle" id="installBtn" aria-label="Install app" title="Install app" hidden>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+      </button>
+      <div class="account-menu-wrap" id="notifMenuWrap">
+        <button class="signin-btn" id="notifBtn" aria-label="Notifications" title="Notifications" style="position:relative;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-badge" id="notifBadge" hidden>0</span>
+        </button>
+        <div class="account-dropdown notif-dropdown" id="notifDropdown" hidden>
+          <div class="notif-dropdown-title">Notifications</div>
+          <div class="notif-list" id="notifList">
+            <div class="notif-empty">You're all caught up</div>
+          </div>
+        </div>
+      </div>
+      <div class="account-menu-wrap" id="accountMenuWrap">
+        <button class="signin-btn" id="signinBtn" aria-label="Sign in" title="Sign in">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </button>
+        <div class="account-dropdown" id="accountDropdown" hidden>
+          <button class="account-dropdown-item" id="dropdownAccountBtn" type="button">Account</button>
+          <button class="account-dropdown-item danger" id="dropdownSignOutBtn" type="button">Sign out</button>
+        </div>
+      </div>
+      <button class="theme-toggle" id="themeToggle" aria-label="Switch to light theme" title="Toggle theme">
+        <svg class="sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="phone-main">
+  <div class="quick-actions">
+    <div class="qa" id="qaVote">
+      <div class="qa-icon outline">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L20 4"/><path d="M2 18L6 22"/><path d="M20 20L4 4"/><path d="M18 22L22 18"/></svg>
+      </div>
+       <div class="qa-label">Vote<br>Now</div>
+    </div>
+    <div class="qa" id="qaCompare">
+      <div class="qa-icon outline">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      </div>
+       <div class="qa-label">Compare<br>Characters</div>
+    </div>
+    <div class="qa" id="qaLeaderboard">
+      <div class="qa-icon outline">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M7 5H4a3 3 0 003 3M17 5h3a3 3 0 01-3 3"/></svg>
+      </div>
+       <div class="qa-label">Clash<br>Leaderboard</div>
+    </div>
+  </div>
+
+  <div class="hero" id="heroCard">
+    <div class="hero-vs">
+       <div class="live-tag"><span class="live-dot"></span>LIVE MATCHUP</div>
+      <button class="hero-decorate-btn" id="heroDecorateBtn" type="button" aria-label="Choose a decoration for each character" title="Choose a decoration for each character">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/></svg>
+      </button>
+      <button class="hero-delete-btn" id="heroDeleteBtn" type="button" aria-label="Hide this matchup from my feed" title="Hide this matchup from my feed">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.6 18.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+      </button>
+      <div class="side">
+         <div class="char-avatar-wrap">
+           <div class="avatar hi" id="heroAvatarA">GJ</div>
+           <button class="avatar-edit-btn" id="heroAvatarEditA" type="button" aria-label="Upload a picture for this character" title="Upload a picture for this character">
+             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+           </button>
+           <button class="avatar-report-btn" id="heroAvatarReportA" type="button" aria-label="Report this picture" title="Report this picture" hidden>
+             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+           </button>
+         </div>
+         <div class="char-name" id="heroNameA">Gojo Satoru</div>
+         <div class="char-sub" id="heroSubA">Jujutsu Kaisen</div>
+      </div>
+      <div class="side">
+         <div class="char-avatar-wrap">
+           <div class="avatar lo" id="heroAvatarB">SR</div>
+           <button class="avatar-edit-btn" id="heroAvatarEditB" type="button" aria-label="Upload a picture for this character" title="Upload a picture for this character">
+             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+           </button>
+           <button class="avatar-report-btn" id="heroAvatarReportB" type="button" aria-label="Report this picture" title="Report this picture" hidden>
+             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+           </button>
+         </div>
+         <div class="char-name" id="heroNameB">Saitama</div>
+         <div class="char-sub" id="heroSubB">One Punch Man</div>
+      </div>
+      <div class="vs-badge">VS</div>
+    </div>
+    <input type="file" id="charAvatarFile" accept="image/png,image/jpeg,image/webp" hidden>
+    <div class="hero-body">
+       <div class="hero-title">Who actually wins this fight?</div>
+       <div class="hero-sub"><span id="heroVoteCount">12,403</span> votes so far. Cast yours and see the AI breakdown of how it really plays out.</div>
+      <div class="vote-row" id="voteRow">
+         <div class="vote-btn hi" id="voteBtnA" data-side="a">Gojo</div>
+         <div class="vote-btn lo" id="voteBtnB" data-side="b">Saitama</div>
+      </div>
+      <div class="vote-split"><div class="hi-bar" id="voteBar"></div></div>
+       <div class="vote-pct"><span id="votePctA">57% Gojo</span><span id="votePctB">43% Saitama</span></div>
+       <div class="ai-stats-panel">
+         <div class="ai-stats-head">
+           <span class="ai-stats-label">AI STATS PROVIDER</span>
+           <button class="ai-stats-button" id="aiStatsButton" type="button">CHECK STATS</button>
+         </div>
+         <div class="ai-stats-result" id="aiStatsResult">Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.</div>
+       </div>
+       <div class="social-row">
+         <button class="social-btn like-btn" id="heroLikeBtn" type="button" aria-label="Like this matchup">
+           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+           <span id="heroLikeCount">0</span>
+         </button>
+         <button class="social-btn share-btn" id="heroShareBtn" type="button" aria-label="Share this matchup">
+           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+           <span>Share</span>
+         </button>
+       </div>
+       <div class="comments-title">Conversation</div>
+       <div class="hero-comments-list" id="heroCommentsList"></div>
+       <form class="comment-form" id="heroCommentForm">
+         <input class="clip-field" type="text" id="heroCommentInput" placeholder="Add your comment..." aria-label="Add your comment">
+         <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
+       </form>
+    </div>
+  </div>
+
+  <!-- Shown in the hero's place until the first matchup streams in from
+       Firestore (there's no hardcoded seed data anymore). renderHero()
+       toggles between this and #heroCard. -->
+  <div class="hero skeleton-hero" id="heroSkeleton" hidden>
+    <div class="hero-vs hero-vs-loading">
+      <div class="live-tag"><span class="live-dot"></span>LOADING MATCHUP</div>
+      <div class="spinner-ring spinner-ring-lg"></div>
+    </div>
+  </div>
+
+  <div class="section-head">
+     <div class="section-title">Trending Clashes</div>
+     <div style="display:flex;gap:14px;align-items:center;">
+       <div class="section-link" id="submitMatchupLink">＋ Submit</div>
+       <div class="section-link" id="seeAllLink">See all</div>
+     </div>
+  </div>
+  <div class="trend-scroll" id="trendScroll"></div>
+  <div class="feed-loading-more" id="trendLoadingMore"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--accent);"></span>Loading more clashes…</div>
+
+  <section class="movies-section hidden" id="moviesSection" aria-label="Movie clips">
+    <div class="movies-header-row">
+      <div>
+        <div class="movies-kicker">SCENE REVIEW CLUB</div>
+        <h1 class="movies-title">Movie moments.<br>Real reactions.</h1>
+      </div>
+      <button class="post-clip-btn" id="openClipUploader" type="button">＋ Post</button>
+    </div>
+    <p class="movies-intro">Share your take and join the conversation around the moments that stay with you.</p>
+
+    <div id="clipFeed">
+    </div>
+    <div class="feed-loading-more" id="clipFeedLoadingMore"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--accent);"></span>Loading more clips…</div>
+  </section>
+
+  <section class="news-section hidden" id="newsSection" aria-label="News">
+    <div class="news-header">
+      <div>
+        <div class="movies-kicker">THE DAILY CLASH</div>
+        <h1 class="news-title">What's<br>moving now.</h1>
+      </div>
+      <div class="news-date" id="newsDate">WED<br>AUG 19</div>
+    </div>
+
+    <nav class="news-tabs" id="newsTabs">
+      <div class="news-tab selected" data-news-category="Music"><span class="news-icon">♫</span>Music</div>
+      <div class="news-tab" data-news-category="Latest Movies"><span class="news-icon">▣</span>Latest Movies</div>
+      <div class="news-tab" data-news-category="Football"><span class="news-icon">◉</span>Football</div>
+      <div class="news-tab" data-news-category="Discovery"><span class="news-icon">✦</span>Discovery</div>
+    </nav>
+
+    <div class="news-feed-block">
+      <div class="news-feed-title"><span id="newsFeedHeading">Music</span><span>CURATED FOR YOU</span></div>
+      <div id="newsFeed">
+        <article class="news-story">
+          <div style="flex:1;min-width:0;">
+            <div class="story-tag">MUSIC · NEW RELEASE</div>
+            <h4>The albums bringing a little more colour to this week's playlist</h4>
+          </div>
+          <div class="story-time">2H</div>
+        </article>
+        <article class="news-story">
+          <div style="flex:1;min-width:0;">
+            <div class="story-tag">MUSIC · CULTURE</div>
+            <h4>Why intimate live sessions are having a moment again</h4>
+          </div>
+          <div class="story-time">5H</div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="team-section hidden" id="teamSection" aria-label="Team builder">
+    <div class="movies-kicker">CHARACTER CLASH LAB</div>
+    <h1 class="movies-title">Build your<br>ultimate matchup.</h1>
+    <p class="team-intro">Pick characters for both sides, then see how your custom teams stack up.</p>
+    <div class="team-builder" id="teamBuilder">
+      <div class="team-builder-label">CUSTOM MATCHUP</div>
+      <h2>Choose your fighters</h2>
+      <div class="team-slots">
+        <div class="team-slot">
+          <h3>Team Alpha</h3>
+          <ul id="teamAlphaList"></ul>
+        </div>
+        <div class="team-vs">VS</div>
+        <div class="team-slot">
+          <h3>Team Omega</h3>
+          <ul id="teamOmegaList"></ul>
+        </div>
+      </div>
+      <div class="character-pool-title"><span>Select a character</span><span id="teamPickHint">Pick a side first</span></div>
+      <form class="character-search" id="characterSearch">
+        <input id="characterSearchInput" type="search" placeholder="Search any character..." aria-label="Search for a character">
+        <button type="submit">SEARCH</button>
+      </form>
+      <div class="character-search-note" id="characterSearchNote">Search the presets or type any character name to add your own.</div>
+      <div class="character-pool" id="characterPool">
+        <button class="character-chip" data-character="Goku">Goku</button>
+        <button class="character-chip" data-character="Naruto">Naruto</button>
+        <button class="character-chip" data-character="Monkey D. Luffy">Luffy</button>
+        <button class="character-chip" data-character="Ichigo Kurosaki">Ichigo</button>
+        <button class="character-chip" data-character="Eren Yeager">Eren</button>
+        <button class="character-chip" data-character="Saitama">Saitama</button>
+        <button class="character-chip" data-character="Gojo Satoru">Gojo</button>
+        <button class="character-chip" data-character="Spider-Man">Spider-Man</button>
+        <button class="character-chip" data-character="Iron Man">Iron Man</button>
+        <button class="character-chip" data-character="Thor">Thor</button>
+        <button class="character-chip" data-character="Batman">Batman</button>
+        <button class="character-chip" data-character="Superman">Superman</button>
+        <button class="character-chip" data-character="Wonder Woman">Wonder Woman</button>
+        <button class="character-chip" data-character="Kratos">Kratos</button>
+        <button class="character-chip" data-character="Master Chief">Master Chief</button>
+        <button class="character-chip" data-character="John Wick">John Wick</button>
+      </div>
+      <div class="team-actions">
+        <button class="assemble-btn" id="assembleTeams">ASSEMBLE MATCHUP</button>
+        <button class="clear-btn" id="clearTeams">CLEAR</button>
+      </div>
+      <div class="team-result" id="teamResult" hidden></div>
+      <button class="assemble-btn share-card-btn" id="shareTeamCard" type="button" hidden style="margin-top:10px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+        <span>SHARE BATTLE CARD</span>
+      </button>
+      <div class="ai-feats">
+        <div class="team-builder-label">AI POWER SCOUT</div>
+        <h3>Check character feats</h3>
+        <p>Ask AI to compare abilities, speed, durability, experience, or a specific feat across your two teams.</p>
+        <form class="ai-feats-form" id="aiFeatsForm">
+          <input id="aiFeatsQuestion" type="text" placeholder="e.g. Who has the better speed feats?" aria-label="Ask AI about character feats">
+          <button type="submit">ANALYSE</button>
+        </form>
+        <p class="ai-feats-credits" id="aiFeatsCredits">3 of 3 AI checks left for this team build</p>
+        <div class="ai-feats-result" id="aiFeatsResult" hidden></div>
+        <button class="assemble-btn share-card-btn" id="shareAiFeatsCard" type="button" hidden style="margin-top:10px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+          <span>SHARE AI VERDICT CARD</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section class="account-section hidden" id="accountSection" aria-label="Account">
+    <div class="movies-kicker">YOUR CLASH PROFILE</div>
+    <h1 class="movies-title">Make it<br>your own.</h1>
+    <div class="account-hero">
+      <div class="account-banner" id="accountBanner">
+        <button class="cover-edit-btn" id="coverEditBtn" type="button" aria-label="Change cover photo">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </button>
+        <input type="file" id="coverFile" accept="image/png,image/jpeg,image/webp" hidden>
+      </div>
+      <div class="account-hero-body">
+        <div class="account-avatar-wrap">
+          <div class="account-avatar" id="accountAvatar">YU</div>
+          <button class="avatar-edit-btn" id="avatarEditBtn" type="button" aria-label="Change profile picture">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </button>
+          <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" hidden>
+        </div>
+        <div class="account-hero-actions">
+          <button class="theme-store-launcher" id="avatarStoreLauncher" type="button" aria-label="Open Avatar Store" title="Avatar Store"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></button>
+          <button class="theme-store-launcher" id="themeStoreLauncher" type="button" aria-label="Open theme store" title="Open theme store"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5h16l-1.2 11H5.2L4 8.5z"/><path d="M6.5 8.5V7a5.5 5.5 0 0 1 11 0v1.5"/><path d="M9 12.5h.01M15 12.5h.01"/><path d="M19.5 4.5v3M18 6h3"/></svg></button>
+          <button class="theme-store-launcher" id="settingsLauncher" type="button" aria-label="Open settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.4" cy="13.6" r="5.3"/><path d="M10.4 5.4v2.1M10.4 19.7v2.1M3.9 8.15l1.82 1.05M15.08 17.5l1.82 1.05M3.9 19.05l1.82-1.05M15.08 9.7l1.82-1.05M2.7 13.6h2.1M16 13.6h2.1"/><path d="M15.7 6.9a1 1 0 0 0 0 1.42l1.6 1.6a1 1 0 0 0 1.42 0l2.6-2.6a4.2 4.2 0 0 1-5.62 5.62l-6.1 6.1" stroke-width="1.7"/></svg></button>
+        </div>
+        <div class="account-hero-info"><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 3 days" style="display:none;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="accountDisplayBio" class="account-bio" style="display:none;"></p><p class="account-member-since" id="accountMemberSince" style="display:none;"></p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
+      </div>
+    </div>
+  </section>
+  </div>
+
+  <!-- Settings — everything that used to be a stack of cards on the
+       Account page (sign-in, notifications, personalize, content/privacy,
+       admin tools) now lives one tap away behind the gear icon, so the
+       Account page itself can just be the profile (see accountSection
+       above). Reuses the same full-page modal-sheet-full pattern as the
+       comments screen. -->
+  <div class="modal-overlay" id="settingsOverlay">
+    <div class="modal-sheet modal-sheet-full">
+      <div class="modal-sheet-full-header">
+        <button type="button" class="modal-sheet-full-back" id="settingsClose" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div>
+          <div class="modal-title">Settings</div>
+          <div class="modal-sub">Account, notifications, and content.</div>
+        </div>
+      </div>
+      <div class="settings-scroll" id="settingsScroll">
+        <div class="settings-group">
+          <div class="settings-group-title">Account</div>
+          <div class="account-card" id="signInCard">
+            <div id="signedOutView">
+              <div class="verified-promo">
+                <span class="verified-badge" style="display:inline-flex;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span>
+                <span>Sign in and stay active to earn a <b>verified badge</b> for 3 days.</span>
+              </div>
+              <h3>Sign in or create account</h3>
+              <p>Save votes, follow your favourite characters, and keep your profile across devices.</p>
+              <button class="google-signin" id="googleSignIn" type="button">
+                <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+                  <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+                  <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+                  <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.68 9c0-.593.102-1.17.284-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
+                  <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58z"/>
+                </svg>
+                <span class="btn-label">CONTINUE WITH GOOGLE</span>
+              </button>
+              <div class="account-divider">OR USE EMAIL</div>
+              <input class="account-input" id="accountEmail" type="email" placeholder="Email address" aria-label="Email address">
+              <input class="account-input" id="accountPassword" type="password" placeholder="Password (min. 6 characters)" aria-label="Password">
+              <button class="email-signin" id="emailSignIn" type="button">CONTINUE WITH EMAIL</button>
+            </div>
+            <div id="signedInView" hidden>
+              <h3>You're signed in</h3>
+              <p id="signedInEmail"></p>
+              <button class="remove-avatar-btn" id="signOutBtn" type="button">Sign out</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">Notifications</div>
+          <div class="account-card">
+            <h3>Push notifications</h3>
+            <p id="pushStatusText">Get notified on your device when a new matchup or clip goes up — even when the app's closed.</p>
+            <button class="save-profile" id="enablePushBtn" type="button">ENABLE NOTIFICATIONS</button>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">Personalize your account</div>
+          <div class="account-card">
+            <p>Choose how your name appears when you vote, review scenes, and comment.</p>
+            <input class="account-input" id="profileName" type="text" placeholder="Display name" aria-label="Display name">
+            <input class="account-input" id="profileHandle" type="text" placeholder="@username" aria-label="Username">
+            <textarea class="account-input" id="profileBio" placeholder="A little about you..." aria-label="Profile bio"></textarea>
+            <button class="save-profile" id="saveProfile" type="button">SAVE PROFILE</button>
+            <button class="remove-avatar-btn" id="removeAvatarBtn" type="button" hidden>Remove profile picture</button>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">Appearance</div>
+          <div class="account-card theme-store-teaser" id="themeStoreTeaserCard">
+            <h3>Theme Store</h3>
+            <p>Pick an accent colour for buttons, highlights, and the news feed.</p>
+            <button class="save-profile" id="themeStoreTeaserBtn" type="button">Browse Themes</button>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">Content &amp; uploads</div>
+          <div class="account-card">
+            <p>Character pictures are user-uploaded. See how we handle rights requests and reports.</p>
+            <button class="remove-avatar-btn" id="openContentPolicyBtn" type="button">Read Content Policy</button>
+          </div>
+          <div class="account-card">
+            <h3>Privacy &amp; Cookies</h3>
+            <p>What we store on your device, why, and how to change your choice.</p>
+            <button class="remove-avatar-btn" id="openCookiePolicyBtn" type="button">Cookie Policy &amp; Preferences</button>
+          </div>
+        </div>
+        <div class="settings-group hidden" id="settingsAdminGroup">
+          <div class="settings-group-title">Season &amp; moderation</div>
+          <div class="account-card hidden" id="adminReportsCard">
+            <h3>Flagged pictures</h3>
+            <p>Reported uploads awaiting review.</p>
+            <div id="adminReportsList"></div>
+          </div>
+          <div class="account-card hidden" id="adminModerationCard">
+            <h3>Pending matchups</h3>
+            <p>Fan-submitted matchups awaiting review.</p>
+            <div id="pendingMatchupsList"></div>
+            <h3 style="margin-top:18px;">Pending clips</h3>
+            <p>Fan-submitted clips awaiting review.</p>
+            <div id="pendingClipsList"></div>
+          </div>
+          <div class="account-card hidden" id="adminSeasonCard">
+            <h3>Season control</h3>
+            <p>Toggle a season reskin live for everyone. Reads/writes appConfig/activeSeason directly.</p>
+            <div id="seasonAdminList"></div>
+          </div>
+          <div class="account-card hidden" id="adminMatchupCategoryCard">
+            <h3>Matchup categories</h3>
+            <p>Tag which matchups belong to which season. Untagged matchups are hidden while any season is live.</p>
+            <div id="matchupCategoryList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Avatar Store — decorations + name fonts, reachable from its own
+       shop icon on the Account page (see #avatarStoreLauncher) instead of
+       sitting inline as a card, now that the Account page is just the
+       profile. -->
+  <div class="modal-overlay" id="avatarStoreOverlay">
+    <div class="modal-sheet modal-sheet-full">
+      <div class="modal-sheet-full-header">
+        <button type="button" class="modal-sheet-full-back" id="avatarStoreClose" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div>
+          <div class="modal-title">Avatar Store</div>
+          <div class="modal-sub">Decorations and name fonts, redeemed with points.</div>
+        </div>
+      </div>
+      <div class="settings-scroll">
+        <div class="account-card profile-customization-card" id="profileCustomizationCard">
+          <div class="profile-store-heading">
+            <div>
+              <p>Share Fiction Clash links to earn points, then redeem anime, comic, and artistic styles.</p>
+            </div>
+            <div class="profile-points-pill"><span id="clashPointsDisplay">0</span> pts</div>
+          </div>
+          <button class="profile-share-btn" id="profileShareBtn" type="button">
+            <span aria-hidden="true">↗</span> SHARE FICTION CLASH · +5 PTS
+          </button>
+          <div class="profile-share-meta">
+            <span id="profileShareCount">0 shares</span>
+            <span>5 points per app link</span>
+          </div>
+          <div class="profile-store-tabs" role="tablist" aria-label="Profile store">
+            <button class="profile-store-tab active" type="button" data-store-tab="decorations" role="tab">Avatar decorations</button>
+            <button class="profile-store-tab" type="button" data-store-tab="fonts" role="tab">Name fonts</button>
+          </div>
+          <div id="decorationSeasonSection"></div>
+          <div class="profile-store-grid" id="decorationStoreGrid"></div>
+          <div class="profile-store-grid" id="fontStoreGrid" hidden></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cookie-banner" id="cookieBanner" hidden>
+    <p>We use local storage to remember your votes, sign-in, and a few optional preferences like theme. No third-party ads or tracking. <a href="#" id="cookieBannerPolicyLink">Read the Cookie Policy</a>.</p>
+    <div class="cookie-banner-actions">
+      <button class="cookie-banner-btn secondary" id="cookieRejectBtn" type="button">Reject non-essential</button>
+      <button class="cookie-banner-btn primary" id="cookieAcceptBtn" type="button">Accept all</button>
+    </div>
+  </div>
+  </div>
+
+  <!-- #bottomNav MUST live here — as a direct sibling of .phone-scroll,
+       outside it — and not inside .phone-scroll (where it used to sit).
+       position:absolute only fixes an element's coordinates against its
+       nearest *positioned* ancestor (.phone here); it does NOT exempt the
+       element from being carried along by an ancestor's own scrolling the
+       way position:fixed does. .phone-scroll is the thing with
+       overflow-y:auto, so as long as the nav was still a descendant of it,
+       scrolling any tab's content (e.g. a few clips down in Movies Hub)
+       dragged the "pinned" nav right along with it, leaving it floating
+       mid-screen instead of glued to the bottom — exactly the glitch this
+       comment is here to prevent regressing. Keeping it here, past
+       .phone-scroll's closing tag, means .phone-scroll's scroll offset
+       never touches it again. -->
+  <div class="bottomnav" id="bottomNav">
+    <div class="nav-item active" data-nav="Matchups">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L20 4"/><path d="M2 18L6 22"/><path d="M20 20L4 4"/><path d="M18 22L22 18"/></svg>
+      Matchups
+    </div>
+    <div class="nav-item" data-nav="Movies">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      Movies Hub
+    </div>
+    <div class="nav-item" data-nav="News">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h13a3 3 0 013 3v13H7a3 3 0 01-3-3V4z"/><path d="M4 4v13a3 3 0 003 3"/><path d="M9 8h7M9 12h7M9 16h4"/></svg>
+      News
+    </div>
+    <div class="nav-item" data-nav="Team">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z"/></svg>
+      Team
+    </div>
+    <div class="nav-item" data-nav="Account">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Account
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="reels-overlay" id="reelsOverlay">
+    <button class="reels-close" id="reelsCloseBtn" type="button" aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="reels-media" id="reelsMedia"></div>
+    <div class="reels-swipe-catcher" id="reelsSwipeCatcher"></div>
+    <div class="reels-actions">
+      <button class="reels-action-btn" id="reelsLikeBtn" type="button" aria-label="Like this clip">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+        <span id="reelsLikeCount">0</span>
+      </button>
+      <button class="reels-action-btn" id="reelsCommentBtn" type="button" aria-label="View comments">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        <span>Comments</span>
+      </button>
+      <button class="reels-action-btn" id="reelsShareBtn" type="button" aria-label="Share this clip">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+        <span>Share</span>
+      </button>
+    </div>
+    <div class="reels-caption">
+      <div class="reels-caption-title" id="reelsTitle"></div>
+      <div class="reels-caption-sub" id="reelsMeta"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay intro-fullbleed" id="introOverlay">
+    <button class="intro-close-btn" id="introCloseBtn" type="button" aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div class="intro-sheet">
+      <div class="intro-headline">Vote &amp; Earn a<br>Verified Badge</div>
+      <div class="intro-sub">Vote on character matchups from anime, movies, comics, and games. Vote and comment to earn 1,000 points and unlock a verified badge for 3 days.</div>
+      <button class="google-signin" id="introGoogleSignIn" type="button">
+        <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+          <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.68 9c0-.593.102-1.17.284-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
+          <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58z"/>
+        </svg>
+        <span class="btn-label">LOGIN WITH GOOGLE</span>
+      </button>
+      <div class="account-divider">OR USE EMAIL</div>
+      <input class="modal-input" type="email" placeholder="Email address" id="introEmail">
+      <input class="modal-input" type="password" placeholder="Password (min. 6 characters)" id="introPassword">
+      <button class="modal-submit" id="introEmailSubmit">Continue</button>
+      <button class="intro-skip-btn" id="introContinueBtn" type="button">Continue browsing</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="signinOverlay">
+    <div class="modal-sheet">
+      <div class="modal-title">Sign in to Clash</div>
+      <div class="modal-sub">Save your votes and build your streak.</div>
+      <button class="google-signin" id="modalGoogleSignIn" type="button">
+        <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+          <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.68 9c0-.593.102-1.17.284-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
+          <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58z"/>
+        </svg>
+        <span class="btn-label">CONTINUE WITH GOOGLE</span>
+      </button>
+      <div class="account-divider">OR USE EMAIL</div>
+      <input class="modal-input" type="email" placeholder="Email address" id="signinEmail">
+      <input class="modal-input" type="password" placeholder="Password (min. 6 characters)" id="signinPassword">
+      <button class="modal-submit" id="signinSubmit">Continue</button>
+      <button class="modal-close" id="signinCancel">Not now</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="verifiedInfoOverlay">
+    <div class="modal-sheet">
+      <div class="modal-title">Verified Badge</div>
+      <div class="modal-sub">Earn points by voting (+5) and commenting (+10) on matchups. Hit 1,000 points and you'll unlock a verified badge for 3 days. Keep earning to re-unlock it every 1,000 points.</div>
+      <button class="modal-submit" id="verifiedRenewBuy" type="button" style="background:linear-gradient(135deg,#e4a929,#ffcf4d);color:#0A0806;">Skip the grind — $3.61/week</button>
+      <button class="modal-close" id="verifiedInfoClose">Got it</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="compareOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Compare Characters</div>
+      <div class="modal-sub">Search any two characters — from any movie, anime, or show — to see how they stack up.</div>
+      <div class="compare-pickers">
+        <input class="modal-input compare-select submit-input" id="compareCharA" type="text" list="characterSuggestions" placeholder="Character A" aria-label="First character" maxlength="40">
+        <div class="compare-vs">VS</div>
+        <input class="modal-input compare-select submit-input" id="compareCharB" type="text" list="characterSuggestions" placeholder="Character B" aria-label="Second character" maxlength="40">
+      </div>
+      <button class="modal-submit" id="compareSubmit" type="button">Compare</button>
+      <div class="compare-result" id="compareResult" hidden></div>
+      <button class="modal-close" id="compareClose">Close</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="leaderboardOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Clash Leaderboard</div>
+      <div class="modal-sub">Top players, ranked by XP.</div>
+      <div class="your-rank-card hidden" id="yourRankCard">
+        <div class="your-rank-num" id="yourRankNum">—</div>
+        <div class="your-rank-info">
+          <div class="your-rank-name" id="yourRankName"></div>
+          <div class="your-rank-xp" id="yourRankXp"></div>
+          <div class="your-rank-gap" id="yourRankGap"></div>
+        </div>
+      </div>
+      <div class="leaderboard-tabs">
+        <button class="leaderboard-tab active" id="leaderboardTabWeekly" type="button">WEEKLY</button>
+        <button class="leaderboard-tab" id="leaderboardTabAllTime" type="button">ALL TIME</button>
+        <button class="leaderboard-tab hidden" id="leaderboardTabSeason" type="button">SEASON</button>
+      </div>
+      <div class="leaderboard-list" id="leaderboardList"></div>
+      <button class="modal-close" id="leaderboardClose">Close</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="clipUploaderOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Share a movie scene</div>
+      <div class="modal-sub">Paste a YouTube link to the scene — no file upload needed.</div>
+      <input class="clip-field" id="clipYoutubeUrl" type="text" placeholder="YouTube Shorts link e.g. https://youtube.com/shorts/dQw4w9WgXcQ">
+      <div class="file-name" id="clipFileName">Paste a YouTube Shorts link for best results</div>
+      <input class="clip-field" id="clipTitle" type="text" placeholder="Scene title e.g. The final hallway shot">
+      <textarea class="clip-field" id="clipReview" placeholder="Write a short review or tell us what makes this scene work..."></textarea>
+      <button class="clip-submit" id="publishClip">SUBMIT CLIP &amp; REVIEW</button>
+      <button class="modal-close" id="clipUploaderClose">Close</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="submitOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Submit a Matchup</div>
+      <div class="modal-sub">Pick two characters — from any movie, anime, or show. Add a source if it's an uncommon name (e.g. "DC" for Lobo) and a version if it matters (e.g. Ultra Instinct).</div>
+      <div class="compare-pickers">
+        <div class="submit-char-col">
+          <input class="modal-input compare-select submit-input" id="submitCharA" type="text" list="characterSuggestions" placeholder="Character A" maxlength="40">
+          <input class="modal-input submit-version-input" id="submitSourceA" type="text" placeholder="Source (optional) e.g. Marvel" maxlength="30">
+          <input class="modal-input submit-version-input" id="submitVersionA" type="text" placeholder="Version (optional)" maxlength="30">
+          <label class="submit-avatar-picker" for="submitAvatarFileA">
+            <span class="submit-avatar-preview" id="submitAvatarPreviewA">＋ Photo</span>
+            <input id="submitAvatarFileA" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+          </label>
+        </div>
+        <div class="compare-vs">VS</div>
+        <div class="submit-char-col">
+          <input class="modal-input compare-select submit-input" id="submitCharB" type="text" list="characterSuggestions" placeholder="Character B" maxlength="40">
+          <input class="modal-input submit-version-input" id="submitSourceB" type="text" placeholder="Source (optional) e.g. DC" maxlength="30">
+          <input class="modal-input submit-version-input" id="submitVersionB" type="text" placeholder="Version (optional)" maxlength="30">
+          <label class="submit-avatar-picker" for="submitAvatarFileB">
+            <span class="submit-avatar-preview" id="submitAvatarPreviewB">＋ Photo</span>
+            <input id="submitAvatarFileB" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+          </label>
+        </div>
+      </div>
+      <datalist id="characterSuggestions"></datalist>
+      <button class="modal-submit" id="submitMatchupBtn" type="button">Submit Matchup</button>
+      <p class="submit-note">Submissions are reviewed before they go live — you'll see it on the board once it's approved.</p>
+      <button class="modal-close" id="submitClose">Close</button>
+    </div>
+  </div>
+
+  <!-- Shared "see all comments" sheet — reused by the hero matchup card and
+       every clip card. Only the last 2 comments show inline on each post;
+       tapping "See all" opens this with the full thread. -->
+  <div class="modal-overlay" id="commentsModalOverlay">
+    <div class="modal-sheet modal-sheet-full">
+      <div class="modal-sheet-full-header">
+        <button type="button" class="modal-sheet-full-back" id="commentsModalClose" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div>
+          <div class="modal-title">Conversation</div>
+          <div class="modal-sub" id="commentsModalSub">All comments on this post.</div>
+        </div>
+      </div>
+      <div class="comments-modal-tabs">
+        <button class="comments-modal-tab active" id="commentsTabComments" type="button">Comments</button>
+        <button class="comments-modal-tab" id="commentsTabReplies" type="button">Replies</button>
+      </div>
+      <div id="commentsModalList"></div>
+      <form class="comment-form" id="commentsModalForm">
+        <input class="clip-field" type="text" id="commentsModalInput" placeholder="Add your comment..." aria-label="Add your comment">
+        <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Discord-style profile card — opened by tapping a comment or
+       leaderboard avatar. See openUserProfileCard(uid, fallback). -->
+  <div class="modal-overlay" id="userProfileOverlay">
+    <div class="modal-sheet">
+      <div class="user-profile-card">
+        <div class="user-profile-avatar" id="userProfileAvatar"></div>
+        <div class="user-profile-name">
+          <span id="userProfileNameText">User</span>
+          <span class="verified-badge" id="userProfileVerified" title="Verified" style="display:none;"></span>
+        </div>
+        <div class="user-profile-handle" id="userProfileHandle"></div>
+        <div class="user-profile-loading" id="userProfileLoading">Loading profile…</div>
+        <div class="user-profile-bio" id="userProfileBio" hidden>
+          <span class="user-profile-bio-label">About</span>
+          <span id="userProfileBioText"></span>
+        </div>
+      </div>
+      <button class="modal-close" id="userProfileClose">Close</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="avatarConsentOverlay">
+    <div class="modal-sheet">
+      <div class="modal-title">Before you upload</div>
+      <div class="modal-sub">Fiction Clash doesn't provide official character art — pictures come from users like you.</div>
+      <div class="consent-check-row">
+        <input type="checkbox" id="avatarConsentCheck">
+        <label for="avatarConsentCheck">I confirm this image is my own original artwork, used with the creator's permission, or shared for personal/non-commercial fan use — and I take full responsibility for it. I understand Fiction Clash will remove it on a valid rights request. <a href="#" id="openPolicyFromConsent">Read the full Content Policy</a>.</label>
+      </div>
+      <button class="modal-submit" id="avatarConsentSubmit" type="button">Agree &amp; Choose Picture</button>
+      <button class="modal-close" id="avatarConsentCancel">Cancel</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="reportAvatarOverlay">
+    <div class="modal-sheet">
+      <div class="modal-title">Report this picture</div>
+      <div class="modal-sub" id="reportAvatarSub">Why are you reporting this image?</div>
+      <div class="report-reason-row" id="reportReasonRow">
+        <button class="report-reason-btn" data-reason="copyright" type="button">Copyright / rights issue</button>
+        <button class="report-reason-btn" data-reason="inappropriate" type="button">Inappropriate content</button>
+        <button class="report-reason-btn" data-reason="wrong" type="button">Wrong character</button>
+        <button class="report-reason-btn" data-reason="other" type="button">Other</button>
+      </div>
+      <button class="modal-submit" id="reportAvatarSubmit" type="button">Submit Report</button>
+      <button class="modal-close" id="reportAvatarClose">Cancel</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="contentPolicyOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Content Policy</div>
+      <div class="policy-text">Fiction Clash is a fan-made matchup app. We don't license or provide official character artwork.
+
+All character pictures are uploaded by users, for personal and non-commercial fan use. By uploading, a user confirms the image is their own work, used with permission, or shared for fair fan use — and takes responsibility for it.
+
+Anyone can report an image using the flag icon next to it. Reported images are automatically hidden after a few reports pending review.
+
+If you hold rights to an image on Fiction Clash and want it removed, contact us and we'll take it down within 48 hours.
+
+Contact: fictionclash.app@gmail.com</div>
+      <button class="modal-close" id="contentPolicyClose">Close</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="cookiePolicyOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Cookie Policy</div>
+      <div class="policy-text">Fiction Clash doesn't run any third-party advertising or analytics trackers — nothing here is sold or shared with ad networks. But it does use your browser's local storage, plus Firebase's own sign-in session storage, to remember things between visits, and the rules around cookies cover those too. Here's what we store and why.
+
+Essential (always on — needed to deliver something you explicitly asked for):
+• Your sign-in session
+• Votes you've cast, matchups/clips you've hidden, and pictures you've uploaded
+• Your saved profile, Avatar Store redemptions, and equipped decorations/fonts
+• This cookie choice itself
+
+Optional (only saved if you Accept all):
+• Your chosen accent theme
+• Whether you've seen the intro screen
+• Your notification history and read-state
+
+Reject non-essential and the app still works fully — those few preferences just won't be remembered on your next visit.
+
+Contact: fictionclash.app@gmail.com</div>
+      <p class="cookie-policy-status" id="cookiePolicyStatus"></p>
+      <div class="cookie-policy-actions">
+        <button class="cookie-banner-btn secondary" id="cookiePolicyReject" type="button">Reject non-essential</button>
+        <button class="cookie-banner-btn primary" id="cookiePolicyAccept" type="button">Accept all</button>
+      </div>
+      <button class="modal-close" id="cookiePolicyClose">Close</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="themeStoreOverlay">
+    <div class="modal-sheet modal-sheet-tall theme-store-modal" role="dialog" aria-modal="true" aria-labelledby="themeStoreTitle">
+      <div class="theme-store-modal-head">
+        <div class="modal-title" id="themeStoreTitle">Theme Store</div>
+        <button class="theme-store-close" id="themeStoreClose" type="button" aria-label="Close theme store">×</button>
+      </div>
+      <div id="themeStoreModalBody">
+        <p class="profile-store-copy">Pick an accent colour for buttons, highlights, and the news feed.</p>
+        <div class="theme-swatch-row" id="themeSwatchRow">
+          <button class="theme-swatch" data-theme="gold" style="--sw:#E4A929" aria-label="Gold theme" title="Gold"></button>
+          <button class="theme-swatch" data-theme="blue" style="--sw:#1E4FE0" aria-label="Blue theme" title="Blue"></button>
+          <button class="theme-swatch" data-theme="green" style="--sw:#2E9E5B" aria-label="Green theme" title="Green"></button>
+          <button class="theme-swatch" data-theme="red" style="--sw:#D6432E" aria-label="Red theme" title="Red"></button>
+          <button class="theme-swatch" data-theme="cyan" style="--sw:#22D3D8" aria-label="Cyan theme" title="Cyan"></button>
+          <button class="theme-swatch" data-theme="fireice" style="--sw:linear-gradient(135deg,#E4A929 0%,#E4A929 38%,#22D3D8 62%,#22D3D8 100%)" aria-label="Fire and Ice theme" title="Fire &amp; Ice"></button>
+          <button class="theme-swatch" data-theme="purple" style="--sw:#9B4FE0" aria-label="Purple theme" title="Purple"></button>
+          <button class="theme-swatch" data-theme="crimson" style="--sw:#FF1414" aria-label="Aggressive red theme" title="Aggressive Red"></button>
+          <button class="theme-swatch" data-theme="mono" style="--sw:#E5E5E5" aria-label="Black and white theme" title="Black &amp; White"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="heroDecorateOverlay">
+    <div class="modal-sheet modal-sheet-tall theme-store-modal" role="dialog" aria-modal="true" aria-labelledby="heroDecorateTitle">
+      <div class="theme-store-modal-head">
+        <div class="modal-title" id="heroDecorateTitle">Character Decorations</div>
+        <button class="theme-store-close" id="heroDecorateClose" type="button" aria-label="Close">×</button>
+      </div>
+      <p class="profile-store-copy">Pick a decoration per character for this matchup. Only you'll see it — it's your own view, nobody else's.</p>
+      <div class="hero-decorate-section">
+        <h4 class="hero-decorate-charname" id="heroDecorateNameA">Character A</h4>
+        <div class="hero-decorate-grid" id="heroDecorateGridA"></div>
+      </div>
+      <div class="hero-decorate-section">
+        <h4 class="hero-decorate-charname" id="heroDecorateNameB">Character B</h4>
+        <div class="hero-decorate-grid" id="heroDecorateGridB"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/firebase-init.js"></script>
+
+<script type="module" src="js/app.js"></script>
+
+<script src="js/viewport-height.js"></script>
+
+<script src="js/docked-composer.js"></script>
+
+<script src="js/sw-register.js"></script>
+
+<!-- On-device debug console — visit the site with ?debug=1 added to the
+     URL (e.g. fictionclash.vercel.app/?debug=1) to see a floating button
+     that opens a full console/network/errors panel, right on the phone,
+     no laptop or USB debugging needed. Does nothing for regular visitors
+     since it only loads when that query param is present. Safe to leave
+     in permanently — remove this block later if you never need it again. -->
+<script src="js/debug-console.js"></script>
+
+</body>
+</html>
