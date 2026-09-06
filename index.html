@@ -928,7 +928,7 @@
      overflow:hidden;
    }
    .account-banner{
-     height:92px;position:relative;
+     height:150px;position:relative;
      background-image:linear-gradient(var(--surface-veil),var(--surface-veil)), url('/icons/intro-collage.webp');
      background-size:cover; background-position:center; background-repeat:no-repeat;
    }
@@ -937,13 +937,20 @@
      background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.3);color:#fff;
      display:flex;align-items:center;justify-content:center;cursor:pointer;
    }
+   /* Discord-style stacked hero: row 1 is the avatar (overlapping the
+      banner) with the action icons pushed to the far right of that same
+      row; row 2 is the full-width name/handle/bio block underneath,
+      because this card is now the *entire* Account page (everything else
+      moved into Settings/the Avatar Store), so it needs to read as a
+      proper profile rather than a compact header strip. */
    .account-hero-body{
-     display:flex;align-items:center;gap:12px;padding:0 15px 15px;
+     display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;padding:0 16px 20px;
    }
-   .account-hero-body .account-avatar-wrap{ margin-top:-34px; }
-   .account-hero-info,.account-hero-body > div:not(.account-avatar-wrap){order:2;flex:1;min-width:0;}
+   .account-hero-body .account-avatar-wrap{ order:1;margin-top:-40px; }
+   .account-hero-actions{ order:2;flex-shrink:0;display:flex;gap:7px;margin-left:auto; }
+   .account-hero-info{ order:3;flex:1 1 100%;width:100%;margin-top:14px; }
    .theme-store-launcher{
-     order:3;flex-shrink:0;width:42px;height:42px;margin-left:auto;border:1px solid var(--accent);border-radius:13px;
+     flex-shrink:0;width:42px;height:42px;border:1px solid var(--accent);border-radius:13px;
      background:rgba(228,169,41,.12);color:var(--accent);display:flex;align-items:center;
      justify-content:center;cursor:pointer;transition:transform .15s ease,background .15s ease;
     }
@@ -951,8 +958,8 @@
    .theme-store-launcher:active{transform:scale(.94);}
    .theme-store-launcher svg{width:22px;height:22px;stroke:currentColor;}
    .account-avatar{
-      position:relative;width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-     background:var(--accent-bg);color:#0A0806;font:24px 'Instrument Sans',sans-serif;overflow:hidden;
+      position:relative;width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+     background:var(--accent-bg);color:#0A0806;font:28px 'Instrument Sans',sans-serif;overflow:hidden;
      border:3px solid var(--surface);box-shadow:0 0 0 1px var(--line);
    }
    .account-avatar.has-decoration{overflow:visible;}
@@ -1255,9 +1262,11 @@
      width:100%;background:transparent;border:0;color:var(--muted);
      font:700 10.5px 'Instrument Sans',sans-serif;padding:9px 0 2px;cursor:pointer;text-decoration:underline;
    }
-   .account-hero h2{font-family:'Rajdhani',sans-serif; font-weight:700;font-size:17px;margin-bottom:3px;}
-   .account-hero p{color:var(--muted);font-size:11px;}
-   .account-bio{color:var(--text);font-size:11.5px;line-height:1.4;margin-top:4px;opacity:.9;}
+   .account-hero h2{font-family:'Rajdhani',sans-serif; font-weight:700;font-size:21px;margin-bottom:4px;}
+   .account-hero p{color:var(--muted);font-size:12px;}
+   .account-bio{color:var(--text);font-size:13px;line-height:1.5;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);opacity:.9;}
+   .account-member-since{color:var(--muted);font-size:10.5px;margin-top:10px;display:flex;align-items:center;gap:5px;}
+   .account-member-since svg{width:12px;height:12px;flex-shrink:0;}
    .account-card{
      border:1px solid var(--line);border-radius:16px;
      padding:14px;margin-bottom:13px;
@@ -1702,6 +1711,20 @@
       border:none; background:transparent; color:var(--text);
       border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;
     }
+    /* Settings and the Avatar Store reuse .modal-sheet-full but scroll a
+       plain stack of grouped cards instead of a comments list. */
+    .settings-scroll{
+      flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
+      padding:16px 16px 28px;
+    }
+    .settings-group{ margin-bottom:22px; }
+    .settings-group.hidden{ display:none; }
+    .settings-group-title{
+      font-family:'Martian Mono',monospace; font-weight:700; font-size:10.5px;
+      letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
+      margin:0 2px 9px;
+    }
+    .settings-group .account-card + .account-card{ margin-top:12px; }
     .modal-sheet-full .comments-modal-tabs{ flex:0 0 auto; padding:12px 16px 0; margin-bottom:0; }
     .modal-sheet-full #commentsModalList{
       flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
@@ -2224,114 +2247,175 @@
           </button>
           <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" hidden>
         </div>
-        <button class="theme-store-launcher" id="themeStoreLauncher" type="button" aria-label="Open theme store" title="Open theme store"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5h16l-1.2 11H5.2L4 8.5z"/><path d="M6.5 8.5V7a5.5 5.5 0 0 1 11 0v1.5"/><path d="M9 12.5h.01M15 12.5h.01"/><path d="M19.5 4.5v3M18 6h3"/></svg></button>
-        <div><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 30 days" style="display:none;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="accountDisplayBio" class="account-bio" style="display:none;"></p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
-      </div>
-    </div>
-    <div class="account-card" id="signInCard">
-      <div id="signedOutView">
-        <div class="verified-promo">
-          <span class="verified-badge" style="display:inline-flex;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span>
-          <span>Sign in and stay active to earn a <b>verified badge</b> for 1 month.</span>
+        <div class="account-hero-actions">
+          <button class="theme-store-launcher" id="avatarStoreLauncher" type="button" aria-label="Open Avatar Store" title="Avatar Store"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></button>
+          <button class="theme-store-launcher" id="themeStoreLauncher" type="button" aria-label="Open theme store" title="Open theme store"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5h16l-1.2 11H5.2L4 8.5z"/><path d="M6.5 8.5V7a5.5 5.5 0 0 1 11 0v1.5"/><path d="M9 12.5h.01M15 12.5h.01"/><path d="M19.5 4.5v3M18 6h3"/></svg></button>
+          <button class="theme-store-launcher" id="settingsLauncher" type="button" aria-label="Open settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></button>
         </div>
-        <h3>Sign in or create account</h3>
-        <p>Save votes, follow your favourite characters, and keep your profile across devices.</p>
-        <button class="google-signin" id="googleSignIn" type="button">
-          <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-            <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
-            <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-            <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.68 9c0-.593.102-1.17.284-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
-            <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58z"/>
-          </svg>
-          <span class="btn-label">CONTINUE WITH GOOGLE</span>
-        </button>
-        <div class="account-divider">OR USE EMAIL</div>
-        <input class="account-input" id="accountEmail" type="email" placeholder="Email address" aria-label="Email address">
-        <input class="account-input" id="accountPassword" type="password" placeholder="Password (min. 6 characters)" aria-label="Password">
-        <button class="email-signin" id="emailSignIn" type="button">CONTINUE WITH EMAIL</button>
+        <div class="account-hero-info"><h2 id="accountDisplayName"><span id="accountDisplayNameText">Your account</span><span id="accountVerifiedBadge" class="verified-badge" title="Verified: active in the last 30 days" style="display:none;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span></h2><p id="accountDisplayHandle">Sign in to save your clashes</p><p id="accountDisplayBio" class="account-bio" style="display:none;"></p><p class="account-member-since" id="accountMemberSince" style="display:none;"></p><p id="verifiedProgressText" class="verified-progress" style="display:none;"></p></div>
       </div>
-      <div id="signedInView" hidden>
-        <h3>You're signed in</h3>
-        <p id="signedInEmail"></p>
-        <button class="remove-avatar-btn" id="signOutBtn" type="button">Sign out</button>
-      </div>
-    </div>
-    <div class="account-card theme-store-teaser" id="themeStoreTeaserCard">
-      <h3>Theme Store</h3>
-      <p>Pick an accent colour for buttons, highlights, and the news feed.</p>
-      <button class="save-profile" id="themeStoreTeaserBtn" type="button">Browse Themes</button>
-    </div>
-    <div class="account-card">
-      <h3>Push notifications</h3>
-      <p id="pushStatusText">Get notified on your device when a new matchup or clip goes up — even when the app's closed.</p>
-      <button class="save-profile" id="enablePushBtn" type="button">ENABLE NOTIFICATIONS</button>
-    </div>
-    <div class="account-card">
-      <h3>Personalize your account</h3>
-      <p>Choose how your name appears when you vote, review scenes, and comment.</p>
-      <input class="account-input" id="profileName" type="text" placeholder="Display name" aria-label="Display name">
-      <input class="account-input" id="profileHandle" type="text" placeholder="@username" aria-label="Username">
-      <textarea class="account-input" id="profileBio" placeholder="A little about you..." aria-label="Profile bio"></textarea>
-      <button class="save-profile" id="saveProfile" type="button">SAVE PROFILE</button>
-      <button class="remove-avatar-btn" id="removeAvatarBtn" type="button" hidden>Remove profile picture</button>
-    </div>
-    <div class="account-card profile-customization-card" id="profileCustomizationCard">
-      <div class="profile-store-heading">
-        <div>
-          <h3>Avatar Store</h3>
-          <p>Share Fiction Clash links to earn points, then redeem anime, comic, and artistic styles.</p>
-        </div>
-        <div class="profile-points-pill"><span id="clashPointsDisplay">0</span> pts</div>
-      </div>
-      <button class="profile-share-btn" id="profileShareBtn" type="button">
-        <span aria-hidden="true">↗</span> SHARE FICTION CLASH · +5 PTS
-      </button>
-      <div class="profile-share-meta">
-        <span id="profileShareCount">0 shares</span>
-        <span>5 points per app link</span>
-      </div>
-      <div class="profile-store-tabs" role="tablist" aria-label="Profile store">
-        <button class="profile-store-tab active" type="button" data-store-tab="decorations" role="tab">Avatar decorations</button>
-        <button class="profile-store-tab" type="button" data-store-tab="fonts" role="tab">Name fonts</button>
-      </div>
-      <div id="decorationSeasonSection"></div>
-      <div class="profile-store-grid" id="decorationStoreGrid"></div>
-      <div class="profile-store-grid" id="fontStoreGrid" hidden></div>
-    </div>
-    <div class="account-card">
-      <h3>Content &amp; uploads</h3>
-      <p>Character pictures are user-uploaded. See how we handle rights requests and reports.</p>
-      <button class="remove-avatar-btn" id="openContentPolicyBtn" type="button">Read Content Policy</button>
-    </div>
-    <div class="account-card">
-      <h3>Privacy &amp; Cookies</h3>
-      <p>What we store on your device, why, and how to change your choice.</p>
-      <button class="remove-avatar-btn" id="openCookiePolicyBtn" type="button">Cookie Policy &amp; Preferences</button>
-    </div>
-    <div class="account-card hidden" id="adminReportsCard">
-      <h3>Flagged pictures</h3>
-      <p>Reported uploads awaiting review.</p>
-      <div id="adminReportsList"></div>
-    </div>
-    <div class="account-card hidden" id="adminModerationCard">
-      <h3>Pending matchups</h3>
-      <p>Fan-submitted matchups awaiting review.</p>
-      <div id="pendingMatchupsList"></div>
-      <h3 style="margin-top:18px;">Pending clips</h3>
-      <p>Fan-submitted clips awaiting review.</p>
-      <div id="pendingClipsList"></div>
-    </div>
-    <div class="account-card hidden" id="adminSeasonCard">
-      <h3>Season control</h3>
-      <p>Toggle a season reskin live for everyone. Reads/writes appConfig/activeSeason directly.</p>
-      <div id="seasonAdminList"></div>
-    </div>
-    <div class="account-card hidden" id="adminMatchupCategoryCard">
-      <h3>Matchup categories</h3>
-      <p>Tag which matchups belong to which season. Untagged matchups are hidden while any season is live.</p>
-      <div id="matchupCategoryList"></div>
     </div>
   </section>
+  </div>
+
+  <!-- Settings — everything that used to be a stack of cards on the
+       Account page (sign-in, notifications, personalize, content/privacy,
+       admin tools) now lives one tap away behind the gear icon, so the
+       Account page itself can just be the profile (see accountSection
+       above). Reuses the same full-page modal-sheet-full pattern as the
+       comments screen. -->
+  <div class="modal-overlay" id="settingsOverlay">
+    <div class="modal-sheet modal-sheet-full">
+      <div class="modal-sheet-full-header">
+        <button type="button" class="modal-sheet-full-back" id="settingsClose" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div>
+          <div class="modal-title">Settings</div>
+          <div class="modal-sub">Account, notifications, and content.</div>
+        </div>
+      </div>
+      <div class="settings-scroll" id="settingsScroll">
+        <div class="settings-group">
+          <div class="settings-group-title">Account</div>
+          <div class="account-card" id="signInCard">
+            <div id="signedOutView">
+              <div class="verified-promo">
+                <span class="verified-badge" style="display:inline-flex;"><svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="#5865F2" d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12z"/><path fill="#fff" d="M10 15.17l-3.88-3.88L5 12.41l5 5 9-9-1.41-1.41z"/></svg></span>
+                <span>Sign in and stay active to earn a <b>verified badge</b> for 1 month.</span>
+              </div>
+              <h3>Sign in or create account</h3>
+              <p>Save votes, follow your favourite characters, and keep your profile across devices.</p>
+              <button class="google-signin" id="googleSignIn" type="button">
+                <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+                  <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+                  <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+                  <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.68 9c0-.593.102-1.17.284-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
+                  <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58z"/>
+                </svg>
+                <span class="btn-label">CONTINUE WITH GOOGLE</span>
+              </button>
+              <div class="account-divider">OR USE EMAIL</div>
+              <input class="account-input" id="accountEmail" type="email" placeholder="Email address" aria-label="Email address">
+              <input class="account-input" id="accountPassword" type="password" placeholder="Password (min. 6 characters)" aria-label="Password">
+              <button class="email-signin" id="emailSignIn" type="button">CONTINUE WITH EMAIL</button>
+            </div>
+            <div id="signedInView" hidden>
+              <h3>You're signed in</h3>
+              <p id="signedInEmail"></p>
+              <button class="remove-avatar-btn" id="signOutBtn" type="button">Sign out</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">Notifications</div>
+          <div class="account-card">
+            <h3>Push notifications</h3>
+            <p id="pushStatusText">Get notified on your device when a new matchup or clip goes up — even when the app's closed.</p>
+            <button class="save-profile" id="enablePushBtn" type="button">ENABLE NOTIFICATIONS</button>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">Personalize your account</div>
+          <div class="account-card">
+            <p>Choose how your name appears when you vote, review scenes, and comment.</p>
+            <input class="account-input" id="profileName" type="text" placeholder="Display name" aria-label="Display name">
+            <input class="account-input" id="profileHandle" type="text" placeholder="@username" aria-label="Username">
+            <textarea class="account-input" id="profileBio" placeholder="A little about you..." aria-label="Profile bio"></textarea>
+            <button class="save-profile" id="saveProfile" type="button">SAVE PROFILE</button>
+            <button class="remove-avatar-btn" id="removeAvatarBtn" type="button" hidden>Remove profile picture</button>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">Appearance</div>
+          <div class="account-card theme-store-teaser" id="themeStoreTeaserCard">
+            <h3>Theme Store</h3>
+            <p>Pick an accent colour for buttons, highlights, and the news feed.</p>
+            <button class="save-profile" id="themeStoreTeaserBtn" type="button">Browse Themes</button>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">Content &amp; uploads</div>
+          <div class="account-card">
+            <p>Character pictures are user-uploaded. See how we handle rights requests and reports.</p>
+            <button class="remove-avatar-btn" id="openContentPolicyBtn" type="button">Read Content Policy</button>
+          </div>
+          <div class="account-card">
+            <h3>Privacy &amp; Cookies</h3>
+            <p>What we store on your device, why, and how to change your choice.</p>
+            <button class="remove-avatar-btn" id="openCookiePolicyBtn" type="button">Cookie Policy &amp; Preferences</button>
+          </div>
+        </div>
+        <div class="settings-group hidden" id="settingsAdminGroup">
+          <div class="settings-group-title">Season &amp; moderation</div>
+          <div class="account-card hidden" id="adminReportsCard">
+            <h3>Flagged pictures</h3>
+            <p>Reported uploads awaiting review.</p>
+            <div id="adminReportsList"></div>
+          </div>
+          <div class="account-card hidden" id="adminModerationCard">
+            <h3>Pending matchups</h3>
+            <p>Fan-submitted matchups awaiting review.</p>
+            <div id="pendingMatchupsList"></div>
+            <h3 style="margin-top:18px;">Pending clips</h3>
+            <p>Fan-submitted clips awaiting review.</p>
+            <div id="pendingClipsList"></div>
+          </div>
+          <div class="account-card hidden" id="adminSeasonCard">
+            <h3>Season control</h3>
+            <p>Toggle a season reskin live for everyone. Reads/writes appConfig/activeSeason directly.</p>
+            <div id="seasonAdminList"></div>
+          </div>
+          <div class="account-card hidden" id="adminMatchupCategoryCard">
+            <h3>Matchup categories</h3>
+            <p>Tag which matchups belong to which season. Untagged matchups are hidden while any season is live.</p>
+            <div id="matchupCategoryList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Avatar Store — decorations + name fonts, reachable from its own
+       shop icon on the Account page (see #avatarStoreLauncher) instead of
+       sitting inline as a card, now that the Account page is just the
+       profile. -->
+  <div class="modal-overlay" id="avatarStoreOverlay">
+    <div class="modal-sheet modal-sheet-full">
+      <div class="modal-sheet-full-header">
+        <button type="button" class="modal-sheet-full-back" id="avatarStoreClose" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div>
+          <div class="modal-title">Avatar Store</div>
+          <div class="modal-sub">Decorations and name fonts, redeemed with points.</div>
+        </div>
+      </div>
+      <div class="settings-scroll">
+        <div class="account-card profile-customization-card" id="profileCustomizationCard">
+          <div class="profile-store-heading">
+            <div>
+              <p>Share Fiction Clash links to earn points, then redeem anime, comic, and artistic styles.</p>
+            </div>
+            <div class="profile-points-pill"><span id="clashPointsDisplay">0</span> pts</div>
+          </div>
+          <button class="profile-share-btn" id="profileShareBtn" type="button">
+            <span aria-hidden="true">↗</span> SHARE FICTION CLASH · +5 PTS
+          </button>
+          <div class="profile-share-meta">
+            <span id="profileShareCount">0 shares</span>
+            <span>5 points per app link</span>
+          </div>
+          <div class="profile-store-tabs" role="tablist" aria-label="Profile store">
+            <button class="profile-store-tab active" type="button" data-store-tab="decorations" role="tab">Avatar decorations</button>
+            <button class="profile-store-tab" type="button" data-store-tab="fonts" role="tab">Name fonts</button>
+          </div>
+          <div id="decorationSeasonSection"></div>
+          <div class="profile-store-grid" id="decorationStoreGrid"></div>
+          <div class="profile-store-grid" id="fontStoreGrid" hidden></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="cookie-banner" id="cookieBanner" hidden>
@@ -3021,6 +3105,7 @@ Contact: fictionclash.app@gmail.com</div>
   const seasonAdminList = document.getElementById('seasonAdminList');
   function updateSeasonCardVisibility(){
     if (adminSeasonCard) adminSeasonCard.classList.toggle('hidden', !isAdmin());
+    document.getElementById('settingsAdminGroup')?.classList.toggle('hidden', !isAdmin());
   }
   function renderSeasonAdminControls(){
     updateSeasonCardVisibility();
@@ -6719,16 +6804,38 @@ Contact: fictionclash.app@gmail.com</div>
   const accountAvatar = document.getElementById('accountAvatar');
   const accountDisplayName = document.getElementById('accountDisplayNameText');
   const accountDisplayHandle = document.getElementById('accountDisplayHandle');
-  const profileCustomizationCard = document.getElementById('profileCustomizationCard');
   const themeStoreOverlay = document.getElementById('themeStoreOverlay');
   const themeStoreLauncher = document.getElementById('themeStoreLauncher');
   const themeStoreClose = document.getElementById('themeStoreClose');
-  document.getElementById('themeStoreModalBody').appendChild(profileCustomizationCard);
   themeStoreLauncher.addEventListener('click', () => themeStoreOverlay.classList.add('show'));
   document.getElementById('themeStoreTeaserBtn')?.addEventListener('click', () => themeStoreOverlay.classList.add('show'));
   themeStoreClose.addEventListener('click', () => themeStoreOverlay.classList.remove('show'));
   themeStoreOverlay.addEventListener('click', event => {
     if (event.target === themeStoreOverlay) themeStoreOverlay.classList.remove('show');
+  });
+
+  // Settings — gear icon on the Account page opens the full-page settings
+  // screen everything else (sign-in, notifications, personalize, content
+  // & privacy, admin tools) now lives in. Same open/close pattern as
+  // every other modal-sheet-full in the app.
+  const settingsOverlay = document.getElementById('settingsOverlay');
+  const settingsLauncher = document.getElementById('settingsLauncher');
+  const settingsClose = document.getElementById('settingsClose');
+  settingsLauncher.addEventListener('click', () => settingsOverlay.classList.add('show'));
+  settingsClose.addEventListener('click', () => settingsOverlay.classList.remove('show'));
+  settingsOverlay.addEventListener('click', event => {
+    if (event.target === settingsOverlay) settingsOverlay.classList.remove('show');
+  });
+
+  // Avatar Store — shop icon on the Account page opens the decorations/
+  // fonts store in its own full-page screen.
+  const avatarStoreOverlay = document.getElementById('avatarStoreOverlay');
+  const avatarStoreLauncher = document.getElementById('avatarStoreLauncher');
+  const avatarStoreClose = document.getElementById('avatarStoreClose');
+  avatarStoreLauncher.addEventListener('click', () => avatarStoreOverlay.classList.add('show'));
+  avatarStoreClose.addEventListener('click', () => avatarStoreOverlay.classList.remove('show'));
+  avatarStoreOverlay.addEventListener('click', event => {
+    if (event.target === avatarStoreOverlay) avatarStoreOverlay.classList.remove('show');
   });
 
   // Tapping the badge or the progress line explains how to earn/keep it.
@@ -7931,6 +8038,19 @@ Contact: fictionclash.app@gmail.com</div>
   // vote/comment response handlers keep currentUserXp and
   // currentUserVerifiedUntil in sync with what the server already wrote.
 
+  // Discord-style "Member Since" line on the profile — Firebase Auth
+  // already tracks account-creation time per user, so this needs no new
+  // backend field, just reading user.metadata.creationTime when signed in.
+  function renderMemberSince(user){
+    const el = document.getElementById('accountMemberSince');
+    if (!el) return;
+    if (!user || !user.metadata || !user.metadata.creationTime) { el.style.display = 'none'; return; }
+    const joined = new Date(user.metadata.creationTime);
+    const joinedLabel = joined.toLocaleDateString(undefined, {month:'long', year:'numeric'});
+    el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span>Member since ${joinedLabel}</span>`;
+    el.style.display = 'flex';
+  }
+
   function updateAccountHeader(){
     const name = profileName.value.trim() || 'Your account';
     const handle = profileHandle.value.trim() || 'Sign in to save your clashes';
@@ -8220,6 +8340,7 @@ Contact: fictionclash.app@gmail.com</div>
          characterDecorations = {};
       }
       lastSignedInUid = user.uid;
+      renderMemberSince(user);
       updateAccountHeader();
       loadCloudProfile(user.uid); // overwrites the above with synced data, if any exists
       renderAllLikeButtons(); // this account's like state may differ from the previous one's
@@ -8229,6 +8350,7 @@ Contact: fictionclash.app@gmail.com</div>
       refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
     } else {
       lastSignedInUid = null;
+      renderMemberSince(null);
       signedOutView.hidden = false;
       signedInView.hidden = true;
       signedInEmail.textContent = '';
