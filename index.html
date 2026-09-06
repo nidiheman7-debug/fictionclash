@@ -6853,16 +6853,26 @@ Contact: fictionclash.app@gmail.com</div>
   document.getElementById('verifiedProgressText').addEventListener('click', openVerifiedInfo);
   verifiedInfoClose.addEventListener('click', () => verifiedInfoOverlay.classList.remove('show'));
   // Paid verified-badge renewal: priced at a real $3.61/week (the current
-  // conversion of the 5,000 NGN/week Nidi quoted). Like premium
-  // decorations, the backend converts that $3.61 to naira at the live rate
-  // at checkout time and charges that — the amount below is a placeholder
-  // until that conversion step exists.
-  document.getElementById('verifiedRenewBuy').addEventListener('click', () => {
-    if (!auth.currentUser) { requireSignIn('Sign in to renew your verified badge'); return; }
-    showToast('Verified badge checkout is coming soon');
-    // TODO: fetch current USD->NGN rate, amount = Math.round(3.61 * rate * 100)
-    // (kobo), PaystackPop.setup({ amount, currency:'NGN', ... }), then
-    // extend verifiedUntil server-side only after payment verification.
+  // conversion of the 5,000 NGN/week Nidi quoted). The backend converts
+  // that $3.61 to naira at the live rate at checkout time and charges
+  // that (see api/create-payment.js).
+  document.getElementById('verifiedRenewBuy').addEventListener('click', async () => {
+    const user = auth.currentUser;
+    if (!user) { requireSignIn('Sign in to renew your verified badge'); return; }
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/create-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ itemType: 'badge', returnUrl: location.href.split('?')[0] }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast('Could not start checkout'); return; }
+      location.href = data.authorization_url;
+    } catch (err) {
+      console.error('Badge renewal purchase failed', err);
+      showToast('Could not start checkout');
+    }
   });
   verifiedInfoOverlay.addEventListener('click', event => {
     if (event.target === verifiedInfoOverlay) verifiedInfoOverlay.classList.remove('show');
@@ -7748,16 +7758,69 @@ Contact: fictionclash.app@gmail.com</div>
   // is added to unlockedDecorations. That verification endpoint is the
   // "backend for the monetization" piece — not built yet, so this just
   // opens the checkout intent for now.
+  // Paystack appends ?reference=xxx&trxref=xxx to whatever returnUrl we
+  // sent it (see create-payment.js). onAuthStateChanged calls this on
+  // every sign-in, so `paymentReturnHandled` stops it from re-verifying
+  // (and re-showing a toast for) the same reference on a later auth event
+  // in the same page load — verify-payment.js is idempotent regardless,
+  // this just avoids a duplicate toast.
+  let paymentReturnHandled = false;
+  async function handlePaymentReturn(){
+    if (paymentReturnHandled) return;
+    const params = new URLSearchParams(location.search);
+    const reference = params.get('reference') || params.get('trxref');
+    if (!reference) return;
+    paymentReturnHandled = true;
+    history.replaceState(null, '', location.pathname);
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/verify-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ reference }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.itemType === 'decoration') {
+          if (!unlockedDecorations.includes(data.itemId)) unlockedDecorations.push(data.itemId);
+          renderCustomizationStore();
+          const item = decorationById(data.itemId);
+          showToast(`${item ? item.name : 'Decoration'} unlocked!`);
+        } else if (data.itemType === 'badge') {
+          verifiedUntilCache[user.uid] = null; // force a fresh read next time it's checked
+          showToast('Verified badge renewed!');
+        }
+      } else {
+        showToast('Payment could not be confirmed — contact support if you were charged');
+      }
+    } catch (err) {
+      console.error('Payment return check failed', err);
+      showToast('Payment could not be confirmed — contact support if you were charged');
+    }
+  }
+
   async function handlePremiumPurchase(item){
     const user = auth.currentUser;
     if (!user) { requireSignIn('Sign in to buy this decoration'); return; }
-    showToast(`${item.name} checkout is coming soon`);
-    // TODO: once /api/create-decoration-payment.js exists, replace the
-    // toast above with a call that sends item.cash.usd to the backend,
-    // which looks up the live USD->NGN rate, computes amount (kobo) from
-    // it, and returns that to PaystackPop.setup({ amount, currency:'NGN' }).
-    // Unlock the item only after /api/verify-decoration-payment.js
-    // confirms the transaction server-side.
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/create-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ itemType: 'decoration', itemId: item.id, returnUrl: location.href.split('?')[0] }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error === 'You already own this decoration' ? 'Already in your collection' : 'Could not start checkout');
+        return;
+      }
+      location.href = data.authorization_url;
+    } catch (err) {
+      console.error('Premium purchase failed', err);
+      showToast('Could not start checkout');
+    }
   }
 
   async function handleCustomizationAction(type, id){
@@ -8399,6 +8462,7 @@ Contact: fictionclash.app@gmail.com</div>
       refreshModerationListeners(); // admin's pending queues, if this is the admin account
       renderSeasonAdminControls(); // season toggle card, if this is the admin account
       refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
+      handlePaymentReturn(); // no-op unless the URL has a Paystack reference (see definition below)
     } else {
       lastSignedInUid = null;
       renderMemberSince(null);
