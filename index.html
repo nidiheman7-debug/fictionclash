@@ -5534,7 +5534,7 @@ Contact: fictionclash.app@gmail.com</div>
   // shared variable, since several forms can exist at once (the hero
   // card's own box, the "see all" sheet, and one per clip card) and each
   // needs to track its own in-progress reply independently.
-  function setReplyTarget(form, target){
+  function setReplyTarget(form, target, focusField = true){
     if (!form) return;
     form._replyTarget = target;
     let bar = form.querySelector('.reply-target-bar');
@@ -5546,7 +5546,14 @@ Contact: fictionclash.app@gmail.com</div>
     }
     bar.innerHTML = `<span class="reply-target-info"><span class="reply-quote-avatar">${commentAvatarHtml(target.name, target.avatarUrl)}</span><span>Replying to <b>${escapeHtml(target.name)}</b>: ${escapeHtml(target.text)}</span></span><button type="button" class="reply-target-clear" aria-label="Cancel reply">&times;</button>`;
     bar.querySelector('.reply-target-clear').addEventListener('click', () => setReplyTarget(form, null));
-    form.querySelector('input')?.focus();
+    // Skippable: when this call is opening the full comments page for the
+    // first time, that page schedules its own focus once its slide-in
+    // transition and content render are actually done (see
+    // openCommentsModal's setTimeout below). Focusing here too, on top of
+    // that, raced the keyboard-docking logic against a page that hadn't
+    // finished laying itself out yet, and the composer landed in the
+    // wrong spot as a result.
+    if (focusField) form.querySelector('input')?.focus();
   }
 
   // Reconciles listEl's children against `items` in place — reusing any
@@ -5676,7 +5683,7 @@ Contact: fictionclash.app@gmail.com</div>
     reconcileKeyedList(listEl, preview, commentKey, data => renderCommentEl(data, (name, text, avatarUrl) => {
       openCommentsModal(thread);
       switchCommentsTab('replies');
-      setReplyTarget(commentsModalForm, { name, text, avatarUrl });
+      setReplyTarget(commentsModalForm, { name, text, avatarUrl }, false);
     }));
     listEl.classList.remove('scrollable'); // capped at 2 — never tall enough to need its own scroll now
     let moreBtn = listEl.nextElementSibling;
