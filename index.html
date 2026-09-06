@@ -1644,6 +1644,20 @@
       background-size: cover; background-position: center; background-repeat: no-repeat;
     }
     .modal-overlay.show .modal-sheet{ transform:translateY(0); }
+    /* A non-"none" transform (even translateY(0), post slide-in) makes
+       .modal-sheet a containing block for any position:fixed descendant —
+       which is exactly what breaks the Facebook-style docked composer
+       (.comment-form.docked below) for comments opened from the full
+       comments screen: instead of pinning to the real viewport edge
+       above the keyboard, the fixed bar was pinning to .modal-sheet's
+       own box, landing in the wrong place and dragging the sheet's
+       layout with it. While a comment field is focused (body gets
+       .keyboard-open, see the docking script), drop the transform to a
+       literal `none` so the containing block is the true viewport again.
+       translateY(0) and none render identically, so this causes no
+       visual jump — it only removes the invisible containing-block that
+       was hijacking the fixed bar. */
+    body.keyboard-open .modal-overlay.show .modal-sheet{ transform:none; }
     .modal-title{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:18px; margin-bottom:6px; }
     .modal-sub{ font-size:12.5px; color:var(--muted); margin-bottom:18px; }
     .modal-input{
