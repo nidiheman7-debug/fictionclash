@@ -876,12 +876,21 @@
    .account-hero{
      background:var(--surface);
      border:1px solid var(--line);border-radius:16px;margin:13px 0 14px;
-     overflow:hidden;
+     overflow:hidden;position:relative;
    }
    .account-banner{
-     height:150px;position:relative;
+     height:150px;position:relative;z-index:1;
      background-image:linear-gradient(var(--surface-veil),var(--surface-veil)), url('/icons/intro-collage.webp');
      background-size:cover; background-position:center; background-repeat:no-repeat;
+   }
+   /* Card effect overlay — spans the whole hero (banner + body), sits above
+      the banner art but below the avatar/name so equipped particle effects
+      (Meteor Fall, Overgrowth, ...) glow over the card without covering
+      the profile info. Empty/no data-fx-type until a card effect is
+      equipped — see updateCardEffectDisplay() in app.js. */
+   .card-fx-canvas{
+     position:absolute;inset:0;width:100%;height:100%;
+     pointer-events:none;z-index:2;mix-blend-mode:screen;
    }
    .cover-edit-btn{
      position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:9px;
@@ -896,6 +905,7 @@
       proper profile rather than a compact header strip. */
    .account-hero-body{
      display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;padding:0 16px 20px;
+     position:relative;z-index:3;
    }
    .account-hero-body .account-avatar-wrap{ order:1;margin-top:-40px; }
    .account-hero-actions{ order:2;flex-shrink:0;display:flex;gap:7px;margin-left:auto; }
@@ -1145,6 +1155,21 @@
      letter-spacing:.4px;background:rgba(228,169,41,.18);padding:2px 6px;border-radius:20px;
    }
    .profile-store-action.premium{background:linear-gradient(135deg,#e4a929,#ffcf4d);color:#0A0806;}
+   .profile-locked-tag{
+     position:absolute;top:8px;right:8px;color:var(--muted);font:800 7.5px 'Instrument Sans',sans-serif;
+     letter-spacing:.4px;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:20px;
+   }
+   .profile-store-item.locked{opacity:.75;}
+   /* Card effect previews are full-card overlays, not avatar rings, so
+      their store-grid preview is a rectangle (matches the real hero's
+      banner shape) instead of the circular avatar-deco preview. */
+   .card-effect-card .profile-store-preview{
+     width:100%;height:56px;border-radius:9px;
+     background:linear-gradient(160deg,#2c2140,#1c1d23);
+   }
+   .card-effect-card .profile-store-preview canvas.card-fx-canvas.mini{
+     position:absolute;inset:0;width:100%;height:100%;pointer-events:none;mix-blend-mode:screen;
+   }
    .account-avatar-wrap{position:relative;flex-shrink:0;}
    .avatar-edit-btn{
      position:absolute;bottom:-2px;right:-2px;width:22px;height:22px;border-radius:50%;

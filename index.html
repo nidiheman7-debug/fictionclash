@@ -387,6 +387,7 @@
         </button>
         <input type="file" id="coverFile" accept="image/png,image/jpeg,image/webp" hidden>
       </div>
+      <canvas class="card-fx-canvas" id="accountCardFxCanvas" aria-hidden="true"></canvas>
       <div class="account-hero-body">
         <div class="account-avatar-wrap">
           <div class="account-avatar" id="accountAvatar">YU</div>
@@ -557,10 +558,12 @@
           <div class="profile-store-tabs" role="tablist" aria-label="Profile store">
             <button class="profile-store-tab active" type="button" data-store-tab="decorations" role="tab">Avatar decorations</button>
             <button class="profile-store-tab" type="button" data-store-tab="fonts" role="tab">Name fonts</button>
+            <button class="profile-store-tab" type="button" data-store-tab="cardEffects" role="tab">Card effects</button>
           </div>
           <div id="decorationSeasonSection"></div>
           <div class="profile-store-grid" id="decorationStoreGrid"></div>
           <div class="profile-store-grid" id="fontStoreGrid" hidden></div>
+          <div class="profile-store-grid" id="cardEffectStoreGrid" hidden></div>
         </div>
       </div>
     </div>
