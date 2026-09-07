@@ -643,7 +643,13 @@
    .comment-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }
    /* Discord-style profile card, opened by tapping a comment (or
       leaderboard) avatar — see #userProfileOverlay + openUserProfileCard(). */
-   .user-profile-card{ display:flex; flex-direction:column; align-items:center; text-align:center; padding:4px 4px 6px; }
+   .user-profile-card{ position:relative; overflow:hidden; border-radius:12px; display:flex; flex-direction:column; align-items:center; text-align:center; padding:4px 4px 6px; }
+   /* Card effect canvas for the tapped-user card (see .card-fx-canvas
+      below for the shared position/blend rules) — its content needs to
+      paint above the plain z-index:2 canvas the same way account-hero-body
+      does, except for Abyssal Depths' .submerged variant, which is
+      *meant* to sit above and tint everything (see .submerged below). */
+   .user-profile-card > *:not(.card-fx-canvas){ position:relative; z-index:3; }
    .user-profile-avatar{
      position:relative; width:72px; height:72px; border-radius:50%; display:flex; align-items:center; justify-content:center;
      background:var(--accent-bg); color:#0A0806; font:26px 'Instrument Sans',sans-serif; overflow:hidden;
@@ -897,7 +903,29 @@
    .card-fx-canvas{
      position:absolute;inset:0;width:100%;height:100%;
      pointer-events:none;z-index:2;mix-blend-mode:screen;
+     transition:backdrop-filter .2s ease;
    }
+   /* Abyssal Depths (underwater): unlike the other card effects, this one
+      is meant to actually tint everything beneath it — banner, avatar,
+      and text — like the whole card is submerged, instead of just
+      glowing behind it. Raised above the avatar/name content (which sits
+      at z-index:3 above) and switched to a normal blend plus a light
+      backdrop blur. Toggled in activateCardFx()/deactivateCardFx(). */
+   .card-fx-canvas.submerged{
+     z-index:4;mix-blend-mode:normal;
+     -webkit-backdrop-filter:blur(1px);backdrop-filter:blur(1px);
+   }
+   /* Thunder Strike: brief shake applied to the card's host element each
+      time the bolt strikes — see makeThunderCardFx() in app.js. */
+   @keyframes thunderShake{
+     0%{transform:translate(0,0);}
+     20%{transform:translate(-2px,1px);}
+     40%{transform:translate(2px,-1px);}
+     60%{transform:translate(-1px,2px);}
+     80%{transform:translate(1px,-2px);}
+     100%{transform:translate(0,0);}
+   }
+   .thunder-shake{animation:thunderShake .22s ease;}
    .cover-edit-btn{
      position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:9px;
      background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.3);color:#fff;
