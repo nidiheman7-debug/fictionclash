@@ -3091,9 +3091,13 @@ import {
   const userProfileLoading = document.getElementById('userProfileLoading');
   const userProfileBio = document.getElementById('userProfileBio');
   const userProfileBioText = document.getElementById('userProfileBioText');
+  const userProfileCardFxCanvas = document.getElementById('userProfileCardFxCanvas');
 
   function closeUserProfileCard(){
     userProfileOverlay.classList.remove('show');
+    // Stop the card-fx loop when the sheet closes, same contract as every
+    // other card-fx-canvas — no point animating an offscreen canvas.
+    if (userProfileCardFxCanvas) deactivateCardFx(userProfileCardFxCanvas.parentElement);
   }
   document.getElementById('userProfileClose').addEventListener('click', closeUserProfileCard);
   userProfileOverlay.addEventListener('click', event => {
@@ -3113,12 +3117,18 @@ import {
     userProfileAvatar.className = 'user-profile-avatar';
     userProfileAvatar.innerHTML = commentAvatarHtml(fallback.name, fallback.avatarUrl);
     userProfileNameText.textContent = fallback.name || 'User';
+    PROFILE_FONTS.forEach(font => userProfileNameText.classList.remove(font.cls));
     userProfileHandle.textContent = '';
     userProfileVerified.style.display = 'none';
     userProfileBio.hidden = true;
     userProfileBioText.textContent = '';
     userProfileLoading.style.display = 'block';
+    if (userProfileCardFxCanvas) {
+      deactivateCardFx(userProfileCardFxCanvas.parentElement);
+      delete userProfileCardFxCanvas.dataset.fxType;
+    }
     attachDecoration(userProfileAvatar, uid);
+    attachFont(userProfileNameText, uid);
     attachVerifiedBadge(userProfileVerified, uid);
     userProfileOverlay.classList.add('show');
     getDoc(doc(db, 'users', uid)).then(snap => {
@@ -3131,6 +3141,22 @@ import {
       // Re-apply the decoration on top of the freshly-set avatar markup
       // above, since setting .innerHTML just now would have wiped it out.
       attachDecoration(userProfileAvatar, uid);
+      // Full card customization: this account's equipped name font and
+      // card effect, straight from the doc we already have in hand —
+      // no need for the separate uid-keyed caches used elsewhere.
+      PROFILE_FONTS.forEach(font => userProfileNameText.classList.remove(font.cls));
+      const nameFont = fontById(data.equippedFont);
+      if (nameFont) userProfileNameText.classList.add(nameFont.cls);
+      if (userProfileCardFxCanvas) {
+        deactivateCardFx(userProfileCardFxCanvas.parentElement);
+        const effect = cardEffectById(data.equippedCardEffect);
+        if (effect) {
+          userProfileCardFxCanvas.dataset.fxType = effect.canvasType;
+          activateCardFx(userProfileCardFxCanvas.parentElement);
+        } else {
+          delete userProfileCardFxCanvas.dataset.fxType;
+        }
+      }
       const bio = (data.bio || '').trim();
       userProfileBio.hidden = false;
       userProfileBioText.textContent = bio;
@@ -4727,9 +4753,421 @@ import {
     };
   }
 
-  function makeCardFxDraw(type, w, h){
+  // ---------- Abyssal Depths (underwater) ----------
+  // Unlike the other card effects, this one is meant to actually tint the
+  // whole card (banner, avatar, text) rather than just glow behind it — see
+  // the .card-fx-canvas.submerged CSS rule toggled in activateCardFx below,
+  // which raises this canvas above the avatar/name and switches it to
+  // mix-blend-mode:normal plus a light backdrop-filter blur.
+  function makeUnderwaterCardFx(w, h){
+    function spawnBubble(randomY){
+      return {
+        x: Math.random() * w,
+        y: randomY ? Math.random() * h : h + 10,
+        r: Math.random() * 3 + 1.5,
+        vy: Math.random() * 0.6 + 0.4,
+        wobble: Math.random() * Math.PI * 2,
+        wobbleSpeed: Math.random() * 0.05 + 0.02,
+        alpha: Math.random() * 0.35 + 0.35
+      };
+    }
+    function spawnFish(){
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      return {
+        x: Math.random() * w,
+        yBase: h * (0.2 + Math.random() * 0.65),
+        bob: Math.random() * Math.PI * 2,
+        bobSpeed: Math.random() * 0.02 + 0.015,
+        size: Math.random() * 5 + 6,
+        speed: (Math.random() * 0.4 + 0.35) * dir,
+        dir,
+        tail: Math.random() * Math.PI * 2,
+        hue: [178, 190, 40, 200][Math.floor(Math.random() * 4)],
+        alpha: Math.random() * 0.25 + 0.55
+      };
+    }
+    const bubbles = Array.from({ length: 16 }, () => spawnBubble(true));
+    const fish = Array.from({ length: 5 }, spawnFish);
+    const causticBands = Array.from({ length: 3 }, (_, i) => ({
+      hue: 190 + i * 10,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.18 + i * 0.05,
+      yBase: h * (0.2 + i * 0.28),
+      amp: h * 0.10
+    }));
+    const motes = Array.from({ length: 14 }, () => ({
+      x: Math.random() * w, y: Math.random() * h,
+      r: Math.random() * 1.2 + 0.4,
+      driftX: (Math.random() - 0.5) * 0.15,
+      driftY: (Math.random() - 0.5) * 0.1,
+      tw: Math.random() * Math.PI * 2
+    }));
+
+    function spawnJelly(randomY){
+      return {
+        x: Math.random() * w,
+        y: randomY ? Math.random() * h : h + 20,
+        bell: Math.random() * 6 + 8,
+        pulsePhase: Math.random() * Math.PI * 2,
+        pulseSpeed: Math.random() * 0.03 + 0.025,
+        driftPhase: Math.random() * Math.PI * 2,
+        driftAmp: Math.random() * 6 + 4,
+        vy: Math.random() * 0.12 + 0.08,
+        tentacles: 5 + Math.floor(Math.random() * 3),
+        hue: [300, 320, 275][Math.floor(Math.random() * 3)],
+        alpha: Math.random() * 0.2 + 0.4
+      };
+    }
+    const jellies = Array.from({ length: 3 }, () => spawnJelly(true));
+
+    const octopus = {
+      x: w * 0.5, y: h * 0.86,
+      dir: 1, speed: 0.16,
+      mantle: Math.min(w, h) * 0.075,
+      hue: 14, alpha: 0.62
+    };
+
+    function drawFish(ctx, f){
+      ctx.save();
+      ctx.translate(f.x, f.yBase + Math.sin(f.bob) * 6);
+      ctx.scale(f.dir, 1);
+      ctx.globalAlpha = f.alpha;
+      const tailSwing = Math.sin(f.tail) * 0.5;
+      ctx.fillStyle = `hsla(${f.hue},55%,55%,0.9)`;
+      ctx.beginPath();
+      ctx.moveTo(-f.size * 0.9, 0);
+      ctx.lineTo(-f.size * 1.6, -f.size * 0.55 + tailSwing * f.size * 0.4);
+      ctx.lineTo(-f.size * 1.6, f.size * 0.55 + tailSwing * f.size * 0.4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0, 0, f.size, f.size * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(10,20,20,0.8)';
+      ctx.beginPath();
+      ctx.arc(f.size * 0.55, -f.size * 0.08, f.size * 0.11, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawJelly(ctx, j, t){
+      const pulse = Math.sin(j.pulsePhase + t * j.pulseSpeed * 10);
+      const bellW = j.bell * (1 + pulse * 0.16);
+      const bellH = j.bell * 0.72 * (1 - pulse * 0.12);
+      const x = j.x + Math.sin(j.driftPhase + t * 0.15) * j.driftAmp;
+
+      ctx.save();
+      ctx.translate(x, j.y);
+      ctx.globalAlpha = j.alpha;
+
+      const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, bellW * 2.6);
+      glow.addColorStop(0, `hsla(${j.hue},70%,78%,0.3)`);
+      glow.addColorStop(1, `hsla(${j.hue},70%,78%,0)`);
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0, 0, bellW * 2.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `hsla(${j.hue},55%,82%,0.55)`;
+      ctx.beginPath();
+      ctx.arc(0, 0, bellW, Math.PI, Math.PI * 2);
+      const fringeSegs = 8;
+      for (let s = 0; s <= fringeSegs; s++) {
+        const fx = bellW - (2 * bellW * s / fringeSegs);
+        const wob = Math.sin(t * 2 + s + j.pulsePhase) * bellH * 0.1;
+        ctx.lineTo(fx, bellH * 0.15 + wob);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = `hsla(${j.hue},40%,90%,0.25)`;
+      ctx.lineWidth = 0.6;
+      for (let k = -1; k <= 1; k++) {
+        ctx.beginPath();
+        ctx.moveTo(0, -bellH * 0.1);
+        ctx.lineTo(k * bellW * 0.55, bellH * 0.1);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = `hsla(${j.hue},45%,85%,0.45)`;
+      ctx.lineWidth = 1;
+      for (let k = 0; k < j.tentacles; k++) {
+        const tx = -bellW * 0.6 + (1.2 * bellW * k / Math.max(j.tentacles - 1, 1));
+        const len = bellW * 1.9;
+        let px = tx, py = bellH * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        const segs2 = 5;
+        for (let s = 1; s <= segs2; s++) {
+          const progress = s / segs2;
+          const wave = Math.sin(t * 1.6 + k * 1.3 + progress * 4) * 4 * progress;
+          const nx = tx + wave;
+          const ny = bellH * 0.2 + len * progress;
+          ctx.quadraticCurveTo(px, py, (px + nx) / 2, (py + ny) / 2);
+          px = nx; py = ny;
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawOctopus(ctx, o, t){
+      ctx.save();
+      ctx.translate(o.x, o.y);
+      ctx.scale(o.dir, 1);
+      ctx.globalAlpha = o.alpha;
+
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath();
+      ctx.ellipse(0, o.mantle * 1.15, o.mantle * 1.3, o.mantle * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = `hsla(${o.hue},45%,32%,0.75)`;
+      ctx.lineCap = 'round';
+      for (let l = 0; l < 8; l++) {
+        const baseAngle = (Math.PI / 2) + (l - 3.5) * 0.16;
+        const legLen = o.mantle * 1.9;
+        ctx.lineWidth = 2.4 - (l % 4) * 0.2;
+        let px = 0, py = o.mantle * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        const segs = 4;
+        for (let s = 1; s <= segs; s++) {
+          const prog = s / segs;
+          const wig = Math.sin(t * 2.6 + l * 0.8 + prog * 3) * 4 * prog;
+          const nx = Math.cos(baseAngle) * legLen * prog + wig;
+          const ny = o.mantle * 0.35 + Math.sin(baseAngle) * legLen * prog * 0.55;
+          ctx.quadraticCurveTo(px, py, (px + nx) / 2, (py + ny) / 2);
+          px = nx; py = ny;
+        }
+        ctx.stroke();
+      }
+
+      const grad = ctx.createRadialGradient(-o.mantle * 0.3, -o.mantle * 0.35, 1, 0, 0, o.mantle * 1.3);
+      grad.addColorStop(0, `hsla(${o.hue},50%,48%,0.92)`);
+      grad.addColorStop(1, `hsla(${o.hue},45%,26%,0.88)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, o.mantle, o.mantle * 0.82, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(8,6,6,0.85)';
+      ctx.beginPath();
+      ctx.arc(o.mantle * 0.38, -o.mantle * 0.08, o.mantle * 0.15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.beginPath();
+      ctx.arc(o.mantle * 0.42, -o.mantle * 0.13, o.mantle * 0.05, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    return function draw(ctx, t){
+      ctx.clearRect(0, 0, w, h);
+
+      const wash = ctx.createLinearGradient(0, 0, 0, h);
+      wash.addColorStop(0, 'rgba(8,42,52,0.30)');
+      wash.addColorStop(1, 'rgba(4,24,32,0.42)');
+      ctx.fillStyle = wash;
+      ctx.fillRect(0, 0, w, h);
+
+      causticBands.forEach(b => {
+        const grad = ctx.createLinearGradient(0, 0, w, 0);
+        grad.addColorStop(0, `hsla(${b.hue},80%,65%,0)`);
+        grad.addColorStop(0.5, `hsla(${b.hue},80%,65%,.16)`);
+        grad.addColorStop(1, `hsla(${b.hue},80%,65%,0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(0, h);
+        for (let x = 0; x <= w; x += 14) {
+          const y = b.yBase + Math.sin(x * 0.02 + t * b.speed + b.phase) * b.amp;
+          ctx.lineTo(x, y);
+        }
+        ctx.lineTo(w, h);
+        ctx.closePath();
+        ctx.fill();
+      });
+
+      jellies.forEach(j => {
+        j.y -= j.vy;
+        if (j.y < -j.bell * 4) Object.assign(j, spawnJelly(false));
+        drawJelly(ctx, j, t);
+      });
+
+      octopus.x += octopus.speed * octopus.dir;
+      if (octopus.x > w - octopus.mantle * 1.4) octopus.dir = -1;
+      if (octopus.x < octopus.mantle * 1.4) octopus.dir = 1;
+      drawOctopus(ctx, octopus, t);
+
+      fish.forEach(f => {
+        f.x += f.speed;
+        f.bob += f.bobSpeed;
+        f.tail += 0.25;
+        if (f.dir > 0 && f.x > w + f.size * 2) f.x = -f.size * 2;
+        if (f.dir < 0 && f.x < -f.size * 2) f.x = w + f.size * 2;
+        drawFish(ctx, f);
+      });
+
+      motes.forEach(m => {
+        m.x += m.driftX; m.y += m.driftY; m.tw += 0.02;
+        if (m.x < 0) m.x = w; if (m.x > w) m.x = 0;
+        if (m.y < 0) m.y = h; if (m.y > h) m.y = 0;
+        const alpha = 0.2 + Math.sin(m.tw) * 0.15;
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(180,230,230,${Math.max(alpha,0)})`;
+        ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      bubbles.forEach(b => {
+        b.wobble += b.wobbleSpeed;
+        b.y -= b.vy;
+        b.x += Math.sin(b.wobble) * 0.4;
+        if (b.y < -10) Object.assign(b, spawnBubble(false));
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(200,240,240,${b.alpha})`;
+        ctx.lineWidth = 1;
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(255,255,255,${b.alpha * 0.6})`;
+        ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.25, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    };
+  }
+
+  // ---------- Thunder Strike ----------
+  // A jagged branching bolt periodically arcs down from the top of the card
+  // and strikes the avatar's position, with a bright flash, an impact glow,
+  // lingering electric sparks, and a brief shake on the card itself
+  // (.thunder-shake, applied to hostEl — the nearest card container).
+  function makeThunderCardFx(w, h, hostEl){
+    const avatarX = w * 0.14;
+    const avatarY = h * 0.51;
+
+    let lastT = null;
+    let nextStrike = 0.6 + Math.random() * 1.2;
+    let flash = 0;
+    let boltPath = null;
+    let boltLife = 0;
+    const sparks = [];
+
+    function buildBolt(){
+      const startX = avatarX + (Math.random() - 0.5) * 40;
+      const segs = 9;
+      const main = [];
+      for (let i = 0; i <= segs; i++) {
+        const prog = i / segs;
+        const targetX = startX + (avatarX - startX) * prog;
+        const targetY = -6 + (avatarY - -6) * prog;
+        main.push([
+          targetX + (Math.random() - 0.5) * 18 * (1 - prog * 0.6),
+          targetY
+        ]);
+      }
+      const branches = [];
+      for (let b = 0; b < 3; b++) {
+        const idx = 2 + Math.floor(Math.random() * (main.length - 4));
+        let [bx, by] = main[idx];
+        const branchPts = [[bx, by]];
+        for (let s = 1; s <= 3; s++) {
+          bx += (Math.random() - 0.5) * 22;
+          by += Math.random() * 10 + 6;
+          branchPts.push([bx, by]);
+        }
+        branches.push(branchPts);
+      }
+      return { main, branches };
+    }
+
+    function strokeBolt(ctx, pts, alpha, lineW){
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+      ctx.strokeStyle = `rgba(220,235,255,${alpha})`;
+      ctx.lineWidth = lineW;
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = 'rgba(160,200,255,0.9)';
+      ctx.shadowBlur = 8;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    return function draw(ctx, t){
+      if (lastT === null) lastT = t;
+      const dt = Math.min(Math.max(t - lastT, 0), 0.05);
+      lastT = t;
+
+      ctx.clearRect(0, 0, w, h);
+
+      nextStrike -= dt;
+      if (nextStrike <= 0) {
+        boltPath = buildBolt();
+        boltLife = 1;
+        flash = 1;
+        nextStrike = 2.5 + Math.random() * 3.5;
+        for (let i = 0; i < 10; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          sparks.push({
+            x: avatarX, y: avatarY, life: 1,
+            vx: Math.cos(ang) * (Math.random() * 1.2 + 0.4),
+            vy: Math.sin(ang) * (Math.random() * 1.2 + 0.4)
+          });
+        }
+        if (hostEl) {
+          hostEl.classList.remove('thunder-shake');
+          void hostEl.offsetWidth;
+          hostEl.classList.add('thunder-shake');
+        }
+      }
+
+      if (flash > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${flash * 0.5})`;
+        ctx.fillRect(0, 0, w, h);
+        flash = Math.max(flash - dt * 2.2, 0);
+      }
+
+      if (boltPath && boltLife > 0) {
+        const alpha = Math.min(boltLife * 2, 1);
+        strokeBolt(ctx, boltPath.main, alpha, 2.4);
+        boltPath.branches.forEach(b => strokeBolt(ctx, b, alpha * 0.7, 1.2));
+        boltLife -= dt * 3.2;
+        if (boltLife <= 0) boltPath = null;
+      }
+
+      if (flash > 0.05 || boltPath) {
+        const glow = ctx.createRadialGradient(avatarX, avatarY, 0, avatarX, avatarY, 36);
+        glow.addColorStop(0, `rgba(200,225,255,${Math.max(flash, 0.3) * 0.8})`);
+        glow.addColorStop(1, 'rgba(200,225,255,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(avatarX, avatarY, 36, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const s = sparks[i];
+        s.x += s.vx; s.y += s.vy; s.life -= dt * 1.8;
+        if (s.life <= 0) { sparks.splice(i, 1); continue; }
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(190,220,255,${s.life})`;
+        ctx.lineWidth = 1;
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x - s.vx * 3, s.y - s.vy * 3);
+        ctx.stroke();
+      }
+    };
+  }
+
+  function makeCardFxDraw(type, w, h, canvas){
     if (type === 'meteor') return makeMeteorCardFx(w, h);
     if (type === 'plants') return makePlantsCardFx(w, h);
+    if (type === 'underwater') return makeUnderwaterCardFx(w, h);
+    if (type === 'thunder') {
+      const hostEl = canvas
+        ? (canvas.closest('.account-hero') || canvas.closest('.user-profile-card') || canvas.closest('.profile-store-card') || canvas.parentElement)
+        : null;
+      return makeThunderCardFx(w, h, hostEl);
+    }
     return null;
   }
 
@@ -4745,8 +5183,12 @@ import {
       const w = Math.max(1, Math.round(canvas.clientWidth || canvas.width || 1));
       const h = Math.max(1, Math.round(canvas.clientHeight || canvas.height || 1));
       canvas.width = w; canvas.height = h;
+      // Abyssal Depths needs to sit ABOVE the avatar/text and blend
+      // normally instead of screen, so its teal wash actually tints
+      // everything beneath it — see the .submerged CSS rule.
+      canvas.classList.toggle('submerged', canvas.dataset.fxType === 'underwater');
       const ctx = canvas.getContext('2d');
-      const draw = makeCardFxDraw(canvas.dataset.fxType, w, h);
+      const draw = makeCardFxDraw(canvas.dataset.fxType, w, h, canvas);
       if (!draw) return;
       const entry = { ctx, draw };
       cardFxRegistry.add(entry);
@@ -4764,6 +5206,7 @@ import {
     if (!root) return;
     root.querySelectorAll('canvas.card-fx-canvas').forEach(canvas => {
       if (canvas._cardFx) { canvas._cardFx.stop(); canvas._cardFx = null; }
+      canvas.classList.remove('submerged');
     });
   }
 
@@ -4811,7 +5254,14 @@ import {
   //     premium decorations (itemType 'cardEffect' instead of 'decoration')
   const PROFILE_CARD_EFFECTS = [
     { id:'meteor-fall', name:'Meteor Fall', category:'Cosmic', rarity:'Epic', canvasType:'meteor', requiresXp:200 },
-    { id:'overgrowth', name:'Overgrowth', category:'Nature', rarity:'Epic', canvasType:'plants', premium:true, cash:{ usd:0.70, ngnRef:970 } }
+    { id:'overgrowth', name:'Overgrowth', category:'Nature', rarity:'Epic', canvasType:'plants', premium:true, cash:{ usd:0.70, ngnRef:970 } },
+    // Free, but gated behind a 2000 XP threshold — nothing is spent, same
+    // mechanic as Meteor Fall above (see isValidEquipmentChange() in
+    // firestore.rules for the matching server-side check).
+    { id:'thunder-strike', name:'Thunder Strike', category:'Elemental', rarity:'Legendary', canvasType:'thunder', requiresXp:2000 },
+    // Real money via Paystack — tints the whole card (banner, avatar, text)
+    // rather than just glowing behind it, see .card-fx-canvas.submerged.
+    { id:'abyssal-depths', name:'Abyssal Depths', category:'Nature', rarity:'Epic', canvasType:'underwater', premium:true, cash:{ usd:0.70, ngnRef:970 } }
   ];
   const cardEffectById = id => PROFILE_CARD_EFFECTS.find(item => item.id === id);
   const PROFILE_FONTS = [
