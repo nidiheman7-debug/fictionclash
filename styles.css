@@ -199,6 +199,12 @@
     -webkit-overflow-scrolling:touch;
     overscroll-behavior-y:contain;
     scroll-behavior:smooth;
+    /* Tells the browser up front that this container only ever pans
+       vertically, so it doesn't have to wait out its usual touch-event
+       grace period (checking for a possible horizontal swipe/pinch)
+       before committing to a scroll — that wait is a small but real
+       delay on every touch-scroll start. */
+    touch-action:pan-y;
     display:flex;
     flex-direction:column;
   }
