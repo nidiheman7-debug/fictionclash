@@ -3092,7 +3092,6 @@ import {
   const userProfileBio = document.getElementById('userProfileBio');
   const userProfileBioText = document.getElementById('userProfileBioText');
   const userProfileCardFxCanvas = document.getElementById('userProfileCardFxCanvas');
-  const userProfileCardEl = document.querySelector('#userProfileOverlay .user-profile-card');
 
   function closeUserProfileCard(){
     userProfileOverlay.classList.remove('show');
@@ -3128,9 +3127,6 @@ import {
       deactivateCardFx(userProfileCardFxCanvas.parentElement);
       delete userProfileCardFxCanvas.dataset.fxType;
     }
-    // Clear any previous account's card color while this one loads, same
-    // "don't show stale data" contract as everything else reset above.
-    if (userProfileCardEl) userProfileCardEl.style.backgroundImage = '';
     attachDecoration(userProfileAvatar, uid);
     attachFont(userProfileNameText, uid);
     attachVerifiedBadge(userProfileVerified, uid);
@@ -3160,14 +3156,6 @@ import {
         } else {
           delete userProfileCardFxCanvas.dataset.fxType;
         }
-      }
-      // Card Color (Theme Store): this account's chosen banner gradient,
-      // applied straight to the card itself — the mobile equivalent of a
-      // Discord profile theme. No fallback image here (unlike the account
-      // banner) since this popup has no cover-photo concept.
-      if (userProfileCardEl) {
-        const cardColor = cardColorById(data.equippedCardColor);
-        userProfileCardEl.style.backgroundImage = cardColor ? cardColor.css : '';
       }
       const bio = (data.bio || '').trim();
       userProfileBio.hidden = false;
@@ -4023,43 +4011,6 @@ import {
   });
   applyTheme(localStorage.getItem('fictionClashTheme') || 'mono');
 
-  // ---------- theme store: card color ----------
-  // A separate, server-synced cosmetic from the accent theme above — this
-  // colors the account banner and shows up on the Discord-style profile
-  // card anyone sees when they tap this account's avatar, rather than
-  // just the local UI's buttons/highlights. Free to equip, same one-tap
-  // feel as the accent swatches, but persisted to Firestore since other
-  // people need to see it (see handleCardColorAction / applyCardColorToBanner).
-  const cardColorSwatchRow = document.getElementById('cardColorSwatchRow');
-  function renderCardColorSwatches(){
-    if (!cardColorSwatchRow) return;
-    cardColorSwatchRow.querySelectorAll('.card-color-swatch').forEach(sw => {
-      const id = sw.dataset.cardColor === 'none' ? null : sw.dataset.cardColor;
-      sw.classList.toggle('active', id === equippedCardColor);
-    });
-  }
-  async function handleCardColorAction(id){
-    const user = auth.currentUser;
-    if (!user) { requireSignIn('Sign in to use the Theme Store'); return; }
-    if (id && !cardColorById(id)) return;
-    const nextValue = equippedCardColor === id ? null : id;
-    try {
-      await updateDoc(doc(db, 'users', user.uid), { equippedCardColor: nextValue });
-      equippedCardColor = nextValue;
-      applyCardColorToBanner();
-      renderCardColorSwatches();
-      showToast(nextValue ? `${cardColorById(nextValue).label} card color applied` : 'Card color reset to default');
-    } catch (err) {
-      console.error('Card color equip failed', err);
-      showToast('Could not update your Theme Store');
-    }
-  }
-  cardColorSwatchRow?.addEventListener('click', event => {
-    const swatch = event.target.closest('.card-color-swatch');
-    if (!swatch) return;
-    handleCardColorAction(swatch.dataset.cardColor === 'none' ? null : swatch.dataset.cardColor);
-  });
-
   // ---------- account ----------
   const accountSection = document.getElementById('accountSection');
   const accountAvatar = document.getElementById('accountAvatar');
@@ -4149,7 +4100,6 @@ import {
   let equippedDecoration = null;
   let equippedFont = null;
   let equippedCardEffect = null;
-  let equippedCardColor = null; // Theme Store > Card Color — see PROFILE_CARD_COLORS
   // Per-character decoration overrides for the CURRENT viewer only — keyed
   // the same way as character avatar photos (avatarOverrideKey: name, or
   // "name|version" for a versioned character like Base Goku vs Ultra
@@ -5314,33 +5264,6 @@ import {
     { id:'abyssal-depths', name:'Abyssal Depths', category:'Nature', rarity:'Epic', canvasType:'underwater', premium:true, cash:{ usd:0.70, ngnRef:970 } }
   ];
   const cardEffectById = id => PROFILE_CARD_EFFECTS.find(item => item.id === id);
-  // Card COLORS — Theme Store cosmetic, free to equip (no Clash Points),
-  // same one-tap-instant feel as the accent theme swatches above. Unlike
-  // the accent theme (a purely local UI preference), this is synced to
-  // Firestore and shown on the account banner *and* on the Discord-style
-  // profile card anyone sees when they tap this account's avatar — see
-  // applyCardColorToBanner() and openUserProfileCard().
-  const PROFILE_CARD_COLORS = [
-    { id:'aurora-frost', label:'Aurora Frost', css:'linear-gradient(135deg,#0b2f45 0%,#12b8c4 100%)' },
-    { id:'sith-ember', label:'Sith Ember', css:'linear-gradient(135deg,#1a0000 0%,#d6432e 100%)' },
-    { id:'neon-circuit', label:'Neon Circuit', css:'linear-gradient(135deg,#1b0733 0%,#b23bde 55%,#ff2ea6 100%)' },
-    { id:'solar-flare', label:'Solar Flare', css:'linear-gradient(135deg,#2b1400 0%,#f2a92e 100%)' },
-    { id:'emerald-depths', label:'Emerald Depths', css:'linear-gradient(135deg,#04231a 0%,#1fae6b 100%)' },
-    { id:'royal-violet', label:'Royal Violet', css:'linear-gradient(135deg,#180a2e 0%,#7c3fe0 100%)' },
-    { id:'blood-moon', label:'Blood Moon', css:'linear-gradient(135deg,#1a0505 0%,#b0142e 100%)' }
-  ];
-  const cardColorById = id => PROFILE_CARD_COLORS.find(item => item.id === id);
-  // Applies the equipped card color to the account-hero card itself — the
-  // dark body area behind the name/bio, NOT the banner (that stays the
-  // user's own cover photo/collage art untouched). This is what actually
-  // shows in both places: your own Account page card, and the popup other
-  // people see when they tap your avatar (see openUserProfileCard()).
-  function applyCardColorToBanner(){
-    const hero = document.getElementById('accountHero');
-    if (!hero) return;
-    const item = cardColorById(equippedCardColor);
-    hero.style.backgroundImage = item ? item.css : '';
-  }
   const PROFILE_FONTS = [
     { id:'bangers', name:'Bangers', category:'Comic', cls:'profile-font-bangers' },
     { id:'luckiest', name:'Luckiest Guy', category:'Comic', cls:'profile-font-luckiest' },
@@ -6212,8 +6135,6 @@ import {
     applyProfileNameFont();
     renderAvatar();
     if (typeof renderCoverPhoto === 'function') renderCoverPhoto();
-    applyCardColorToBanner();
-    renderCardColorSwatches();
     renderCustomizationStore();
     renderVerifiedBadge();
     renderHeroCharacterCosmetics();
@@ -6280,7 +6201,6 @@ import {
       equippedDecoration = decorationById(data.equippedDecoration) ? data.equippedDecoration : null;
       equippedFont = fontById(data.equippedFont) ? data.equippedFont : null;
       equippedCardEffect = cardEffectById(data.equippedCardEffect) ? data.equippedCardEffect : null;
-      equippedCardColor = cardColorById(data.equippedCardColor) ? data.equippedCardColor : null;
       characterDecorations = (data.characterDecorations && typeof data.characterDecorations === 'object') ? { ...data.characterDecorations } : {};
       currentUserVerifiedUntil = data.verifiedUntil || null;
       currentUserXp = Number(data.xp || 0);
@@ -6288,8 +6208,6 @@ import {
       verifiedUntilCache[uid] = currentUserVerifiedUntil ? currentUserVerifiedUntil.toMillis() : null;
       updateAccountHeader();
       updateCardEffectDisplay();
-      applyCardColorToBanner();
-      renderCardColorSwatches();
     }).catch(err => console.error('Profile load failed', err));
   }
 
@@ -6513,7 +6431,6 @@ import {
          equippedDecoration = null;
          equippedFont = null;
          equippedCardEffect = null;
-         equippedCardColor = null;
          characterDecorations = {};
       }
       lastSignedInUid = user.uid;
@@ -6549,15 +6466,12 @@ import {
        equippedDecoration = null;
        equippedFont = null;
        equippedCardEffect = null;
-       equippedCardColor = null;
        characterDecorations = {};
       currentUserVerifiedUntil = null;
       currentUserXp = 0;
       currentUserWeeklyXp = 0;
       updateAccountHeader();
       updateCardEffectDisplay();
-      applyCardColorToBanner();
-      renderCardColorSwatches();
       syncTopbarAvatar();
       closeAccountDropdown();
       renderAllLikeButtons(); // signed out — nothing should show as "liked" now
