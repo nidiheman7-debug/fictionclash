@@ -2,7 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
+<!-- interactive-widget intentionally left at its browser default (resizes-visual
+     on modern Chrome/Android) rather than overlays-content. overlays-content
+     is a newer opt-in mode that needs the app to do 100% of the keyboard-
+     avoidance math itself via visualViewport — and that math was proving
+     unreliable across Android WebView/Samsung Internet versions (composer
+     getting stuck docked with a stale keyboard-height reading). The default
+     mode is the far more battle-tested path the visualViewport API was
+     actually designed around; see js/docked-composer.js for the rest. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Fiction Clash — Character Matchups</title>
 <meta name="description" content="Vote on character matchups from anime, movies, comics, and games. Compare stats, get AI-powered breakdowns, and settle who actually wins.">
 <link rel="canonical" href="https://fictionclash.vercel.app/">
