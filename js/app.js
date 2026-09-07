@@ -2889,6 +2889,7 @@ import {
     attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
     attachDecoration(el.querySelector('.comment-avatar'), data.uid);
     attachFont(el.querySelector('.comment-body b'), data.uid);
+    attachLiveIdentity(data.uid, el.querySelector('.comment-body b'), el.querySelector('.comment-avatar'));
     if (onReply) {
       el.querySelector('.comment-reply-btn').addEventListener('click', () => {
         // Truncated to keep the quoted snippet compact — matches how
@@ -3418,7 +3419,7 @@ import {
             </div>
             <h3>${escapeHtml(data.title || '')}</h3>
             <p class="clip-review">${escapeHtml(data.review || '')}</p>
-            <div class="clip-meta"><span>Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><button type="button" class="clip-delete-btn" data-hide-clip="${id}">Hide</button></div>
+            <div class="clip-meta"><span class="clip-posted-by">Posted by ${escapeHtml(data.postedByName || 'A fan')}</span><button type="button" class="clip-delete-btn" data-hide-clip="${id}">Hide</button></div>
             <div class="social-row">
               <button class="social-btn like-btn" type="button" aria-label="Like this clip">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
@@ -3439,6 +3440,13 @@ import {
           wireClipComments(id, card.querySelector('.comment-form'));
           wireClipSocial(id, card, 0);
           renderedClipIds.add(id);
+          // Same live-lookup treatment as comments — refresh the poster's
+          // name here too if it's changed since this clip was posted.
+          if (data.postedByUid) {
+            getLiveNameAvatar(data.postedByUid).then(info => {
+              if (info && info.name) card.querySelector('.clip-posted-by').textContent = `Posted by ${info.name}`;
+            });
+          }
           if (clipsSynced) pushNotification('clip', 'New clip posted', data.title || 'A new clip', id);
         }
       });
@@ -6074,6 +6082,59 @@ import {
     });
   }
 
+  // ---------- live name/avatar (shown everywhere the account has engaged) ----------
+  // Same live-lookup pattern as the decoration/font/verified badge above: a
+  // comment, reply, or clip attribution only stores who posted it (uid)
+  // plus whatever name/avatar were current at that moment. Looking up the
+  // account's CURRENT name/avatarUrl here — instead of trusting that
+  // snapshot — means changing your profile picture or display name updates
+  // every comment, reply, and clip post you've ever made, not just new
+  // ones, the same way a decoration change already does above.
+  const nameAvatarCache = {}; // uid -> { name, avatarUrl } | null
+  async function getLiveNameAvatar(uid){
+    if (uid in nameAvatarCache) return nameAvatarCache[uid];
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      const info = snap.exists() ? { name: snap.data().name || null, avatarUrl: snap.data().avatarUrl || null } : null;
+      nameAvatarCache[uid] = info;
+      return info;
+    } catch (err) {
+      console.error('Live name/avatar lookup failed', err);
+      return null;
+    }
+  }
+  // Swaps just the name text in place, leaving any sibling markup (the
+  // verified badge span) untouched — the name is always nameEl's first
+  // child text node, everything after it belongs to something else.
+  function applyLiveName(nameEl, name){
+    if (!nameEl || !name) return;
+    const first = nameEl.firstChild;
+    if (first && first.nodeType === Node.TEXT_NODE) first.nodeValue = name;
+    else nameEl.insertBefore(document.createTextNode(name), nameEl.firstChild);
+  }
+  // Swaps just the avatar (img or initials) — always avatarContainer's
+  // first child — leaving any decoration markup appended after it intact.
+  function applyLiveAvatar(avatarContainer, name, avatarUrl){
+    if (!avatarContainer || !avatarUrl) return;
+    const img = document.createElement('img');
+    img.src = avatarUrl;
+    img.alt = name || '';
+    const first = avatarContainer.firstChild;
+    if (first) avatarContainer.replaceChild(img, first);
+    else avatarContainer.appendChild(img);
+  }
+  // Wires a rendered comment/attribution to a uid: once the live lookup
+  // resolves, updates the name text and/or avatar in place. Either element
+  // can be omitted (e.g. a plain "Posted by X" line has no avatar image).
+  function attachLiveIdentity(uid, nameEl, avatarContainer){
+    if (!uid) return;
+    getLiveNameAvatar(uid).then(info => {
+      if (!info) return; // account deleted or lookup failed — keep the stored snapshot
+      applyLiveName(nameEl, info.name);
+      applyLiveAvatar(avatarContainer, info.name, info.avatarUrl);
+    });
+  }
+
   function isCurrentlyVerified(){
     return !!(currentUserVerifiedUntil && currentUserVerifiedUntil.toMillis() > Date.now());
   }
@@ -6177,6 +6238,10 @@ import {
         coverPhotoUrl: coverSmallEnough ? profile.cover : '',
         updatedAt: serverTimestamp()
       }, { merge: true }).catch(err => console.error('Profile sync failed', err));
+      // Drop this account's cached name/avatar so every comment, reply, and
+      // clip already on screen picks up the change on its next re-render
+      // instead of waiting for a full reload.
+      delete nameAvatarCache[user.uid];
     }
   }
 

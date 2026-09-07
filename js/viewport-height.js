@@ -22,16 +22,38 @@
   // out of view and stays there — nothing was resetting it back to (0,0).
   // This snaps it back on any scroll or visualViewport change, so a stray
   // native scroll never has anywhere to "stick".
+  //
+  // .phone itself needs the same treatment as html/body: it's position:
+  // relative + overflow:hidden and is meant to never scroll, but a focused
+  // input deep inside it (e.g. the comments sheet's composer) is exactly
+  // what tempts a mobile browser into force-scrolling *some* ancestor to
+  // "reveal" it — and overflow:hidden doesn't reliably stop a browser from
+  // assigning scrollTop on that ancestor even though the user can't drag it.
+  // When that ancestor is .phone, its whole contents (including the full
+  // comments sheet's header/back button, which never actually moves on its
+  // own — see .modal-sheet-full in styles.css) get clipped upward out of
+  // view, with nothing visibly scrollable to pull them back down. This is
+  // the "page shoots up, back button gone" bug. Resetting .phone.scrollTop
+  // alongside html/body closes that gap.
+  const phoneEl = document.querySelector('.phone');
   function snapScrollToOrigin(){
     if (window.scrollX !== 0 || window.scrollY !== 0) {
       window.scrollTo(0, 0);
     }
     if (document.documentElement.scrollTop !== 0) document.documentElement.scrollTop = 0;
     if (document.body.scrollTop !== 0) document.body.scrollTop = 0;
+    if (phoneEl && phoneEl.scrollTop !== 0) phoneEl.scrollTop = 0;
   }
   window.addEventListener('scroll', snapScrollToOrigin, { passive: true });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('scroll', snapScrollToOrigin);
+  }
+  // 'scroll' events don't bubble (window/document are the only exceptions
+  // in the DOM spec), so a browser scrolling .phone directly would never
+  // reach the window-level listener above — .phone needs its own listener
+  // to actually catch and reverse that case.
+  if (phoneEl) {
+    phoneEl.addEventListener('scroll', snapScrollToOrigin, { passive: true });
   }
   // Exposed so docked-composer.js can also call this proactively right at
   // focus time and right after undocking, instead of only reacting once a

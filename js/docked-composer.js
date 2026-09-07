@@ -83,7 +83,15 @@
   // both the initial native jump and the keyboard's own open animation,
   // without touching scroll positions once the user is actually typing.
   function lockScrollPositions(){
+    // .phone is included alongside the two real scroll containers because
+    // a mobile browser's native "scroll focused input into view" behavior
+    // can assign scrollTop on it directly even though it's overflow:hidden
+    // and was never meant to scroll — see the matching note in
+    // viewport-height.js. Left unguarded here, that's what let the full
+    // comments sheet's header (and its back button) get clipped out of
+    // view the instant the composer's input was focused.
     const scrollers = [
+      document.querySelector('.phone'),
       document.querySelector('.phone-scroll'),
       document.getElementById('commentsModalList')
     ].filter(Boolean);
