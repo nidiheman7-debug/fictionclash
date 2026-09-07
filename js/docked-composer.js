@@ -40,18 +40,26 @@
   function watchKeyboard(el, form, onDone){
     let rafId = null;
     let lastKh = -1;
-    let sawKeyboard = false;
+    let peakKh = 0;
     const tick = () => {
       // Self-heal: if focus moved off this field by any path we didn't
       // catch elsewhere, stop and undock rather than polling forever.
       if (document.activeElement !== el) { onDone(); return; }
       const kh = keyboardHeightPx();
-      if (kh > 20) sawKeyboard = true;
-      // Android's back button (and some gesture-nav setups) can dismiss
-      // just the on-screen keyboard without ever blurring the input, so
-      // the focusout-based cleanup never runs. A small threshold (rather
-      // than an exact kh === 0) absorbs visualViewport rounding noise.
-      if (sawKeyboard && kh <= 3) { el.blur(); onDone(); return; }
+      if (kh > peakKh) peakKh = kh;
+      // "Closed" is judged relative to the tallest reading we've actually
+      // seen this session, not an absolute near-zero px value. An earlier
+      // version used a flat `kh <= 3` threshold, which assumes the
+      // no-keyboard baseline is exactly 0 — but some browsers/WebViews
+      // report a small, persistent nonzero gap even with the keyboard
+      // fully closed (browser-chrome collapse, rounding, etc). That
+      // constant offset sat just above the flat threshold and never
+      // tripped it, which is exactly what left the bar permanently
+      // docked mid-screen with body.keyboard-open stuck (hiding the
+      // bottom nav) — the bug in the "floating input, huge blank gaps,
+      // no bottom nav" screenshot. Requiring a real drop from the peak
+      // adapts to whatever that device's baseline actually is.
+      if (peakKh > 40 && kh < peakKh * 0.25) { el.blur(); onDone(); return; }
       if (kh !== lastKh) {
         form.style.bottom = kh + 'px';
         lastKh = kh;
@@ -172,4 +180,32 @@
       document.body.classList.remove('keyboard-open');
       document.querySelectorAll('.comment-form.docked').forEach(undockCommentField);
     }
+  });
+
+  // Hard safety net, independent of focus/keyboard events entirely: any
+  // modal (comments sheet included) can be closed by a path that never
+  // blurs its input first — a custom "back" button just hides the sheet
+  // via CSS (removes .show), it doesn't call .blur(). If that happens
+  // while a comment field inside it is still focused, every fix above is
+  // watching for a focus change or a keyboard-height change that never
+  // comes, and the bar is left floating over whatever's behind the now-
+  // closed modal — this is the exact "input stuck mid-screen, huge blank
+  // gaps, no bottom nav" bug. Watching every .modal-overlay's own `show`
+  // class directly sidesteps all of that: the instant one closes, force-
+  // blur and force-undock, no matter which code path closed it or what
+  // the keyboard-height math currently thinks.
+  const modalCloseObserver = new MutationObserver(mutations => {
+    for (const { target } of mutations) {
+      if (!(target instanceof Element) || target.classList.contains('show')) continue;
+      if (isCommentField(document.activeElement) && target.contains(document.activeElement)) {
+        document.activeElement.blur();
+      }
+      target.querySelectorAll('.comment-form.docked').forEach(form => {
+        document.body.classList.remove('keyboard-open');
+        undockCommentField(form);
+      });
+    }
+  });
+  document.querySelectorAll('.modal-overlay').forEach(el => {
+    modalCloseObserver.observe(el, { attributes: true, attributeFilter: ['class'] });
   });
