@@ -5330,17 +5330,16 @@ import {
     { id:'blood-moon', label:'Blood Moon', css:'linear-gradient(135deg,#1a0505 0%,#b0142e 100%)' }
   ];
   const cardColorById = id => PROFILE_CARD_COLORS.find(item => item.id === id);
-  // Applies the equipped card color to the account banner — unless this
-  // account has its own uploaded cover photo, which always takes
-  // precedence (checked here, not in CSS, so the precedence lives in one
-  // place). Looks the element up fresh each call rather than closing over
-  // the `accountBanner` const declared further down, so it's safe to call
-  // from anywhere regardless of script order.
+  // Applies the equipped card color to the account-hero card itself — the
+  // dark body area behind the name/bio, NOT the banner (that stays the
+  // user's own cover photo/collage art untouched). This is what actually
+  // shows in both places: your own Account page card, and the popup other
+  // people see when they tap your avatar (see openUserProfileCard()).
   function applyCardColorToBanner(){
-    const banner = document.getElementById('accountBanner');
-    if (!banner || coverPhotoDataUrl) return;
+    const hero = document.getElementById('accountHero');
+    if (!hero) return;
     const item = cardColorById(equippedCardColor);
-    banner.style.backgroundImage = item ? item.css : '';
+    hero.style.backgroundImage = item ? item.css : '';
   }
   const PROFILE_FONTS = [
     { id:'bangers', name:'Bangers', category:'Comic', cls:'profile-font-bangers' },
