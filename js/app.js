@@ -4543,13 +4543,24 @@ import {
   // slow-moving decorative overlays like these), cuts that down a lot.
   // ---------------------------------------------------------------------
   const prefersReducedMotionCardFx = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const CARD_FX_FRAME_INTERVAL = 1000 / 30;
+  // User-facing "Animation quality" setting (Settings > Appearance) — see
+  // applyFxQualityTier(). OS-level prefers-reduced-motion always wins over
+  // whatever tier is picked (prefersReducedMotionCardFx above already
+  // skips activation entirely in that case) — this only controls how
+  // rich the effect is when it's running at all.
+  const FX_QUALITY_TIERS = {
+    saver: { fps: 18, meteorCount: 3, vineCount: 2 },
+    balanced: { fps: 30, meteorCount: 5, vineCount: 4 },
+    high: { fps: 60, meteorCount: 8, vineCount: 6 },
+  };
+  let fxQualityTier = FX_QUALITY_TIERS[localStorage.getItem('fictionClashFxTier')] ? localStorage.getItem('fictionClashFxTier') : 'balanced';
+  let cardFxFrameInterval = 1000 / FX_QUALITY_TIERS[fxQualityTier].fps;
   const cardFxRegistry = new Set();
   let cardFxSharedRaf = null;
   let cardFxLastFrameTime = 0;
   function cardFxSharedTick(ts){
     cardFxSharedRaf = requestAnimationFrame(cardFxSharedTick);
-    if (ts - cardFxLastFrameTime < CARD_FX_FRAME_INTERVAL) return;
+    if (ts - cardFxLastFrameTime < cardFxFrameInterval) return;
     const dt = Math.min((ts - (cardFxLastFrameTime || ts)) / 1000, 0.1);
     cardFxLastFrameTime = ts;
     cardFxRegistry.forEach(entry => entry.draw(entry.ctx, ts / 1000, dt));
@@ -4563,6 +4574,30 @@ import {
       cardFxSharedRaf = null;
     }
   }
+  // Changing tiers restarts any card-fx canvases currently on screen so
+  // they pick up the new particle counts/fps immediately, instead of
+  // only applying next time each one happens to remount.
+  function applyFxQualityTier(tier){
+    if (!FX_QUALITY_TIERS[tier]) return;
+    fxQualityTier = tier;
+    localStorage.setItem('fictionClashFxTier', tier);
+    cardFxFrameInterval = 1000 / FX_QUALITY_TIERS[tier].fps;
+    document.querySelectorAll('#fxQualityTabs [data-fx-tier]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.fxTier === tier);
+    });
+    document.querySelectorAll('canvas.card-fx-canvas').forEach(canvas => {
+      if (canvas._cardFx) {
+        const root = canvas.parentElement;
+        canvas._cardFx.stop();
+        canvas._cardFx = null;
+        activateCardFx(root);
+      }
+    });
+  }
+  document.querySelectorAll('#fxQualityTabs [data-fx-tier]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.fxTier === fxQualityTier);
+    btn.addEventListener('click', () => applyFxQualityTier(btn.dataset.fxTier));
+  });
 
   function makeMeteorCardFx(w, h){
     const dx = -0.62, dy = 0.78;
@@ -4575,9 +4610,7 @@ import {
         spin: Math.random() * Math.PI * 2, spinSpeed: (Math.random() - 0.5) * 0.3
       };
     }
-    // 5 rather than 7 — trims per-frame work a bit further on top of the
-    // shared-loop/no-shadowBlur savings below.
-    const rocks = Array.from({ length: 5 }, () => spawn(true));
+    const rocks = Array.from({ length: FX_QUALITY_TIERS[fxQualityTier].meteorCount }, () => spawn(true));
     return function draw(ctx){
       ctx.clearRect(0, 0, w, h);
       rocks.forEach(m => {
@@ -4645,10 +4678,10 @@ import {
         y: mt * mt * v.y0 + 2 * mt * t * v.cy + t * t * v.y1
       };
     }
-    // 4 vines instead of 5, and fewer bezier steps per stroke below —
-    // small trims that add up once several of these are on screen (the
-    // shared 30fps loop above is the main saving; this is the rest).
-    const vines = Array.from({ length: 4 }, () => Object.assign(spawnVine(), { t: Math.random() }));
+    // Vine count and bezier step resolution both scale with the chosen
+    // animation-quality tier (see FX_QUALITY_TIERS above).
+    const steps = fxQualityTier === 'high' ? 20 : fxQualityTier === 'saver' ? 8 : 12;
+    const vines = Array.from({ length: FX_QUALITY_TIERS[fxQualityTier].vineCount }, () => Object.assign(spawnVine(), { t: Math.random() }));
     return function draw(ctx, _t, dt){
       ctx.clearRect(0, 0, w, h);
       vines.forEach(v => {
@@ -4664,7 +4697,6 @@ import {
         }
 
         const alpha = v.phase === 'fade' ? Math.max(0, v.t) : Math.min(1, v.t * 1.4);
-        const steps = 12;
         ctx.strokeStyle = `rgba(120,220,110,${0.75 * alpha})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
