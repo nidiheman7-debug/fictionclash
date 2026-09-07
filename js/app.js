@@ -2996,7 +2996,15 @@ import {
         : '<div class="comments-modal-empty">No comments yet — be the first.</div>';
       return;
     }
-    if (commentsModalList.querySelector('.comments-modal-empty')) commentsModalList.innerHTML = '';
+    // Clears any leftover placeholder before reconciling in the real
+    // comments — must match BOTH states openCommentsModal/this function
+    // can leave behind: the initial ".comments-modal-loading" spinner
+    // (written synchronously when the sheet opens, before docs are known)
+    // and ".comments-modal-empty" (written by the branch above). Missing
+    // either one leaves it as an untracked, un-keyed node that
+    // reconcileKeyedList never touches — it just gets pushed below the
+    // real comments and sits there permanently instead of disappearing.
+    if (commentsModalList.querySelector('.comments-modal-empty, .comments-modal-loading')) commentsModalList.innerHTML = '';
     // Only auto-stick to the bottom if the person was already reading the
     // latest message (or the list just opened) — otherwise a comment
     // landing elsewhere in a long thread would yank them away from
@@ -4526,8 +4534,35 @@ import {
   // full-card overlay. Card effects are plain per-canvas rAF loops instead
   // (same shape as the makeAurora/makeEmber/makeMeteor sample engine),
   // each one self-contained so a canvas can be destroyed independently.
+  // All active canvases share a single throttled requestAnimationFrame
+  // loop (see cardFxRegistry below) instead of one rAF per canvas — with
+  // several previews visible at once in the Theme Store grid plus the
+  // equipped one on the real card, that was N independent callbacks each
+  // doing a full clear+redraw every browser frame, which is real jank on
+  // slower phones. One shared loop, capped to ~30fps (plenty smooth for
+  // slow-moving decorative overlays like these), cuts that down a lot.
   // ---------------------------------------------------------------------
   const prefersReducedMotionCardFx = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const CARD_FX_FRAME_INTERVAL = 1000 / 30;
+  const cardFxRegistry = new Set();
+  let cardFxSharedRaf = null;
+  let cardFxLastFrameTime = 0;
+  function cardFxSharedTick(ts){
+    cardFxSharedRaf = requestAnimationFrame(cardFxSharedTick);
+    if (ts - cardFxLastFrameTime < CARD_FX_FRAME_INTERVAL) return;
+    const dt = Math.min((ts - (cardFxLastFrameTime || ts)) / 1000, 0.1);
+    cardFxLastFrameTime = ts;
+    cardFxRegistry.forEach(entry => entry.draw(entry.ctx, ts / 1000, dt));
+  }
+  function ensureCardFxLoopRunning(){
+    if (cardFxSharedRaf == null) cardFxSharedRaf = requestAnimationFrame(cardFxSharedTick);
+  }
+  function stopCardFxLoopIfIdle(){
+    if (cardFxRegistry.size === 0 && cardFxSharedRaf != null) {
+      cancelAnimationFrame(cardFxSharedRaf);
+      cardFxSharedRaf = null;
+    }
+  }
 
   function makeMeteorCardFx(w, h){
     const dx = -0.62, dy = 0.78;
@@ -4540,7 +4575,9 @@ import {
         spin: Math.random() * Math.PI * 2, spinSpeed: (Math.random() - 0.5) * 0.3
       };
     }
-    const rocks = Array.from({ length: 7 }, () => spawn(true));
+    // 5 rather than 7 — trims per-frame work a bit further on top of the
+    // shared-loop/no-shadowBlur savings below.
+    const rocks = Array.from({ length: 5 }, () => spawn(true));
     return function draw(ctx){
       ctx.clearRect(0, 0, w, h);
       rocks.forEach(m => {
@@ -4552,9 +4589,20 @@ import {
         grad.addColorStop(1, 'rgba(255,140,80,0)');
         ctx.strokeStyle = grad; ctx.lineWidth = m.size;
         ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(tx, ty); ctx.stroke();
+        // A small radial-gradient halo stands in for the glow that
+        // ctx.shadowBlur used to give the meteor head — shadowBlur is one
+        // of the more expensive canvas ops (it's a real per-pixel blur,
+        // recomputed every frame for every rock), where this is just one
+        // more filled circle using a gradient already the same cost as
+        // the trail's.
         ctx.save();
         ctx.translate(m.x, m.y); ctx.rotate(m.spin);
-        ctx.fillStyle = '#ffdca8'; ctx.shadowColor = 'rgba(255,170,90,.9)'; ctx.shadowBlur = 6;
+        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, m.size * 3);
+        glow.addColorStop(0, 'rgba(255,190,120,.55)');
+        glow.addColorStop(1, 'rgba(255,190,120,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(0, 0, m.size * 3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffdca8';
         ctx.beginPath(); ctx.arc(0, 0, m.size * 1.6, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       });
@@ -4597,7 +4645,10 @@ import {
         y: mt * mt * v.y0 + 2 * mt * t * v.cy + t * t * v.y1
       };
     }
-    const vines = Array.from({ length: 5 }, () => Object.assign(spawnVine(), { t: Math.random() }));
+    // 4 vines instead of 5, and fewer bezier steps per stroke below —
+    // small trims that add up once several of these are on screen (the
+    // shared 30fps loop above is the main saving; this is the rest).
+    const vines = Array.from({ length: 4 }, () => Object.assign(spawnVine(), { t: Math.random() }));
     return function draw(ctx, _t, dt){
       ctx.clearRect(0, 0, w, h);
       vines.forEach(v => {
@@ -4613,7 +4664,7 @@ import {
         }
 
         const alpha = v.phase === 'fade' ? Math.max(0, v.t) : Math.min(1, v.t * 1.4);
-        const steps = 18;
+        const steps = 12;
         ctx.strokeStyle = `rgba(120,220,110,${0.75 * alpha})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -4651,11 +4702,12 @@ import {
   }
 
   // Finds any not-yet-activated canvas.card-fx-canvas elements under root
-  // and starts a self-contained rAF loop for each. Canvas backing size is
+  // and registers each with the shared loop above. Canvas backing size is
   // synced to its rendered box at activation time so it stays crisp across
   // both the small store-grid previews and the full-width equipped card.
   function activateCardFx(root){
     if (!root) return;
+    if (prefersReducedMotionCardFx) return;
     root.querySelectorAll('canvas.card-fx-canvas').forEach(canvas => {
       if (canvas._cardFx || !canvas.dataset.fxType) return;
       const w = Math.max(1, Math.round(canvas.clientWidth || canvas.width || 1));
@@ -4664,15 +4716,16 @@ import {
       const ctx = canvas.getContext('2d');
       const draw = makeCardFxDraw(canvas.dataset.fxType, w, h);
       if (!draw) return;
-      let raf = null, last = 0;
-      function tick(ts){
-        const dt = Math.min((ts - (last || ts)) / 1000, 0.1);
-        last = ts;
-        draw(ctx, ts / 1000, dt);
-        raf = requestAnimationFrame(tick);
-      }
-      if (!prefersReducedMotionCardFx) raf = requestAnimationFrame(tick);
-      canvas._cardFx = { stop(){ if (raf) cancelAnimationFrame(raf); ctx.clearRect(0, 0, w, h); } };
+      const entry = { ctx, draw };
+      cardFxRegistry.add(entry);
+      ensureCardFxLoopRunning();
+      canvas._cardFx = {
+        stop(){
+          cardFxRegistry.delete(entry);
+          ctx.clearRect(0, 0, w, h);
+          stopCardFxLoopIfIdle();
+        }
+      };
     });
   }
   function deactivateCardFx(root){
@@ -5200,7 +5253,7 @@ import {
       });
       const data = await res.json();
       if (!res.ok) {
-        showToast(data.error === 'You already own this decoration' ? 'Already in your collection' : 'Could not start checkout');
+        showToast(res.status === 409 ? 'Already in your collection' : 'Could not start checkout');
         return;
       }
       location.href = data.authorization_url;
