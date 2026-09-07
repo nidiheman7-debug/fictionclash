@@ -827,6 +827,7 @@ import {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
+      haptic('success');
       setReplyTarget(sourceForm, null);
       currentUserXp += 10;
       currentUserWeeklyXp += 10;
@@ -1316,6 +1317,7 @@ import {
     const m = matchups[activeIdx];
     const key = votedStateKey(m);
     if (votedState[key]) return; // already voted on this matchup
+    haptic('tap');
 
     if (m.docId) {
       // Community matchup — server-authoritative vote via /api/vote.
@@ -2112,6 +2114,7 @@ import {
 
     const previousUids = remoteLikeUids[key] || {};
     const liked = !previousUids[uid];
+    haptic('tap');
     const nextUids = { ...previousUids };
     if (liked) nextUids[uid] = true; else delete nextUids[uid];
     remoteLikeUids[key] = nextUids;
@@ -2776,6 +2779,21 @@ import {
     }[char]));
   }
 
+  // Short, subtle vibration feedback on key actions (vote, like, comment
+  // sent, redeem) — one of the cheapest "feels native" wins in a TWA.
+  // navigator.vibrate is Android/Chrome-only and silently does nothing on
+  // iOS Safari or if the user has vibration disabled, so this is always
+  // safe to call and never needs its own feature check at the call site.
+  // A couple of named patterns cover every case actually used below:
+  // 'tap' for an instant action (vote, like), 'success' for something that
+  // took a round trip and paid off (comment posted, item redeemed).
+  function haptic(kind){
+    if (!navigator.vibrate) return;
+    try {
+      navigator.vibrate(kind === 'success' ? [12, 40, 12] : 12);
+    } catch (err) { /* vibration is a nicety — never worth surfacing an error for */ }
+  }
+
   // Returns {uid, name, avatarUrl, decorationId} for the signed-in user (using their
   // saved profile name/picture where set), or null if signed out. A real
   // account is required to comment/post so the name + picture attached to
@@ -3244,6 +3262,7 @@ import {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
+      haptic('success');
       setReplyTarget(form, null);
       // Optimistic local bump so the progress bar feels live — the server
       // already awarded the real +10 XP.
@@ -5809,6 +5828,7 @@ import {
         if (type === 'decoration') equippedDecoration = nextValue;
         else equippedFont = nextValue;
         updateAccountHeader();
+        haptic('tap');
         showToast(nextValue ? `${item.name} equipped` : `${item.name} unequipped`);
         return;
       }
@@ -5836,6 +5856,7 @@ import {
       if (usesShards) seasonShards -= cost; else clashPoints -= cost;
       ownedList.push(id);
       renderCustomizationStore();
+      haptic('success');
       showToast(`${item.name} redeemed`);
     } catch (err) {
       if (err.message === 'not-enough-points') showToast(`Not enough ${currencyLabel}`);
