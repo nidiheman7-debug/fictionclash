@@ -18,7 +18,82 @@
   // with the keyboard instead of leaving a gap above it.
   function keyboardHeightPx(){
     if (!window.visualViewport) return 0;
-    return Math.max(0, window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop);
+    const kh = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
+    // Guard against transient nonsense (NaN, a wildly negative reading
+    // mid-animation, or — if some browser's window.innerHeight quietly
+    // shrinks too, despite the overlays-content meta tag — a value bigger
+    // than the screen itself, which would fling the bar off the top).
+    if (!Number.isFinite(kh)) return 0;
+    return Math.max(0, Math.min(kh, window.innerHeight * 0.75));
+  }
+
+  // Some Android WebViews / Samsung Internet builds fire visualViewport's
+  // `resize` event late, or not at all, while the keyboard animates in —
+  // leaving keyboardHeightPx() stuck reading a stale (often 0) value even
+  // though the keyboard is genuinely up, which pins the composer at
+  // literal bottom:0 — i.e. behind the keyboard, invisible. Polling every
+  // animation frame reads the *current* geometry directly instead of
+  // waiting for a notification that might not come, so the bar self-heals
+  // within a frame regardless of whether the event fired. Only runs while
+  // a comment field is actually focused (see dockCommentField/undock),
+  // so the cost is bounded to the moment someone's actively commenting.
+  function watchKeyboard(el, form, onDone){
+    let rafId = null;
+    let lastKh = -1;
+    let sawKeyboard = false;
+    const tick = () => {
+      // Self-heal: if focus moved off this field by any path we didn't
+      // catch elsewhere, stop and undock rather than polling forever.
+      if (document.activeElement !== el) { onDone(); return; }
+      const kh = keyboardHeightPx();
+      if (kh > 20) sawKeyboard = true;
+      // Android's back button (and some gesture-nav setups) can dismiss
+      // just the on-screen keyboard without ever blurring the input, so
+      // the focusout-based cleanup never runs. A small threshold (rather
+      // than an exact kh === 0) absorbs visualViewport rounding noise.
+      if (sawKeyboard && kh <= 3) { el.blur(); onDone(); return; }
+      if (kh !== lastKh) {
+        form.style.bottom = kh + 'px';
+        lastKh = kh;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => { if (rafId != null) cancelAnimationFrame(rafId); };
+  }
+
+  // The browser's native "scroll the focused input into view" doesn't
+  // only move window/document (which snapScrollToOrigin in
+  // viewport-height.js already handles) — it can just as easily scroll
+  // .phone-scroll or an open modal's own internal list, since those are
+  // real overflow:auto containers. Left alone, that's exactly what reads
+  // as "the page drags up too high and won't come back down": the list
+  // scrolls itself near-empty trying to hoist the input above a keyboard
+  // whose real height it doesn't know about yet. This snapshots every
+  // scrollable container that matters right as a comment field is
+  // focused, then forces them back for the next few frames — covering
+  // both the initial native jump and the keyboard's own open animation,
+  // without touching scroll positions once the user is actually typing.
+  function lockScrollPositions(){
+    const scrollers = [
+      document.querySelector('.phone-scroll'),
+      document.getElementById('commentsModalList')
+    ].filter(Boolean);
+    if (!scrollers.length) return () => {};
+    const snapshot = scrollers.map(el => ({ el, top: el.scrollTop }));
+    let frames = 0;
+    let rafId = null;
+    const restore = () => {
+      snapshot.forEach(s => { if (s.el.scrollTop !== s.top) s.el.scrollTop = s.top; });
+      frames++;
+      // ~20 frames covers the native scroll-into-view jump AND the
+      // keyboard's own slide-in animation on slower devices; after that
+      // we back off so a user's own deliberate scroll (once they're
+      // settled into typing) isn't fought.
+      if (frames < 20) rafId = requestAnimationFrame(restore);
+    };
+    restore();
+    return () => { if (rafId != null) cancelAnimationFrame(rafId); };
   }
 
   function dockCommentField(el){
@@ -26,66 +101,28 @@
     if (!form) return;
     form.classList.add('docked');
     document.body.classList.add('keyboard-open');
-    // The browser's own "scroll focused input into view" can fire async,
-    // a beat after focus — one immediate call plus one on the next frame
-    // catches it before it has a chance to leave the page shifted.
+    // One immediate call plus one on the next frame catches the native
+    // scroll-into-view before it has a chance to leave the page shifted;
+    // lockScrollPositions then keeps correcting it for the frames after.
     if (window.snapScrollToOrigin) {
       window.snapScrollToOrigin();
       requestAnimationFrame(window.snapScrollToOrigin);
     }
-    // Tracks whether we've actually seen the keyboard open during this
-    // dock session, so the very first reposition() call below (fired
-    // before the keyboard has animated in, when its height briefly reads
-    // 0) doesn't get mistaken for "the keyboard just closed" and undock
-    // the bar the instant it was docked.
-    let sawKeyboard = false;
-    const reposition = () => {
-      // Self-heal first: if focus has moved off this field by any path
-      // we didn't catch (the exact-zero keyboard check below used to be
-      // the only guard, and floating-point/offsetTop rounding could mean
-      // the keyboard height settles at 1-3px instead of a clean 0 — never
-      // tripping it, leaving the bar docked and body.keyboard-open stuck
-      // forever). Checking activeElement here too closes that gap: any
-      // resize event after focus has genuinely moved is now enough to
-      // clean up, regardless of what the keyboard height reads.
-      if (document.activeElement !== el) {
-        document.body.classList.remove('keyboard-open');
-        undockCommentField(form);
-        return;
-      }
-      const phone = document.querySelector('.phone');
-      if (phone) {
-        const phoneRect = phone.getBoundingClientRect();
-        form.style.left = phoneRect.left + 'px';
-        form.style.width = phoneRect.width + 'px';
-      }
-      const kh = keyboardHeightPx();
-      if (kh > 20) sawKeyboard = true;
-      // Android's back button (and some gesture-nav setups) can dismiss
-      // just the on-screen keyboard without ever blurring the input, so
-      // the focusout-based cleanup below never runs. Left alone, the bar
-      // stayed pinned at the last keyboard height it saw — floating in
-      // the middle of the screen instead of sitting at the bottom. If the
-      // keyboard we were tracking has genuinely closed, treat it the same
-      // as the field losing focus. A small threshold (rather than an
-      // exact kh === 0) absorbs the visualViewport rounding noise that
-      // let this get stuck in the first place.
-      if (sawKeyboard && kh <= 3) {
-        document.activeElement === el && el.blur();
-        document.body.classList.remove('keyboard-open');
-        undockCommentField(form);
-        return;
-      }
-      form.style.bottom = kh + 'px';
-    };
-    reposition();
-    // The keyboard animates in over the next couple hundred ms, firing
-    // several visualViewport resize events as it does — react to those
-    // instead of a single fixed-delay guess, so the bar lands right above
-    // the keyboard regardless of device/animation speed.
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', reposition);
-      form._undock = () => window.visualViewport.removeEventListener('resize', reposition);
+    const stopScrollLock = lockScrollPositions();
+    const stopKeyboardWatch = watchKeyboard(el, form, () => {
+      document.body.classList.remove('keyboard-open');
+      undockCommentField(form);
+    });
+    form._undock = () => { stopScrollLock(); stopKeyboardWatch(); };
+    // Cosmetic left/width match to .phone's own edges (so the bar doesn't
+    // span the full browser window on the desktop preview) — doesn't
+    // affect vertical positioning, which is entirely the keyboard watch's
+    // job above.
+    const phone = document.querySelector('.phone');
+    if (phone) {
+      const phoneRect = phone.getBoundingClientRect();
+      form.style.left = phoneRect.left + 'px';
+      form.style.width = phoneRect.width + 'px';
     }
   }
 
@@ -97,7 +134,7 @@
     form.style.width = '';
     if (form._undock) { form._undock(); form._undock = null; }
     // Same reasoning as on dock: the keyboard closing can leave the page
-    // shifted a beat after we've already stopped watching for it.
+    // (or an inner scroller) shifted a beat after we've stopped watching.
     if (window.snapScrollToOrigin) {
       window.snapScrollToOrigin();
       requestAnimationFrame(window.snapScrollToOrigin);
