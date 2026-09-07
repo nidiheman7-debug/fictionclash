@@ -26,6 +26,13 @@
     if (!form) return;
     form.classList.add('docked');
     document.body.classList.add('keyboard-open');
+    // The browser's own "scroll focused input into view" can fire async,
+    // a beat after focus — one immediate call plus one on the next frame
+    // catches it before it has a chance to leave the page shifted.
+    if (window.snapScrollToOrigin) {
+      window.snapScrollToOrigin();
+      requestAnimationFrame(window.snapScrollToOrigin);
+    }
     // Tracks whether we've actually seen the keyboard open during this
     // dock session, so the very first reposition() call below (fired
     // before the keyboard has animated in, when its height briefly reads
@@ -89,6 +96,12 @@
     form.style.left = '';
     form.style.width = '';
     if (form._undock) { form._undock(); form._undock = null; }
+    // Same reasoning as on dock: the keyboard closing can leave the page
+    // shifted a beat after we've already stopped watching for it.
+    if (window.snapScrollToOrigin) {
+      window.snapScrollToOrigin();
+      requestAnimationFrame(window.snapScrollToOrigin);
+    }
   }
 
   document.addEventListener('focusin', event => {
