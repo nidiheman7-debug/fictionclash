@@ -1,11 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Bangers&family=Bungee&family=Cinzel+Decorative:wght@700&family=Creepster&family=Instrument+Sans:wght@400;500;600;700&family=Luckiest+Guy&family=Martian+Mono:wght@400;600&family=Permanent+Marker&family=Rajdhani:wght@500;600;700&family=Russo+One&display=swap');
 
   :root{
-    --bg:#1c1d23;
-    --bg-rgb:28,29,35;
-    --surface:#232429;
-    --surface2:#2b2c33;
-    --line:#3a3b42;
+    --bg:#111217;
+    --bg-rgb:17,18,23;
+    --surface:#1a1b20;
+    --surface2:#212228;
+    --line:#34353c;
     --ember:#E4A929;
     --ember-dim:#6B4A0E;
     --navy:#141008;
