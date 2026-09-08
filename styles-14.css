@@ -1,0 +1,1814 @@
+@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Bungee&family=Cinzel+Decorative:wght@700&family=Creepster&family=Instrument+Sans:wght@400;500;600;700&family=Luckiest+Guy&family=Martian+Mono:wght@400;600&family=Permanent+Marker&family=Rajdhani:wght@500;600;700&family=Russo+One&display=swap');
+
+  :root{
+    --bg:#111217;
+    --bg-rgb:17,18,23;
+    --surface:#1a1b20;
+    --surface2:#212228;
+    --line:#34353c;
+    --ember:#E4A929;
+    --ember-dim:#6B4A0E;
+    --navy:#141008;
+    --surface-veil:rgba(28,29,35,.95);
+    --cyan:#22D3D8;
+    /* Indirection layer: every accent surface below reads --accent-bg
+       (fills) or --accent (single-color contexts) instead of --ember
+       directly. By default both just equal --ember, so every existing
+       theme swatch (gold/blue/green/red/purple/crimson/mono) renders
+       exactly as before. The "Fire & Ice" theme is the one swatch that
+       overrides these two — see body.theme-fireice below — swapping in
+       a two-tone gradient for fills and a fused blend for single-color
+       accents, without touching any other theme's look. */
+    --accent-bg:var(--ember);
+    --accent:var(--ember);
+    --text:#fff;
+    --muted:#999;
+  }
+  /* Fire & Ice theme: two hues meeting without fully blending — a hard
+     band of each color with a short mixed seam between them for solid
+     fills, plus a fully-fused solid (true color-mix) for text, borders,
+     icons, and shadows where a gradient can't render. */
+  body.theme-fireice{
+    --accent-bg:linear-gradient(135deg,var(--ember) 0%,color-mix(in srgb,var(--ember),var(--cyan)) 50%,var(--cyan) 100%);
+    --accent:color-mix(in srgb,var(--ember),var(--cyan));
+  }
+  /* Season reskins layer on top of everything above — same indirection
+     trick as theme-fireice, but also swaps --bg (deeper base color) and
+     layers hero art behind the phone frame's content. Only one
+     body.season-* class is ever active at a time (applySeason() removes
+     the others), driven by appConfig/activeSeason in Firestore so it's
+     live for every user without a redeploy. Un-set (no active season) ==
+     none of these classes present == app looks exactly as it does today. */
+  body.season-anime{
+    --bg:#12081F;
+    --bg-rgb:18,8,31;
+    --accent-bg:linear-gradient(135deg,#FF3D7A 0%,#C93DA8 50%,#00E5FF 100%);
+    --accent:color-mix(in srgb,#FF3D7A,#00E5FF);
+  }
+  body.season-anime .phone{
+    background-image:linear-gradient(180deg,rgba(18,8,31,.55) 0%,rgba(18,8,31,.85) 40%,var(--bg) 75%),url('/public/seasons/anime/hero-bg.png?v=2');
+    background-size:cover;
+    background-position:top center;
+    background-repeat:no-repeat;
+  }
+  /* Light theme swaps --bg to a near-white color (see body.light below),
+     but this rule's higher specificity (two classes) always wins over
+     both single-class rules regardless of source order — so the dark
+     purple overlay above never survives into light mode. Without this,
+     a dark, busy hero image sat directly under near-black body text with
+     no transition, which read as broken rather than styled. This fades
+     in sooner and ties the overlay tint to --bg itself (via color-mix)
+     so it always matches whatever light looks like, not a hardcoded hex. */
+  /* Only the anime season's light mode gets this override — its --bg
+     becomes a warm pale pink/lavender lifted from the hero art's cherry
+     blossoms and moonlit stone, instead of the app-wide neutral gray-white,
+     so the light theme actually reads as "this season" instead of a
+     generic light background. */
+  body.season-anime.light{
+    --bg:#f7edf1;
+    --bg-rgb:247,237,241;
+  }
+  body.season-anime.light .phone{
+    background-image:linear-gradient(180deg,color-mix(in srgb,var(--bg) 12%,transparent) 0%,color-mix(in srgb,var(--bg) 45%,transparent) 38%,color-mix(in srgb,var(--bg) 78%,transparent) 65%,var(--bg) 88%),url('/public/seasons/anime/hero-bg.png?v=2');
+  }
+  /* The hero image is always colorful/dark regardless of theme, so the
+     header text sitting on it needs to stay light in both themes rather
+     than switching to near-black in light mode along with the rest of
+     the app's text. */
+  body.season-anime .movies-kicker,
+  body.season-anime .movies-title{
+    color:#fff;
+    text-shadow:0 2px 10px rgba(0,0,0,.55);
+  }
+  body.season-anime .wordmark,
+  body.season-anime .brand-small{
+    font-family:'Russo One',sans-serif;
+  }
+  /* Season-anime gradient borders — traces the season's signature
+     pink→purple→cyan gradient around the app's main card containers
+     (matchup cards, clip cards, avatar-store cards) instead of the flat
+     --line color. Uses the layered-background trick (an inner solid/art
+     layer clipped to padding-box, plus --accent-bg clipped to border-box)
+     rather than border-image, since border-image ignores border-radius
+     and would square off these cards' rounded corners. */
+  body.season-anime .trend-card,
+  body.season-anime .clip-card,
+  body.season-anime .clip-uploader,
+  body.season-anime .account-card,
+  body.season-anime .account-banner,
+  body.season-anime .modal-sheet,
+  body.season-anime .hero{
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/anime/battle-card-bg.jpg');
+    background-size:cover;
+    background-position:center;
+    background-repeat:no-repeat;
+  }
+  body.season-anime .trend-card,
+  body.season-anime .clip-card,
+  body.season-anime .clip-uploader{
+    border:1px solid transparent;
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/anime/battle-card-bg.jpg'),
+      var(--accent-bg);
+    background-origin:padding-box, padding-box, border-box;
+    background-clip:padding-box, padding-box, border-box;
+    background-size:auto, cover, auto;
+    background-position:left top, center, left top;
+    background-repeat:no-repeat, no-repeat, no-repeat;
+  }
+  /* .hero-vs sits nested inside .hero and has its own body.light override
+     (see body.light .hero-vs further down) at the same specificity — so a
+     plain body.season-anime rule for it would lose that tie-break whenever
+     light+anime are both active. Chaining both classes on one selector
+     raises specificity just enough to always win, regardless of source
+     order, so the art shows correctly in both anime-season light and dark. */
+  body.season-anime.light .hero,
+  body.season-anime.light .hero-vs{
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/anime/battle-card-bg.jpg');
+    background-size:cover; background-position:center; background-repeat:no-repeat;
+  }
+  body.season-anime .hero-vs{
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/anime/battle-card-bg.jpg');
+    background-size:cover; background-position:center; background-repeat:no-repeat;
+  }
+  body.season-anime .profile-store-item{
+    border:1px solid transparent;
+    background-image:linear-gradient(var(--surface),var(--surface)), var(--accent-bg);
+    background-origin:padding-box, border-box;
+    background-clip:padding-box, border-box;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+   html{
+     height:100%;
+     overflow:hidden;
+   }
+   body{
+     background:var(--bg);
+    display:flex;
+    justify-content:center;
+    padding:32px 12px;
+    font-family:'Instrument Sans',sans-serif;
+     height:100vh;
+     height:100dvh;
+     overflow:hidden;
+  }
+  svg{ display:block; }
+
+  #appLoadingScreen{
+    position:fixed; inset:0; z-index:100000;
+    background:var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    transition:opacity .5s ease;
+  }
+  #appLoadingScreen.is-hidden{ opacity:0; pointer-events:none; }
+  #appLoadingText{
+    font-family:'Russo One',sans-serif;
+    font-size:22px;
+    letter-spacing:2px;
+    text-transform:uppercase;
+    background:var(--accent-bg);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+
+  .phone{
+     width:390px;
+     height:calc(100vh - 64px);
+     height:calc(100dvh - 64px);
+    background:var(--bg);
+    color:var(--text);
+    border-radius:36px;
+    overflow:hidden;
+    box-shadow:0 40px 80px rgba(0,0,0,.7);
+     border:8px solid #000;
+     position:relative;
+  }
+  .phone-scroll{
+    width:100%; height:100%;
+    overflow-y:auto;
+    overflow-x:hidden;
+    scrollbar-width:none;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior-y:contain;
+    scroll-behavior:smooth;
+    /* Tells the browser up front that this container only ever pans
+       vertically, so it doesn't have to wait out its usual touch-event
+       grace period (checking for a possible horizontal swipe/pinch)
+       before committing to a scroll — that wait is a small but real
+       delay on every touch-scroll start. */
+    touch-action:pan-y;
+    display:flex;
+    flex-direction:column;
+  }
+  .phone-scroll::-webkit-scrollbar{ display:none; }
+  /* .bottomnav is now position:absolute (see .bottomnav above) and no
+     longer takes up space in the document flow, so without this the last
+     bit of whatever section is showing would render underneath it. This
+     reserves roughly the nav's own rendered height (icon + label + its
+     vertical padding) plus the device's safe-area inset so nothing sits
+     behind it, on any tab. */
+  .phone-main{ flex:1 0 auto; display:flex; flex-direction:column; padding-bottom:calc(100px + env(safe-area-inset-bottom, 0px)); }
+
+   .topbar{
+     position:sticky; top:0; z-index:10;
+    display:flex; justify-content:space-between; align-items:center;
+     padding:14px 20px 34px;
+      background:linear-gradient(180deg,var(--bg) 0%,var(--bg) 55%,rgba(var(--bg-rgb),0) 100%);
+      margin-bottom:-24px;
+      isolation:isolate;
+  }
+  .wordmark{
+     font-family:'Rajdhani',sans-serif; font-weight:700;
+     font-size:18px;
+    letter-spacing:.5px;
+  }
+   .wordmark{display:flex;align-items:center;gap:8px;line-height:.95;}
+   .logo-badge{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border:2px solid var(--accent);border-radius:50%;flex-shrink:0;color:var(--accent);}
+   .logo-badge svg{width:19px;height:19px;display:block;}
+   .logo-badge .logo-hilt{fill:var(--accent);}
+   .wordmark span{color:var(--text);display:block;font-size:17px;}
+   .brand-small{display:block;font-family:'Instrument Sans',sans-serif;font-size:8px;font-weight:700;letter-spacing:.5px;color:var(--accent);margin-top:3px;}
+  /* quick actions — overlapping ring (swipeable), same three targets
+     (#qaVote/#qaCompare/#qaLeaderboard) as before, just repositioned
+     instead of laid out in a row. The elements themselves are never
+     destroyed/recreated (see js/qa-ring.js), so whatever click handlers
+     app.js already attached to them keep working untouched. */
+  .quick-actions{
+    display:flex; flex-direction:column; align-items:center;
+    padding:18px 0 6px;
+  }
+  .qa-track{
+    position:relative; width:276px; height:132px;
+    touch-action:pan-y; -webkit-user-select:none; user-select:none;
+  }
+  .qa{
+    position:absolute; top:0; width:120px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:8px;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+    transition:left .32s cubic-bezier(.2,.7,.3,1), transform .32s cubic-bezier(.2,.7,.3,1), opacity .32s ease;
+  }
+  .qa-pos-center{ left:78px; transform:scale(1); opacity:1; z-index:3; }
+  .qa-pos-left{ left:0; transform:scale(.82); opacity:.5; z-index:2; }
+  .qa-pos-right{ left:156px; transform:scale(.82); opacity:.5; z-index:2; }
+  .qa-pos-center:active .qa-icon{ transform:scale(.94); }
+  .qa-icon{ transition:transform .12s ease; }
+  .qa-icon{
+     width:86px; height:86px;
+    border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .qa-icon.filled{
+     background:var(--accent-bg);
+     border:2px solid var(--accent);
+  }
+   .qa-icon.filled svg{ stroke:var(--text); }
+  .qa-icon.outline{
+     border:2px solid var(--accent);
+     background:transparent;
+  }
+  .qa-icon.outline svg{ stroke:var(--text); }
+  .qa-label{
+     font-size:11.5px; font-weight:800; text-align:center; line-height:1.25; color:var(--text);
+  }
+  .qa-dots{ display:flex; gap:6px; margin-top:4px; }
+  .qa-dot{
+    width:6px; height:6px; border-radius:50%; background:var(--line);
+    transition:background .25s ease, width .25s ease; cursor:pointer;
+  }
+  .qa-dot.active{ background:var(--accent); width:16px; border-radius:3px; }
+
+  /* hero */
+  .hero{
+     margin:24px 12px 0;
+    border-radius:22px;
+    overflow:hidden;
+     background-image:linear-gradient(180deg,rgba(43,44,51,.95) 0%,rgba(28,29,35,.95) 100%), url('/icons/intro-collage.webp');
+     background-size:cover; background-position:center; background-repeat:no-repeat;
+     border:1px solid var(--line);
+  }
+  .hero-vs{
+    position:relative;
+    height:220px;
+    display:flex;
+     background-image:radial-gradient(circle at 50% 0%,rgba(52,53,61,.95) 0%,rgba(28,29,35,.95) 68%), url('/icons/intro-collage.webp');
+     background-size:cover; background-position:center; background-repeat:no-repeat;
+     height:178px;
+  }
+  .side{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    justify-content:flex-end;
+    align-items:center;
+    padding-bottom:14px;
+  }
+  .avatar{
+     width:82px; height:82px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Rajdhani',sans-serif; font-weight:700;
+    font-size:24px;
+    margin-bottom:10px;
+     border:3px solid rgba(255,255,255,.75);
+  }
+   .avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;}
+   .avatar.hi{ background:var(--accent-bg); color:#0A0806; }
+   .avatar.lo{ background:var(--ember-dim); color:#fff; }
+   .char-avatar-wrap{ position:relative; display:inline-block; }
+   .char-avatar-wrap .avatar-edit-btn{ bottom:8px; right:-4px; }
+   /* Lets a viewer's own equipped decoration/font show on the matchup hero
+      avatars — this is purely a personal skin (see renderHeroCharacterCosmetics):
+      it never gets written anywhere, so nobody else viewing the same
+      character sees it. Needs its own position:relative rather than relying
+      on .char-avatar-wrap, since the wrap's box also includes the avatar's
+      margin-bottom and would throw off the decoration overlay's alignment. */
+   .char-avatar-wrap .avatar{ position:relative; }
+   .char-avatar-wrap .avatar.has-decoration{ overflow:visible; }
+  .char-name{
+    font-size:12.5px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+  }
+  .char-sub{
+    font-size:10.5px; color:var(--muted); margin-top:2px;
+  }
+  .vs-badge{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:48px; height:48px; border-radius:50%;
+     background:var(--bg); border:2px solid var(--text);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Rajdhani',sans-serif; font-weight:700;
+    font-size:13px;
+     color:var(--text);
+    z-index:3;
+  }
+  .live-tag{
+    position:absolute; top:8px; left:8px;
+     background:var(--surface2); color:var(--accent);
+    font-size:8px; font-weight:800; letter-spacing:.6px;
+    padding:5px 10px; border-radius:20px;
+    display:flex; align-items:center; gap:6px;
+     border:1px solid var(--line);
+    z-index:3;
+  }
+   .live-dot{width:6px;height:6px;border-radius:50%;background:var(--accent-bg);}
+  .hero-delete-btn{
+    position:absolute; top:8px; right:8px; z-index:3;
+    width:26px; height:26px; border-radius:50%; border:1px solid var(--line);
+    background:var(--surface2); color:var(--muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .hero-delete-btn:active{ transform:scale(.9); }
+  .hero-delete-btn.hidden{ display:none; }
+  body.light .hero-delete-btn{border-color:var(--line);}
+  .hero-decorate-btn{
+    position:absolute; top:8px; right:40px; z-index:3;
+    width:26px; height:26px; border-radius:50%; border:1px solid var(--line);
+    background:var(--surface2); color:var(--muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .hero-decorate-btn:active{ transform:scale(.9); }
+  body.light .hero-decorate-btn{border-color:var(--line);}
+
+  .hero-decorate-section{ margin:16px 0; }
+  .hero-decorate-charname{
+    font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.4px;
+    color:var(--muted); margin-bottom:10px;
+  }
+  .hero-decorate-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px 8px; }
+  .hero-decorate-item{
+    display:flex; flex-direction:column; align-items:center; gap:5px; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .hero-decorate-item:active .hero-decorate-swatch{ transform:scale(.94); }
+  .hero-decorate-swatch{
+    position:relative; width:44px; height:44px; border-radius:50%;
+    background:linear-gradient(155deg,#2a2a2a,#111); border:2px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-size:14px; color:#666;
+    transition:border-color .15s ease, transform .1s ease;
+  }
+  .hero-decorate-item.selected .hero-decorate-swatch{ border-color:var(--accent); color:var(--accent); }
+  .hero-decorate-swatch .profile-deco{ inset:-3px; }
+  .hero-decorate-label{ font-size:8.5px; color:var(--muted); text-align:center; line-height:1.2; }
+  .hero-decorate-empty-hint{ font-size:10.5px; color:var(--muted); margin-top:6px; }
+
+  .hero-body{ padding:16px 18px 18px; }
+  .hero-title{
+    font-family:'Rajdhani',sans-serif; font-weight:700;
+     font-size:24px;
+    line-height:1.15;
+    margin-bottom:6px;
+     color:var(--text);
+  }
+  .hero-sub{
+     font-size:13px; color:var(--muted); line-height:1.4; margin-bottom:14px;
+  }
+  .vote-row{ display:flex; gap:10px; }
+  .vote-btn{
+    flex:1; text-align:center;
+    padding:12px 0;
+    border-radius:14px;
+    font-weight:800; font-size:13px;
+    font-family:'Instrument Sans',sans-serif;
+    cursor:pointer;
+    user-select:none;
+    transition:transform .12s ease, opacity .2s ease;
+    position:relative;
+  }
+  .vote-btn:active{ transform:scale(.96); }
+   .vote-btn.hi{ background:var(--accent-bg); color:#0A0806; }
+  .vote-btn.lo{ background:transparent; color:var(--text); border:1.5px solid var(--line); }
+  .vote-row.voted .vote-btn{ cursor:default; }
+  .vote-row.voted .vote-btn:active{ transform:none; }
+  .vote-row.voted .vote-btn:not(.picked){ opacity:.55; }
+  .vote-btn.picked{ box-shadow:0 0 0 2px var(--accent) inset; }
+  .vote-btn .check{ margin-left:6px; }
+  .vote-split{
+    display:flex; height:5px; border-radius:6px; overflow:hidden; margin-top:12px;
+     background:var(--surface2);
+  }
+   .vote-split .hi-bar{ background:var(--accent-bg); width:57%; transition:width .5s ease; }
+  .vote-pct{
+    display:flex; justify-content:space-between;
+    font-family:'Martian Mono',monospace;
+    font-size:11px; color:var(--muted); margin-top:6px;
+  }
+   .ai-stats-panel{
+     margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:12px;
+     background:linear-gradient(145deg,var(--surface),rgba(207,67,46,.08));
+   }
+   .ai-stats-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+   .ai-stats-label{color:var(--accent);font:700 9px 'Martian Mono',monospace;letter-spacing:1.5px;}
+   .ai-stats-button{
+     border:1px solid var(--accent);background:transparent;color:var(--accent);
+     border-radius:8px;padding:7px 9px;font-size:10px;font-weight:800;cursor:pointer;
+     display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;
+   }
+   .ai-stats-button:active{transform:scale(.97);}
+   .ai-stats-result{font-size:11px;line-height:1.4;color:var(--muted);}
+   .ai-stats-result strong{display:block;color:var(--text);font-family:'Rajdhani',sans-serif; font-weight:700;font-size:14px;margin-bottom:4px;}
+   .ai-stat-bars{display:grid;gap:6px;margin-top:9px;}
+   .ai-stat-row{display:grid;grid-template-columns:58px 1fr 58px;align-items:center;gap:6px;font:9px 'Martian Mono',monospace;}
+   .ai-stat-row span:last-child{text-align:right;}
+   .ai-stat-track{height:11px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;flex-direction:column;gap:1px;}
+   .ai-stat-fill-a,.ai-stat-fill-b{height:5px;border-radius:3px;}
+   .ai-stat-fill-a{background:var(--accent-bg);}
+   .ai-stat-fill-b{background:var(--muted);}
+
+  /* section */
+  .section-head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:22px 20px 10px;
+  }
+  .section-title{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; }
+  .section-link{ font-size:11.5px; color:var(--muted); font-weight:700; cursor:pointer; }
+
+  .trend-scroll{
+    display:flex; gap:12px; padding:0 20px 20px;
+    overflow-x:auto;
+  }
+  .trend-card{
+    min-width:148px;
+    border-radius:16px;
+    padding:12px;
+     border:1px solid var(--line);
+     cursor:pointer;
+     -webkit-tap-highlight-color:transparent;
+     transition:transform .12s ease, border-color .2s ease;
+     background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size: cover; background-position: center; background-repeat: no-repeat;
+  }
+  .trend-card:active{ transform:scale(.96); }
+  .trend-card.active-card{ border-color:var(--accent); }
+  .trend-vs{ display:flex; align-items:center; gap:6px; margin-bottom:8px;}
+  .mini-avatar{
+    width:32px;height:32px;border-radius:50%;
+    font-family:'Rajdhani',sans-serif; font-weight:700; font-size:11px;
+    display:flex;align-items:center;justify-content:center;
+  }
+   .mini-avatar.hi{ background:var(--accent-bg); color:#0A0806; }
+  .mini-avatar.lo{ background:var(--ember-dim); color:var(--text); }
+  .mini-vs{ font-family:'Martian Mono',monospace; font-size:10px; color:var(--muted); }
+  .trend-label{ font-size:11.5px; font-weight:700; line-height:1.3; }
+  .trend-votes{ font-family:'Martian Mono',monospace; font-size:10px; color:var(--muted); margin-top:6px; }
+
+   /* movie clips */
+   .movies-section{
+     padding:22px 14px 34px;
+   }
+   .movies-section.hidden{ display:none; }
+   .movies-kicker{
+     color:var(--accent); font-family:'Martian Mono',monospace; font-size:10px;
+     font-weight:700; letter-spacing:3px; margin-bottom:10px;
+   }
+   .movies-title{
+     font-family:'Rajdhani',sans-serif; font-weight:700; font-size:25px; line-height:1.05;
+     margin-bottom:8px;
+   }
+   .movies-intro{
+     color:var(--muted); font-size:12.5px; line-height:1.45; margin-bottom:18px;
+   }
+   .clip-uploader, .clip-card{
+     border:1px solid var(--line); border-radius:16px;
+     padding:14px; margin-bottom:14px;
+     background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size: cover; background-position: center; background-repeat: no-repeat;
+   }
+   /* Offscreen clip cards skip layout/paint until they're about to enter
+      view — keeps scrolling smooth as the feed grows instead of the
+      browser rendering every card (with its particle canvases, video
+      posters, comment threads) all at once. */
+   .clip-card{ content-visibility:auto; contain-intrinsic-size:0 420px; }
+   .movies-header-row{
+     display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+   }
+   .post-clip-btn{
+     flex-shrink:0; border:0; border-radius:12px; background:var(--accent-bg); color:#0A0806;
+     padding:11px 15px; font:700 12px 'Rajdhani',sans-serif; cursor:pointer;
+     white-space:nowrap; margin-top:2px;
+   }
+   .post-clip-btn:active{ transform:scale(.97); }
+   .clip-uploader h3{
+     font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; margin-bottom:5px;
+   }
+   .clip-uploader p{ color:var(--muted); font-size:11px; margin-bottom:13px; }
+   .file-drop{
+     display:flex; align-items:center; justify-content:center; gap:10px;
+     min-height:72px; border:1px dashed var(--accent); border-radius:12px;
+     color:var(--accent); font-size:12px; font-weight:800; cursor:pointer;
+     text-align:center; padding:12px;
+   }
+   .file-drop input{ display:none; }
+   .file-name{
+     color:var(--muted); font-size:10.5px; margin:9px 0 12px;
+     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+   }
+   .clip-field{
+     width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line);
+     border-radius:10px; padding:11px 12px; margin-bottom:9px;
+     font:12px 'Instrument Sans',sans-serif; outline:none;
+   }
+   .clip-field:focus{ border-color:var(--accent); }
+   textarea.clip-field{ min-height:74px; resize:vertical; }
+   .clip-submit{
+     width:100%; border:0; border-radius:10px; background:var(--accent-bg);
+     color:#0A0806; padding:12px; font:700 12px 'Rajdhani',sans-serif; cursor:pointer;
+     display:flex;align-items:center;justify-content:center;gap:8px;
+   }
+   .clip-submit:active{ transform:scale(.98); }
+   .submit-avatar-picker{
+     display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:2px;
+   }
+   .submit-avatar-preview{
+     width:36px; height:36px; border-radius:50%; flex-shrink:0;
+     border:1px dashed var(--accent); display:flex; align-items:center; justify-content:center;
+     font-size:8px; font-weight:800; color:var(--accent); overflow:hidden; background:var(--surface2);
+     text-align:center; line-height:1.1;
+   }
+   .submit-avatar-preview img{ width:100%; height:100%; object-fit:cover; display:block; }
+   .clip-card video{
+     width:100%; max-height:190px; display:block; background:#000; border-radius:10px;
+     margin-bottom:12px;
+   }
+
+   /* Cards no longer embed a live video/iframe player at all — that's what
+      let two clips end up playing at once with no way to stop one when the
+      other started. Instead each card shows a static poster with a play
+      button; tapping it opens the single shared full-screen reels player
+      below, which is the only place video ever actually plays. */
+   .clip-thumb{
+     position:relative; width:100%; padding-top:56.25%; margin-bottom:12px;
+     border-radius:10px; overflow:hidden; background:#111 center/cover no-repeat; cursor:pointer;
+   }
+   .clip-play-btn{
+     position:absolute; inset:0; margin:auto; width:52px; height:52px; border-radius:50%;
+     background:rgba(0,0,0,.55); border:2px solid #fff; color:#fff;
+     display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
+   }
+   .clip-play-btn svg{ margin-left:3px; }
+   .clip-card h3{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; margin-bottom:5px; }
+   .clip-review{ color:var(--muted); font-size:12px; line-height:1.45; margin-bottom:13px; }
+   .clip-meta{
+     display:flex; justify-content:space-between; align-items:center; color:var(--muted);
+     font:10px 'Martian Mono',monospace; margin-bottom:11px;
+   }
+   .comments-title{
+     border-top:1px solid var(--line); padding-top:11px; margin-top:14px; margin-bottom:9px;
+     font-size:11px; font-weight:800; letter-spacing:.8px; text-transform:uppercase;
+   }
+   .clip-delete-btn{
+     background:none; border:0; padding:0; color:var(--muted);
+     font:10px 'Martian Mono',monospace; text-decoration:underline; cursor:pointer;
+   }
+   .clip-delete-btn:active{ opacity:.6; }
+   .comment{
+     display:flex; gap:11px; padding:13px 0; border-bottom:1px solid rgba(255,255,255,.07);
+     contain:content;
+   }
+   .comment-reply-quote{
+     display:flex;align-items:center;gap:6px;position:relative;
+     font-size:10.5px;color:var(--muted);margin-bottom:3px;padding-left:14px;opacity:.9;
+   }
+   .comment-reply-quote b{color:var(--text);font-weight:700;}
+   .reply-connector{
+     position:absolute;left:0;top:50%;width:10px;height:12px;
+     border-left:2px solid var(--line);border-top:2px solid var(--line);
+     border-top-left-radius:6px;
+   }
+   .reply-quote-avatar{
+     width:16px;height:16px;border-radius:50%;flex-shrink:0;overflow:hidden;
+     display:flex;align-items:center;justify-content:center;
+     background:var(--accent-bg);color:#0A0806;font-size:7px;font-weight:800;
+   }
+   .reply-quote-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+   .comment-reply-btn{
+     display:block;margin-top:3px;background:none;border:0;padding:0;
+     color:var(--accent);font:700 10px 'Instrument Sans',sans-serif;cursor:pointer;
+   }
+   .reply-target-bar{
+     display:flex;align-items:center;justify-content:space-between;gap:8px;
+     background:var(--surface2);border-left:3px solid var(--accent);border-radius:6px;
+     padding:6px 9px;margin-bottom:7px;font-size:10.5px;color:var(--muted);
+     flex-basis:100%;order:-1;
+   }
+   .reply-target-info{display:flex;align-items:center;gap:7px;min-width:0;}
+   .reply-target-bar b{color:var(--text);}
+   .reply-target-clear{
+     background:none;border:0;color:var(--muted);font-size:15px;line-height:1;
+     cursor:pointer;flex-shrink:0;padding:0 2px;
+   }
+   .comment-avatar{
+     width:32px; height:32px; border-radius:50%; flex-shrink:0; display:flex;
+     align-items:center; justify-content:center; background:var(--accent-bg);
+     color:#0A0806; font-size:12px; font-weight:800; overflow:hidden;
+     margin-left:6px; cursor:pointer; -webkit-tap-highlight-color:transparent;
+   }
+   .comment-avatar:active{ transform:scale(.92); }
+   .comment-avatar.has-decoration{position:relative;overflow:visible;}
+   .comment-avatar .profile-deco{inset:-2px;}
+   .comment-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }
+   /* Discord-style profile card, opened by tapping a comment (or
+      leaderboard) avatar — see #userProfileOverlay + openUserProfileCard(). */
+   .user-profile-card{ position:relative; overflow:hidden; border-radius:12px; display:flex; flex-direction:column; align-items:center; text-align:center; padding:0 4px 6px; }
+   /* Cover-photo banner, same idea as .account-banner on the Account page —
+      falls back to the same default collage art when the tapped account
+      has no cover photo saved, so the card never looks unfinished. */
+   .user-profile-banner{
+     width:calc(100% + 8px); margin:0 -4px; height:140px; position:relative; z-index:1;
+     background-image:linear-gradient(var(--surface-veil),var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size:cover; background-position:center; background-repeat:no-repeat;
+   }
+   /* Card effect canvas for the tapped-user card (see .card-fx-canvas
+      below for the shared position/blend rules) — its content needs to
+      paint above the plain z-index:2 canvas the same way account-hero-body
+      does, except for Abyssal Depths' .submerged variant, which is
+      *meant* to sit above and tint everything (see .submerged below). */
+   .user-profile-card > *:not(.card-fx-canvas):not(.user-profile-banner){ position:relative; z-index:3; }
+   .user-profile-avatar{
+     position:relative; width:72px; height:72px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+     background:var(--accent-bg); color:#0A0806; font:26px 'Instrument Sans',sans-serif; overflow:hidden;
+     border:3px solid var(--surface); box-shadow:0 0 0 1px var(--line); margin-bottom:10px; margin-top:-36px;
+   }
+   .user-profile-avatar.has-decoration{ overflow:visible; }
+   .user-profile-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; position:relative; z-index:2; }
+   .user-profile-avatar .profile-deco{ inset:-3px; }
+   .user-profile-name{
+     display:flex; align-items:center; justify-content:center; gap:5px;
+     font-family:'Rajdhani',sans-serif; font-weight:700; font-size:18px;
+   }
+   .user-profile-name .verified-badge{ width:15px; height:15px; }
+   .user-profile-handle{ color:var(--muted); font-size:11.5px; margin-top:2px; }
+   .user-profile-bio{
+     margin-top:14px; padding-top:14px; border-top:1px solid var(--line);
+     width:100%; font-size:12px; line-height:1.5; color:var(--text); text-align:left;
+     white-space:pre-wrap; word-break:break-word;
+   }
+   .user-profile-bio-label{
+     display:block; color:var(--muted); font:700 9px 'Martian Mono',monospace;
+     letter-spacing:1.5px; margin-bottom:6px; text-align:left;
+   }
+   .user-profile-bio-empty{ color:var(--muted); font-style:italic; }
+   .user-profile-loading{ color:var(--muted); font-size:11.5px; padding:14px 0; }
+   .comment-body{ font-size:12.5px; line-height:1.4; }
+   .comment-body b{ display:block; font-size:11.5px; margin-bottom:3px; }
+   .comment-body span{ color:var(--muted); }
+   .hero-comments-list{
+     display:flex; flex-direction:column;
+   }
+   /* Once there are 5+ comments, cap the height and let the list scroll
+      internally instead of pushing the rest of the page down. */
+   .hero-comments-list.scrollable{
+     max-height:300px;
+     overflow-y:auto;
+     overflow-x:hidden;
+     overscroll-behavior:contain;
+     -webkit-overflow-scrolling:touch;
+     scrollbar-width:none;
+   }
+   .hero-comments-list.scrollable::-webkit-scrollbar{ display:none; }
+   .hero-comments-list.scrollable .comment:last-child{ border-bottom:0; }
+   .comment-form{ display:flex; flex-wrap:nowrap; align-items:center; gap:7px; margin-top:11px; }
+   .comment-form .clip-field{ margin:0; min-width:0; }
+   .comment-form button{
+     flex:0 0 auto; width:32px; height:32px; padding:0;
+     border:none; background:transparent; color:var(--accent);
+     border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;
+   }
+   .comment-form button svg{ width:17px; height:17px; margin-left:1px; } /* nudge to visually center the plane */
+   .comment-form button:active{ transform:scale(.88); }
+   /* Facebook-style docked composer: while a comment field (hero card,
+      clip card, or the full comments page) is focused, its form detaches
+      from wherever it sits in the layout and pins to the very bottom of
+      the actual visible screen — flush above the keyboard — instead of
+      just scrolling into view where it sat on the page. `position:fixed`
+      here is deliberate: it's anchored to the real viewport rather than
+      to .phone, so its `bottom` only ever has to account for the
+      keyboard (computed in JS), never for .phone's own size/offset too.
+      JS sets `left`/`width` to match .phone's own edges (cosmetic, so it
+      doesn't span the full browser window on the desktop preview) and
+      `bottom` to the live keyboard height. */
+   .comment-form.docked{
+     position:fixed; z-index:60;
+     margin:0; background:var(--bg);
+     padding:9px 14px calc(9px + env(safe-area-inset-bottom));
+     border-top:1px solid var(--line);
+     box-shadow:0 -8px 18px rgba(0,0,0,.28);
+   }
+   body.light .comment-form.docked{ box-shadow:0 -8px 18px rgba(0,0,0,.10); }
+   body.light .file-drop{background:rgba(255,255,255,.35);}
+   body.light .comment{border-bottom-color:rgba(33,26,16,.12);}
+
+   /* like + share row — used on the matchup hero card and each video clip */
+   .social-row{ display:flex; align-items:center; gap:10px; margin-top:14px; }
+   .clip-card .social-row{ margin-top:0; margin-bottom:11px; }
+   .social-btn{
+     display:flex; align-items:center; gap:6px; padding:7px 13px;
+     border:1px solid var(--line); border-radius:20px; background:transparent;
+     color:var(--muted); font:700 11px 'Martian Mono',monospace; cursor:pointer;
+     transition:border-color .15s ease, color .15s ease;
+   }
+   .social-btn:active{ transform:scale(.96); }
+   .social-btn svg{ flex-shrink:0; display:block; }
+   .social-btn.like-btn.liked{ border-color:var(--accent); color:var(--accent); }
+   .social-btn.like-btn.liked svg{ fill:var(--accent); }
+
+   /* news hub */
+   .news-section{
+     padding:22px 14px 34px;
+   }
+   .news-section.hidden{display:none;}
+   .news-header{
+     display:flex; align-items:flex-end; justify-content:space-between; gap:12px;
+     margin-bottom:18px;
+   }
+   .news-title{
+     font-family:'Rajdhani',sans-serif; font-weight:700; font-size:26px; line-height:1.05;
+     margin-top:7px;
+   }
+   .news-date{color:var(--muted);font:10px 'Martian Mono',monospace;text-align:right;}
+   .news-tabs{
+     display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; margin-bottom:18px;
+     scrollbar-width:none;
+   }
+   .news-tabs::-webkit-scrollbar{display:none;}
+   .news-tab{
+     flex:0 0 auto; display:flex; align-items:center; gap:7px;
+     padding:10px 15px; border-radius:22px; border:1px solid var(--line);
+     background:var(--surface); color:var(--muted); font:700 11.5px 'Rajdhani',sans-serif;
+     cursor:pointer; white-space:nowrap; transition:.15s ease;
+     -webkit-tap-highlight-color:transparent;
+   }
+   .news-tab:active{transform:scale(.96);}
+   .news-tab .news-icon{color:inherit;font-size:13px;line-height:1;}
+   .news-tab.selected{
+     background:var(--accent-bg); border-color:var(--accent); color:#fff;
+   }
+   .news-feed-block{
+     margin-bottom:18px;
+   }
+   .news-feed-title{display:none;}
+   .news-story{
+     display:flex;align-items:center;gap:13px;padding:14px 0;
+     border-bottom:1px solid var(--line);
+   }
+   .news-story:last-child{border-bottom:0;}
+   .story-tag{color:var(--muted);font:600 9px 'Martian Mono',monospace;letter-spacing:.5px;margin-bottom:4px;text-transform:uppercase;}
+   .news-story > div{flex:1;min-width:0;}
+   .news-story h4{font-family:'Rajdhani',sans-serif;font-size:13.5px;line-height:1.35;font-weight:700;color:var(--text);}
+   .news-story p{display:none;}
+   .story-time{color:var(--muted);font:9px 'Martian Mono',monospace;white-space:nowrap;flex-shrink:0;}
+
+   /* team builder */
+   .team-section{padding:22px 14px 34px;}
+   .team-section.hidden{display:none;}
+   .team-intro{color:var(--muted);font-size:12.5px;line-height:1.45;margin:8px 0 17px;}
+   .team-builder{
+     background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;
+   }
+   .team-builder-label{
+     color:var(--accent);font:700 10px 'Martian Mono',monospace;letter-spacing:2px;
+   }
+   .team-builder h2{font-family:'Rajdhani',sans-serif; font-weight:700;font-size:21px;line-height:1.1;margin-top:7px;}
+   .team-slots{display:grid;grid-template-columns:1fr 24px 1fr;gap:8px;align-items:stretch;margin:16px 0;}
+   .team-slot{
+     min-height:116px;border:1px solid var(--line);border-radius:12px;padding:11px;
+     background:var(--bg);
+   }
+   .team-slot.active{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);}
+   .team-slot:first-child{border-color:var(--accent);}
+   .team-slot h3{font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:9px;}
+   .team-slot ul{list-style:none;min-height:62px;}
+   .team-slot li{
+     display:flex;justify-content:space-between;gap:4px;color:var(--text);
+     font-size:10.5px;padding:4px 0;border-bottom:1px solid var(--line);
+   }
+   .team-slot li button{border:0;background:none;color:var(--muted);cursor:pointer;padding:0;}
+   .team-character{display:flex;align-items:center;gap:6px;min-width:0;}
+   .team-character img{width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+   .team-vs{display:flex;align-items:center;justify-content:center;font:700 10px 'Martian Mono',monospace;color:var(--accent);}
+   .character-pool-title{
+     display:flex;justify-content:space-between;align-items:center;margin:17px 0 9px;
+     font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;
+   }
+   .character-pool-title span{color:var(--muted);font:9px 'Martian Mono',monospace;}
+   .character-search{display:flex;gap:7px;margin-bottom:10px;}
+   .character-search input{
+     flex:1;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--line);
+     border-radius:9px;padding:10px 11px;font:11px 'Instrument Sans',sans-serif;outline:none;
+   }
+   .character-search input:focus{border-color:var(--accent);}
+   .character-search button{
+     border:1px solid var(--accent);background:var(--accent-bg);color:#0A0806;
+     border-radius:9px;padding:0 12px;font-size:11px;font-weight:800;cursor:pointer;
+   }
+   .character-search-note{color:var(--muted);font-size:10px;line-height:1.35;margin:-2px 0 9px;}
+   .character-pool{display:flex;flex-wrap:wrap;gap:7px;}
+   .character-chip{
+     border:1px solid var(--line);border-radius:20px;background:transparent;color:var(--text);
+     padding:8px 10px;font-size:10.5px;font-weight:700;cursor:pointer;
+   }
+   .character-chip:hover,.character-chip:focus{border-color:var(--accent);color:var(--accent);}
+   .character-chip.used{opacity:.35;pointer-events:none;}
+   .team-actions{display:flex;gap:8px;margin-top:15px;}
+   .team-actions button{
+     flex:1;padding:11px 7px;border-radius:10px;font:700 11px 'Rajdhani',sans-serif;cursor:pointer;
+     display:flex;align-items:center;justify-content:center;gap:6px;
+   }
+   .team-actions .assemble-btn{border:0;background:var(--accent-bg);color:#0A0806;}
+   .share-card-btn{
+     width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+     border:1.5px solid var(--accent);border-radius:12px;
+     background:transparent;color:var(--accent);
+     font:800 11.5px 'Instrument Sans',sans-serif;letter-spacing:.3px;
+     padding:11px 0;cursor:pointer;transition:transform .12s;
+   }
+   .share-card-btn:active{transform:scale(.97);}
+   .share-card-btn svg{flex-shrink:0;}
+   .team-actions .clear-btn{border:1px solid var(--line);background:transparent;color:var(--muted);}
+   .team-result{
+     margin-top:14px;padding:13px;border:1px solid var(--accent);border-radius:12px;
+     background:rgba(207,67,46,.08);font-size:11.5px;line-height:1.45;
+   }
+   .team-result strong{display:block;font-family:'Rajdhani',sans-serif; font-weight:700;font-size:15px;margin-bottom:4px;}
+   .ai-feats{
+     margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:16px;
+     background:linear-gradient(145deg,var(--surface),rgba(207,67,46,.08));
+   }
+   .ai-feats h3{font-family:'Rajdhani',sans-serif; font-weight:700;font-size:16px;margin:7px 0 5px;}
+   .ai-feats p{color:var(--muted);font-size:11px;line-height:1.4;margin-bottom:11px;}
+   .ai-feats-form{display:flex;gap:7px;}
+   .ai-feats-credits{color:var(--muted);font-size:10.5px;margin-top:7px;}
+   .ai-feats-credits.exhausted{color:#c0392b;}
+   .ai-feats-form input{
+     flex:1;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--line);
+     border-radius:9px;padding:10px 11px;font:11px 'Instrument Sans',sans-serif;outline:none;
+   }
+   .ai-feats-form input:focus{border-color:var(--accent);}
+   .ai-feats-form button{
+     border:0;background:var(--accent-bg);color:#0A0806;border-radius:9px;padding:0 11px;
+     font-size:10px;font-weight:800;cursor:pointer;
+     display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;
+   }
+   .ai-feats-result{
+     border-top:1px solid var(--line);margin-top:12px;padding-top:12px;
+     font-size:11px;line-height:1.45;
+   }
+   .ai-feats-result strong{display:block;font-family:'Rajdhani',sans-serif; font-weight:700;font-size:14px;margin-bottom:5px;}
+   .ai-feats-result b{color:var(--accent);}
+
+   /* account */
+   .account-section{padding:22px 14px 34px;}
+   .account-section.hidden{display:none;}
+   .account-hero{
+     background:var(--surface);
+     border:1px solid var(--line);border-radius:16px;margin:13px 0 14px;
+     overflow:hidden;position:relative;
+   }
+   .account-banner{
+     height:150px;position:relative;z-index:1;
+     background-image:linear-gradient(var(--surface-veil),var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size:cover; background-position:center; background-repeat:no-repeat;
+   }
+   /* Card effect overlay — spans the whole hero (banner + body), sits above
+      the banner art but below the avatar/name so equipped particle effects
+      (Meteor Fall, Overgrowth, ...) glow over the card without covering
+      the profile info. Empty/no data-fx-type until a card effect is
+      equipped — see updateCardEffectDisplay() in app.js. */
+   .card-fx-canvas{
+     position:absolute;inset:0;width:100%;height:100%;
+     pointer-events:none;z-index:2;mix-blend-mode:screen;
+     transition:backdrop-filter .2s ease;
+   }
+   /* Abyssal Depths (underwater): unlike the other card effects, this one
+      is meant to actually tint everything beneath it — banner, avatar,
+      and text — like the whole card is submerged, instead of just
+      glowing behind it. Raised above the avatar/name content (which sits
+      at z-index:3 above) and switched to a normal blend plus a light
+      backdrop blur. Toggled in activateCardFx()/deactivateCardFx(). */
+   .card-fx-canvas.submerged{
+     z-index:4;mix-blend-mode:normal;
+     -webkit-backdrop-filter:blur(1px);backdrop-filter:blur(1px);
+   }
+   /* Thunder Strike: brief shake applied to the card's host element each
+      time the bolt strikes — see makeThunderCardFx() in app.js. */
+   @keyframes thunderShake{
+     0%{transform:translate(0,0);}
+     20%{transform:translate(-2px,1px);}
+     40%{transform:translate(2px,-1px);}
+     60%{transform:translate(-1px,2px);}
+     80%{transform:translate(1px,-2px);}
+     100%{transform:translate(0,0);}
+   }
+   .thunder-shake{animation:thunderShake .22s ease;}
+   .cover-edit-btn{
+     position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:9px;
+     background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.3);color:#fff;
+     display:flex;align-items:center;justify-content:center;cursor:pointer;
+   }
+   /* Discord-style stacked hero: row 1 is the avatar (overlapping the
+      banner) with the action icons pushed to the far right of that same
+      row; row 2 is the full-width name/handle/bio block underneath,
+      because this card is now the *entire* Account page (everything else
+      moved into Settings/the Avatar Store), so it needs to read as a
+      proper profile rather than a compact header strip. */
+   .account-hero-body{
+     display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;padding:0 16px 20px;
+     position:relative;z-index:3;
+   }
+   .account-hero-body .account-avatar-wrap{ order:1;margin-top:-40px; }
+   .account-hero-actions{ order:2;flex-shrink:0;display:flex;gap:7px;margin-left:auto; }
+   .account-hero-info{ order:3;flex:1 1 100%;width:100%;margin-top:14px; }
+   .theme-store-launcher{
+     flex-shrink:0;width:42px;height:42px;border:1px solid var(--accent);border-radius:13px;
+     background:rgba(228,169,41,.12);color:var(--accent);display:flex;align-items:center;
+     justify-content:center;cursor:pointer;transition:transform .15s ease,background .15s ease;
+    }
+   .theme-store-launcher:hover{background:rgba(228,169,41,.22);transform:translateY(-1px);}
+   .theme-store-launcher:active{transform:scale(.94);}
+   .theme-store-launcher svg{width:22px;height:22px;stroke:currentColor;}
+   .account-avatar{
+      position:relative;width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+     background:var(--accent-bg);color:#0A0806;font:28px 'Instrument Sans',sans-serif;overflow:hidden;
+     border:3px solid var(--surface);box-shadow:0 0 0 1px var(--line);
+   }
+   .account-avatar.has-decoration{overflow:visible;}
+   .account-avatar img,.account-avatar .avatar-initials{width:100%;height:100%;border-radius:50%;object-fit:cover;display:flex;align-items:center;justify-content:center;position:relative;z-index:2;}
+   /* Decorations sit tight against the avatar edge, Discord-style — a thin
+      frame that reads as part of the avatar rather than a separate floating
+      halo. No off-avatar floating glyphs: those don't scale across the
+      different avatar sizes used in the store preview, account header, and
+      32px comment avatar. */
+   .profile-deco{position:absolute;inset:-3px;border-radius:50%;pointer-events:none;z-index:1;animation:profileDecoFloat 3s ease-in-out infinite;will-change:transform,opacity;}
+   .profile-deco-golden-aura{border:2px solid #ffbf3c;box-shadow:0 0 4px #ffcf4d,0 0 8px rgba(255,157,0,.6);}
+   .profile-deco-magic-circle{border:2px solid #c39bff;border-top-color:transparent;border-bottom-color:#8c5ee8;box-shadow:0 0 4px rgba(168,85,247,.7);animation:profileDecoSpin 8s linear infinite;}
+   .profile-deco-halftone{border:2px dotted #f0c65a;box-shadow:0 0 0 1px #111,0 0 0 2px rgba(240,198,90,.35);}
+   .profile-deco-chrome{border:2px solid #7dd8ff;box-shadow:inset 0 0 0 1px #4a5560,0 0 5px rgba(125,216,255,.7);animation:profileDecoSpin 5s linear infinite;}
+   .profile-deco-fire{border:2px solid #ff5b1f;box-shadow:0 0 4px #ff5b1f,0 0 8px rgba(255,59,31,.6);animation:profileDecoFlicker 1.2s ease-in-out infinite;}
+   .profile-deco-frost{border:2px dashed #a9ecff;box-shadow:0 0 5px rgba(127,223,255,.75);animation:profileDecoFloat 2.5s ease-in-out infinite;}
+   .profile-deco-sakura-bloom{border:2px solid #f5a4ca;box-shadow:0 0 5px rgba(245,164,202,.7);}
+   .profile-deco-chakra-flame{border:2px double #ff704d;box-shadow:0 0 5px #ff4d4d,0 0 9px rgba(255,112,77,.55);}
+   .profile-deco-comic-burst{border:2px solid #f3d34a;box-shadow:0 0 0 2px #191919,0 0 0 3px #ef6c35;}
+   .profile-deco-neon-pop{border:2px solid #00f5ff;box-shadow:0 0 3px #00f5ff,0 0 7px #ff39c8;}
+   .profile-deco-ink-crown{border:2px solid #d7b27c;box-shadow:0 0 0 1px #17120d,0 0 0 3px #d7b27c;}
+   .profile-deco-prism-orbit{border:2px solid #b78cff;box-shadow:0 0 4px #7c5cff,0 0 8px rgba(71,224,255,.55);animation:profileDecoSpin 6s linear infinite;}
+   .profile-deco-cosmic-mosaic{border:2px dotted #f7e7a7;box-shadow:0 0 0 1px #6b4fbb,0 0 6px rgba(107,79,187,.65);}
+   @keyframes profileDecoFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+   @keyframes profileDecoSpin{to{transform:rotate(360deg)}}
+   @keyframes profileDecoSpinReverse{to{transform:rotate(-360deg)}}
+   @keyframes profileDecoFlicker{0%,100%{opacity:.78;transform:scale(.98)}50%{opacity:1;transform:scale(1.04)}}
+
+   /* ===== SVG wraparound FX decorations (hellflame / web-trap / voltage /
+      frostbite / bloodfang) — richer than the border-only .profile-deco
+      items above, built from live SVG rather than CSS borders. Sized in
+      percent of the avatar box so the same markup scales cleanly across
+      the 32px comment avatar, 51px account avatar and 56px store preview. */
+   .profile-deco-fx{position:absolute;inset:-32%;pointer-events:none;z-index:1;}
+   .profile-deco-fx svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
+   .profile-deco-fx .fx-back{z-index:1;}
+   .profile-deco-fx .fx-front{z-index:5;}
+   /* Web Trap is the one FX that stays fully inside the circle rather than
+      bleeding past the edge, so it gets its own tighter, clipped wrapper. */
+   .profile-deco-fx-web{position:absolute;inset:0;border-radius:50%;overflow:hidden;pointer-events:none;z-index:5;}
+   .profile-deco-fx-web svg{position:absolute;inset:0;width:100%;height:100%;}
+
+   /* Canvas-particle FX (real-flame, air-elemental, overdrive-aura,
+      toxic-bloom, spirit-portal, skeletal-reaper, dragon-balls, star-struck)
+      — same wraparound sizing convention as .profile-deco-fx above, but the
+      effect is drawn frame-by-frame onto a <canvas> by AvatarEffect instead
+      of animated SVG. */
+   .profile-deco-canvas{position:absolute;inset:-32%;pointer-events:none;z-index:1;}
+   .profile-deco-canvas canvas{position:absolute;inset:0;width:100%;height:100%;}
+
+   /* Hellflame */
+   .tongue-back{fill:#ff3b1f;opacity:.55;filter:blur(3px);}
+   .tongue-front{filter:drop-shadow(0 0 3px #ff9d00);}
+   @keyframes flameFlicker{0%,100%{transform:scale(1) translateY(0);opacity:.95}30%{transform:scale(1.06) translateY(-1px);opacity:1}60%{transform:scale(.97) translateY(1px);opacity:.85}}
+   .flame-t1{animation:flameFlicker 1.6s ease-in-out infinite;}
+   .flame-t2{animation:flameFlicker 1.9s ease-in-out infinite .3s;}
+   .flame-t3{animation:flameFlicker 1.4s ease-in-out infinite .6s;}
+   .flame-t4{animation:flameFlicker 1.7s ease-in-out infinite .9s;}
+
+   /* Web Trap */
+   .web-strand{fill:none;stroke:#e8e8ee;stroke-width:1.1;opacity:.9;filter:drop-shadow(0 0 2px #ffffff99);}
+   .web-scallop{fill:none;stroke:#dcdce4;stroke-width:.9;opacity:.8;}
+   .spider-body{fill:#0d0d10;}
+   .spider-leg{stroke:#0d0d10;stroke-width:1.4;}
+   @keyframes webSway{0%,100%{transform:rotate(0deg)}50%{transform:rotate(1.2deg)}}
+   .web-sway{animation:webSway 4s ease-in-out infinite;transform-origin:41px 41px;}
+
+   /* Voltage */
+   .bolt{fill:none;stroke:#d7f3ff;stroke-width:2;stroke-linejoin:round;filter:drop-shadow(0 0 4px #4fd1ff) drop-shadow(0 0 8px #4fd1ff);}
+   @keyframes boltStrobe{0%,92%,100%{opacity:0}93%,97%{opacity:1}}
+   .bolt-a{animation:boltStrobe 2.2s infinite;}
+   .bolt-b{animation:boltStrobe 2.2s infinite .7s;}
+   .bolt-c{animation:boltStrobe 2.2s infinite 1.4s;}
+   .ring-charge{fill:none;stroke:#4fd1ff;stroke-width:2;opacity:.5;filter:drop-shadow(0 0 4px #4fd1ff);}
+
+   /* Frostbite */
+   .frost-glass{fill:rgba(180,230,255,.12);stroke:rgba(200,240,255,.55);stroke-width:1;}
+   .snowflake{stroke:#eafcff;stroke-width:1.1;stroke-linecap:round;filter:drop-shadow(0 0 2px #a9ecff);}
+   @keyframes snowFall{0%{transform:translateY(-14px) translateX(0) rotate(0deg);opacity:0}10%{opacity:1}90%{opacity:1}100%{transform:translateY(150px) translateX(var(--sway,6px)) rotate(90deg);opacity:0}}
+   .snow-1{animation:snowFall 4.5s linear infinite;}
+   .snow-2{animation:snowFall 5.2s linear infinite 1.1s;}
+   .snow-3{animation:snowFall 3.8s linear infinite 2s;}
+   .snow-4{animation:snowFall 5.6s linear infinite .5s;}
+   .snow-5{animation:snowFall 4.1s linear infinite 2.8s;}
+   .snow-6{animation:snowFall 4.9s linear infinite 3.4s;}
+
+   /* Bloodfang */
+   .blood-mist{fill:#6b0f1a;opacity:.45;filter:blur(4px);animation:mistPulse 3s ease-in-out infinite;}
+   .blood-drip{fill:#8b0000;filter:drop-shadow(0 0 2px #ff1a3d);}
+   .vein{stroke:#4a0a10;stroke-width:1;opacity:.7;fill:none;}
+   @keyframes dripFall{0%{transform:translateY(0) scaleY(1);opacity:.9}80%{transform:translateY(10px) scaleY(1.4);opacity:.6}100%{transform:translateY(14px) scaleY(.6);opacity:0}}
+   .drip-1{animation:dripFall 3s ease-in infinite;}
+   .drip-2{animation:dripFall 3.4s ease-in infinite 1s;}
+   .drip-3{animation:dripFall 2.7s ease-in infinite 1.8s;}
+   @keyframes mistPulse{0%,100%{opacity:.35}50%{opacity:.55}}
+
+   /* Solar Orbit */
+   .orbit-ring{fill:none;stroke:rgba(255,255,255,.09);stroke-width:.6;}
+   .planet-body{filter:drop-shadow(0 0 1.6px rgba(255,255,255,.5));animation:planetTwinkle 3.2s ease-in-out infinite;}
+   .planet-ring{fill:none;stroke:rgba(227,211,165,.75);stroke-width:.9;}
+   @keyframes planetTwinkle{0%,100%{opacity:.85}50%{opacity:1}}
+
+   /* Web-Slinger */
+   .webslinger-strand{fill:none;stroke:#f2f2f5;stroke-width:1;opacity:.85;filter:drop-shadow(0 0 2px #ffffff80);}
+   .webslinger-scallop{fill:none;stroke:#e2e2ea;stroke-width:.8;opacity:.7;}
+   .webslinger-ring{fill:none;stroke:#c8102e;stroke-width:1.5;filter:drop-shadow(0 0 3px #c8102e);}
+   .webslinger-shot{stroke:#f5f5f8;stroke-width:1.4;stroke-linecap:round;filter:drop-shadow(0 0 3px #2b4fd8);opacity:0;}
+   @keyframes webslingerPulse{0%,100%{opacity:.3}50%{opacity:.6}}
+   .ws-pulse{animation:webslingerPulse 2.4s ease-in-out infinite;}
+   @keyframes webslingerShotFire{0%,80%,100%{opacity:0}82%,90%{opacity:1}}
+   .ws-shot-1{animation:webslingerShotFire 3s infinite;}
+   .ws-shot-2{animation:webslingerShotFire 3s infinite 1s;}
+   .ws-shot-3{animation:webslingerShotFire 3s infinite 2s;}
+
+   /* Kryptonian Flight */
+   .kryptonian-glow-blue{fill:#3c5ce8;opacity:.22;filter:blur(6px);}
+   .kryptonian-glow-red{fill:#c8102e;opacity:.22;filter:blur(6px);}
+   .kryptonian-emblem{fill:#ffd23d;filter:drop-shadow(0 0 4px #ffb100) drop-shadow(0 0 8px #ffb100);transform-origin:65px 65px;animation:kryptonianPulse 2.2s ease-in-out infinite;}
+   @keyframes kryptonianPulse{0%,100%{transform:scale(1);opacity:.88}50%{transform:scale(1.12);opacity:1}}
+   .kryptonian-streak{stroke:#7db8ff;stroke-width:1.6;fill:none;stroke-linecap:round;filter:drop-shadow(0 0 3px #4f8dff);opacity:0;}
+   @keyframes kryptonianStreak{0%{opacity:0;stroke-dashoffset:40}15%{opacity:1}35%{opacity:0;stroke-dashoffset:0}100%{opacity:0}}
+   .k-streak-1{animation:kryptonianStreak 2.6s infinite;}
+   .k-streak-2{animation:kryptonianStreak 2.6s infinite .9s;}
+   .k-streak-3{animation:kryptonianStreak 2.6s infinite 1.8s;}
+
+   /* Dark Knight */
+   .darkknight-mist{fill:#4a3a63;opacity:.35;filter:blur(5px);animation:mistPulse 3.4s ease-in-out infinite;}
+   .bat-wing{fill:#141018;}
+   @keyframes batBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
+   .bat-bob{animation:batBob 2.4s ease-in-out infinite;}
+
+   /* Thunderstrike */
+   .storm-cloud{fill:#3a4257;opacity:.5;filter:blur(3px);}
+   .storm-bolt{fill:none;stroke:#eaf6ff;stroke-width:1.8;stroke-linejoin:round;filter:drop-shadow(0 0 4px #9fd3ff) drop-shadow(0 0 9px #6fb8ff);}
+   @keyframes stormBoltStrobe{0%,85%,100%{opacity:0}86%,90%{opacity:1}}
+   .storm-bolt-a{animation:stormBoltStrobe 2.6s infinite;}
+   .storm-bolt-b{animation:stormBoltStrobe 3.1s infinite .8s;}
+   .storm-bolt-c{animation:stormBoltStrobe 2.9s infinite 1.6s;}
+   .storm-flash{fill:#dceeff;opacity:0;}
+   @keyframes stormFlash{0%,84%,100%{opacity:0}85%,89%{opacity:.4}}
+   .storm-flash-anim{animation:stormFlash 2.6s infinite;}
+
+   .profile-font-bangers{font-family:'Bangers',cursive!important;letter-spacing:1px;}
+   .profile-font-luckiest{font-family:'Luckiest Guy',cursive!important;}
+   .profile-font-marker{font-family:'Permanent Marker',cursive!important;}
+   .profile-font-creepster{font-family:'Creepster',cursive!important;}
+   .profile-font-russo{font-family:'Russo One',sans-serif!important;}
+   .profile-font-cinzel{font-family:'Cinzel Decorative',serif!important;}
+   .profile-font-bungee{font-family:'Bungee',cursive!important;}
+   .profile-font-orbitron{font-family:'Russo One',sans-serif!important;letter-spacing:1.5px;}
+   .profile-customization-card{margin-top:14px;}
+   .theme-store-modal{padding:20px 16px 26px;max-height:88vh;overflow-y:auto;}
+   .theme-store-modal .profile-customization-card{margin:0;border:0;padding:0;background:none;}
+   .theme-store-modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line);}
+   .theme-store-modal-head .modal-title{margin:0;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:16px;}
+   .theme-store-close{width:32px;height:32px;border:1px solid var(--line);border-radius:50%;background:var(--surface2);color:var(--text);font-size:20px;line-height:1;cursor:pointer;flex-shrink:0;}
+   .profile-store-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+   .profile-store-heading h3{margin-bottom:4px;}
+   .profile-points-pill{flex-shrink:0;padding:7px 11px;border-radius:18px;background:rgba(228,169,41,.12);border:1px solid rgba(228,169,41,.4);color:#ffd873;font:800 11px 'Martian Mono',monospace;}
+   .profile-store-copy{font-size:11px;color:var(--muted);line-height:1.45;margin:7px 0 13px;}
+   .profile-share-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:10px;background:var(--accent-bg);color:#0A0806;padding:11px;font:700 11px 'Rajdhani',sans-serif;cursor:pointer;transition:transform .1s ease;}
+   .profile-share-btn:active{transform:scale(.98);}
+   .profile-share-meta{display:flex;justify-content:space-between;color:var(--muted);font:9px 'Martian Mono',monospace;margin-top:8px;padding-bottom:16px;border-bottom:1px solid var(--line);}
+   .profile-store-tabs{display:flex;gap:7px;margin:16px 0 12px;}
+   .profile-store-tab{flex:1;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--muted);padding:9px 5px;font:800 10px 'Instrument Sans',sans-serif;cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease;}
+   .profile-store-tab.active{border-color:var(--accent);color:var(--accent);background:rgba(228,169,41,.1);}
+   .profile-store-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+   .profile-store-grid[hidden]{display:none;}
+   /* Season section: a distinct, bannered block above the evergreen grid,
+      shown only while its season is active (see renderCustomizationStore).
+      Deliberately visually louder than the plain grid below it — it's the
+      limited-time stuff, so it should read that way at a glance. */
+   .profile-store-season{
+     position:relative;border-radius:16px;overflow:hidden;margin-bottom:16px;
+     border:1px solid transparent;
+     background-image:linear-gradient(var(--surface),var(--surface)),var(--accent-bg);
+     background-origin:border-box;
+     background-clip:padding-box,border-box;
+   }
+   .profile-store-season-banner{
+     position:relative;padding:16px 14px 12px;
+     background-image:linear-gradient(180deg,rgba(18,8,31,.35) 0%,rgba(18,8,31,.85) 100%),url('/public/seasons/anime/store-banner.png?v=2');
+     background-size:cover;background-position:center;
+   }
+   .profile-store-season-label{
+     display:inline-block;font:800 10px 'Russo One',sans-serif;letter-spacing:1px;
+     color:#fff;text-transform:uppercase;
+     text-shadow:0 2px 6px rgba(0,0,0,.6);
+   }
+   .profile-store-season-sub{font:600 9px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.75);margin-top:2px;}
+   .profile-store-season-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px;background:var(--surface);}
+   .profile-store-item{
+     position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;
+     padding:14px 8px 10px;border:1px solid var(--line);border-radius:13px;background:var(--surface);
+     transition:border-color .15s ease,transform .15s ease;
+   }
+   .profile-store-item:active{transform:scale(.97);}
+   .profile-store-item.owned{border-color:rgba(58,107,58,.7);background:linear-gradient(180deg,rgba(58,107,58,.08),var(--surface));}
+   .profile-store-item h4{font-size:11px;font-weight:800;line-height:1.2;margin-top:9px;}
+   .profile-store-item p.profile-store-cat{font-size:9px;color:var(--muted);margin-top:2px;}
+   .profile-store-preview{
+     position:relative;width:56px;height:56px;margin:2px auto 0;border-radius:50%;
+     background:linear-gradient(155deg,#2a2a2a,#111);color:#fff;display:flex;
+     align-items:center;justify-content:center;font:700 16px 'Instrument Sans',sans-serif;
+     border:1px solid rgba(255,255,255,.08);
+   }
+   .profile-store-preview .profile-deco{inset:-3px;}
+   .profile-store-rarity{
+     display:inline-block;margin-top:6px;padding:2px 8px;border-radius:20px;
+     font:800 7.5px 'Instrument Sans',sans-serif;letter-spacing:.4px;text-transform:uppercase;
+   }
+   .profile-store-rarity.common{background:rgba(255,255,255,.08);color:#b9b9b9;}
+   .profile-store-rarity.rare{background:rgba(94,158,255,.15);color:#7db4ff;}
+   .profile-store-rarity.epic{background:rgba(168,85,247,.16);color:#c39bff;}
+   .profile-store-rarity.legendary{background:rgba(255,157,0,.18);color:#ffcf4d;}
+   .profile-store-cost{color:#ffd873;font:800 10px 'Martian Mono',monospace;margin:9px 0 7px;}
+   .profile-store-action{
+     width:100%;border:1px solid transparent;border-radius:8px;background:var(--accent-bg);color:#0A0806;
+     padding:8px 3px;font:800 9.5px 'Instrument Sans',sans-serif;cursor:pointer;transition:transform .1s ease,opacity .15s ease;
+   }
+   .profile-store-action:active{transform:scale(.96);}
+   .profile-store-action:disabled{opacity:.35;cursor:not-allowed;background:var(--surface2);color:var(--muted);}
+   .profile-store-item.owned .profile-store-action{background:var(--surface2);color:var(--text);border-color:var(--line);}
+   .profile-store-action.equipped{background:rgba(45,92,58,.35);color:#a3e6b0;border-color:#2d5c3a;}
+   .profile-owned-tag{
+     position:absolute;top:8px;right:8px;color:#a3e6b0;font:800 7.5px 'Instrument Sans',sans-serif;
+     letter-spacing:.4px;background:rgba(45,92,58,.35);padding:2px 6px;border-radius:20px;
+   }
+   .profile-store-item.premium{border-color:rgba(228,169,41,.55);}
+   .profile-premium-tag{
+     position:absolute;top:8px;right:8px;color:#ffcf4d;font:800 7.5px 'Instrument Sans',sans-serif;
+     letter-spacing:.4px;background:rgba(228,169,41,.18);padding:2px 6px;border-radius:20px;
+   }
+   .profile-store-action.premium{background:linear-gradient(135deg,#e4a929,#ffcf4d);color:#0A0806;}
+   .profile-locked-tag{
+     position:absolute;top:8px;right:8px;color:var(--muted);font:800 7.5px 'Instrument Sans',sans-serif;
+     letter-spacing:.4px;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:20px;
+   }
+   .profile-store-item.locked{opacity:.75;}
+   /* Card effect previews are full-card overlays, not avatar rings, so
+      their store-grid preview is a rectangle (matches the real hero's
+      banner shape) instead of the circular avatar-deco preview. */
+   .card-effect-card .profile-store-preview{
+     width:100%;height:56px;border-radius:9px;
+     background:linear-gradient(160deg,#2c2140,#1c1d23);
+   }
+   .card-effect-card .profile-store-preview canvas.card-fx-canvas.mini{
+     position:absolute;inset:0;width:100%;height:100%;pointer-events:none;mix-blend-mode:screen;
+   }
+   .account-avatar-wrap{position:relative;flex-shrink:0;}
+   .avatar-edit-btn{
+     position:absolute;bottom:-2px;right:-2px;width:22px;height:22px;border-radius:50%;
+     background:var(--accent-bg);color:#0A0806;border:2px solid var(--bg);
+     display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;
+     z-index:3;
+   }
+   .avatar-edit-btn:active{transform:scale(.92);}
+   .avatar-report-btn{
+     position:absolute;bottom:-2px;left:-2px;width:20px;height:20px;border-radius:50%;
+     background:var(--surface2);color:var(--muted);border:2px solid var(--bg);
+     display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;
+     z-index:3;
+   }
+   .avatar-report-btn:active{transform:scale(.92);}
+   .avatar-report-btn.flagged{color:#c0392b;}
+   .char-avatar-wrap .avatar-report-btn{ bottom:8px; left:-4px; }
+   .consent-check-row{
+     display:flex;align-items:flex-start;gap:9px;margin:14px 0;padding:12px;
+     background:var(--surface);border:1px solid var(--line);border-radius:12px;
+   }
+   .consent-check-row input[type="checkbox"]{ width:17px;height:17px;flex-shrink:0;margin-top:1px;accent-color:var(--accent); }
+   .consent-check-row label{ font-size:11px;color:var(--muted);line-height:1.5; }
+   .consent-check-row a{ color:var(--accent);text-decoration:underline; }
+   .policy-text{ font-size:12px;color:var(--muted);line-height:1.7;white-space:pre-line; }
+   /* Open Source Licenses — unlike the short hand-written policy text
+      above, this is raw third-party license text (numbered clauses, ASCII
+      layout) where indentation is part of the meaning, so pre-wrap (not
+      pre-line) keeps it intact while still wrapping to the phone's width. */
+   .license-text{
+     font-family:'Martian Mono',monospace; font-size:10.5px; line-height:1.6;
+     white-space:pre-wrap; word-break:break-word; color:var(--muted);
+   }
+
+   /* Cookie consent banner + the matching Accept/Reject controls reused
+      inside the Cookie Policy modal so a choice can be changed later. */
+   .cookie-banner{
+     position:fixed; left:12px; right:12px; bottom:calc(env(safe-area-inset-bottom, 0px) + 78px);
+     z-index:60; background:var(--surface); border:1px solid var(--line); border-radius:14px;
+     padding:14px 16px; box-shadow:0 8px 30px rgba(0,0,0,.4);
+     display:flex; flex-direction:column; gap:10px;
+   }
+   .cookie-banner[hidden]{ display:none; }
+   .cookie-banner p{ font-size:11.5px; color:var(--muted); line-height:1.5; margin:0; }
+   .cookie-banner a{ color:var(--accent); text-decoration:underline; }
+   .cookie-banner-actions, .cookie-policy-actions{ display:flex; gap:8px; }
+   .cookie-policy-actions{ margin:2px 0 12px; }
+   .cookie-banner-btn{
+     flex:1; padding:10px 12px; border-radius:10px; font-size:11.5px; font-weight:800;
+     cursor:pointer; border:1px solid var(--line); background:transparent; color:var(--text);
+     -webkit-tap-highlight-color:transparent;
+   }
+   .cookie-banner-btn.primary{ background:var(--accent-bg); color:#0A0806; border-color:var(--accent); }
+   .cookie-policy-status{ font-size:11px; color:var(--muted); margin:0 0 10px; }
+   .report-reason-row{ display:flex;flex-direction:column;gap:8px;margin:14px 0; }
+   .report-reason-btn{
+     text-align:left;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+     background:var(--surface);color:var(--text);font:600 12.5px 'Instrument Sans',sans-serif;cursor:pointer;
+   }
+   .report-reason-btn.selected{ border-color:var(--accent);background:var(--surface2); }
+   .admin-report-row{
+     display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);
+     border-radius:12px;margin-bottom:8px;background:var(--surface);
+   }
+   .admin-report-row img{ width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0; }
+   .admin-report-info{ flex:1;min-width:0; }
+   .admin-report-info b{ font-size:12px;display:block; }
+   .admin-report-info span{ font-size:10.5px;color:var(--muted); }
+   .admin-report-actions{ display:flex;gap:6px; }
+   .admin-report-actions select{
+     background:var(--bg);border:1px solid var(--line);border-radius:8px;
+     color:var(--text);font:700 10px 'Instrument Sans',sans-serif;padding:6px 8px;
+   }
+   .admin-report-actions button{
+     font-size:10px;font-weight:700;padding:6px 9px;border-radius:8px;border:1px solid var(--line);
+     background:var(--surface2);color:var(--text);cursor:pointer;
+   }
+   .admin-report-actions button.danger{ color:#e05a4e;border-color:#e05a4e; }
+   .remove-avatar-btn{
+     width:100%;background:transparent;border:0;color:var(--muted);
+     font:700 10.5px 'Instrument Sans',sans-serif;padding:9px 0 2px;cursor:pointer;text-decoration:underline;
+   }
+   .account-hero h2{font-family:'Rajdhani',sans-serif; font-weight:700;font-size:21px;margin-bottom:4px;}
+   .account-hero p{color:var(--muted);font-size:12px;}
+   .account-bio{color:var(--text);font-size:13px;line-height:1.5;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);opacity:.9;}
+   .account-member-since{color:var(--muted);font-size:10.5px;margin-top:10px;display:flex;align-items:center;gap:5px;}
+   .account-member-since svg{width:12px;height:12px;flex-shrink:0;}
+   .account-card{
+     border:1px solid var(--line);border-radius:16px;
+     padding:14px;margin-bottom:13px;
+     background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size: cover; background-position: center; background-repeat: no-repeat;
+   }
+   .account-card h3{font-family:'Rajdhani',sans-serif; font-weight:700;font-size:15px;margin-bottom:5px;}
+   .account-card > p{color:var(--muted);font-size:11px;line-height:1.4;margin-bottom:12px;}
+   .theme-swatch-row{display:flex;gap:10px;flex-wrap:wrap;}
+   .theme-swatch{
+     width:38px;height:38px;border-radius:50%;background:var(--sw);
+     border:2px solid var(--line);cursor:pointer;position:relative;flex-shrink:0;
+     -webkit-tap-highlight-color:transparent;transition:transform .12s ease,border-color .15s ease;
+   }
+   .theme-swatch[data-theme="mono"]{background:linear-gradient(135deg,#fff 50%,#000 50%);}
+   .theme-swatch:active{transform:scale(.92);}
+   .theme-swatch.active{border-color:var(--text);box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--sw);}
+   .theme-swatch.active:after{
+     content:'✓'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+     color:#fff; font-size:14px; font-weight:800; text-shadow:0 1px 2px rgba(0,0,0,.6);
+   }
+   .theme-swatch[data-theme="mono"].active:after{color:#E5E5E5;}
+   .google-signin,.email-signin,.save-profile{
+     width:100%;border-radius:10px;padding:11px;font:700 11px 'Rajdhani',sans-serif;cursor:pointer;
+     display:flex;align-items:center;justify-content:center;gap:9px;
+   }
+   .google-signin{background:#fff;color:#222;border:1px solid #ddd;}
+   .email-signin,.save-profile{background:var(--accent-bg);color:#0A0806;border:0;margin-top:8px;}
+   .google-signin:disabled,.email-signin:disabled,.save-profile:disabled,
+   .clip-submit:disabled,.assemble-btn:disabled,.ai-feats-form button:disabled,
+   .ai-stats-button:disabled,.modal-submit:disabled{
+     opacity:.7;cursor:default;
+   }
+
+   /* spinner */
+   .btn-spinner{
+     width:14px;height:14px;border-radius:50%;
+     border:2px solid rgba(0,0,0,.18);border-top-color:currentColor;
+     animation:spin .7s linear infinite;flex-shrink:0;display:inline-block;
+   }
+   @keyframes spin{ to{ transform:rotate(360deg); } }
+   .avatar-spinner{ border-color:rgba(255,255,255,.35); border-top-color:#fff; width:18px; height:18px; }
+
+   /* ---------- skeleton loaders (matchups + clips still streaming in) ---------- */
+   @keyframes skeletonShimmer{
+     0%{ background-position:-160% 0; }
+     100%{ background-position:160% 0; }
+   }
+   .skeleton-block{
+     border-radius:8px;
+     background:linear-gradient(100deg, var(--surface2) 30%, var(--line) 50%, var(--surface2) 70%);
+     background-size:250% 100%;
+     animation:skeletonShimmer 1.6s ease-in-out infinite;
+   }
+   .hero.skeleton-hero{ cursor:default; }
+   .hero.skeleton-hero .side{ pointer-events:none; }
+   .skel-avatar{ width:100%; height:100%; border-radius:50%; }
+   .skel-line{ height:11px; margin:0 auto; }
+   .skel-name{ width:78%; margin-top:10px; }
+   .skel-sub{ width:55%; margin-top:7px; height:8px; }
+   .skel-title{ width:70%; height:16px; margin:0 0 10px; }
+   .skel-sub-wide{ width:100%; height:10px; margin-bottom:16px; }
+   .skel-votebar{ width:100%; height:34px; border-radius:11px; margin-bottom:14px; }
+   .skel-split{ width:100%; height:6px; border-radius:4px; margin-bottom:16px; }
+   /* spinning-circle loader used for the hero "loading matchup" state —
+      replaces the old shimmering skeleton bars, which read as a broken
+      layout rather than a loading state. */
+   .spinner-ring{
+     width:30px; height:30px; border-radius:50%;
+     border:3px solid var(--line); border-top-color:var(--accent);
+     animation:spin .8s linear infinite;
+   }
+   .spinner-ring-lg{ width:58px; height:58px; border-width:4px; }
+   .hero-vs-loading{ align-items:center; justify-content:center; }
+   .trend-card.skeleton{ cursor:default; }
+   .trend-card.skeleton .mini-avatar{ background:none; }
+   .clip-card.skeleton{ cursor:default; }
+   .skel-thumb{ width:100%; padding-top:56.25%; border-radius:10px; margin-bottom:12px; }
+   .skel-h3{ width:65%; height:14px; margin-bottom:8px; }
+   .skel-p{ width:100%; height:9px; margin-bottom:6px; }
+   .skel-p.short{ width:70%; margin-bottom:0; }
+
+   /* ---------- "loading more" strip shown while a feed is still streaming ---------- */
+   .feed-loading-more{
+     display:flex; align-items:center; justify-content:center; gap:9px;
+     padding:16px 0 6px; color:var(--muted); font:10.5px 'Martian Mono',monospace;
+     letter-spacing:.4px; opacity:0; max-height:0; overflow:hidden;
+     transition:opacity .25s ease;
+   }
+   .feed-loading-more.show{ opacity:1; max-height:60px; }
+
+   /* ---------- comments preview cap + "see all" ---------- */
+   .see-more-comments{
+     display:block; width:100%; text-align:center; background:none; border:0;
+     color:var(--accent); font:700 11px 'Rajdhani',sans-serif; letter-spacing:.2px;
+     padding:9px 0 2px; cursor:pointer;
+   }
+   .see-more-comments:active{ opacity:.65; }
+   #commentsModalList{ display:flex; flex-direction:column; margin-bottom:14px; }
+   #commentsModalList .comment:last-child{ border-bottom:0; }
+   .comments-modal-empty{ color:var(--muted); font-size:12px; text-align:center; padding:22px 0; }
+   .comments-modal-loading{ display:flex; align-items:center; justify-content:center; gap:10px; padding:20px 0; color:var(--muted); font-size:12px; font-weight:700; }
+   .account-input{
+     width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);
+     border-radius:9px;padding:11px 12px;margin-bottom:9px;font:11px 'Instrument Sans',sans-serif;outline:none;
+   }
+   .account-input:focus{border-color:var(--accent);}
+   textarea.account-input{min-height:70px;resize:vertical;}
+   .account-divider{display:flex;align-items:center;gap:8px;color:var(--muted);font:9px 'Martian Mono',monospace;margin:11px 0;}
+   .account-divider:before,.account-divider:after{content:'';height:1px;background:var(--line);flex:1;}
+
+  /* bottom nav
+     Was `position:sticky; bottom:0` inside a flex column (.phone-scroll).
+     Sticky only "sticks" once you've scrolled far enough that the element's
+     normal in-flow position would leave the viewport — on any screen whose
+     content is shorter than the phone frame (e.g. Movies Hub with just one
+     clip, or right after posting a comment shrinks the space above it), the
+     nav has nothing to stick against yet, so it just renders wherever it
+     naturally falls in the document: right after the short content, partway
+     up the page, instead of pinned to the bottom. Anchoring it with
+     position:absolute to `.phone` (which is position:relative) removes it
+     from that flow entirely, so it's always glued to the bottom of the
+     phone frame no matter how tall the active section's content is. */
+   .bottomnav{
+     position:absolute; left:0; right:0; bottom:0; z-index:10;
+    display:flex;
+      background:linear-gradient(180deg,rgba(var(--bg-rgb),0) 0%,rgba(var(--bg-rgb),.92) 28%,var(--bg) 56%);
+     border-top:0;
+     padding:28px 0 18px;
+     isolation:isolate;
+  }
+  .nav-item{
+    position:relative;
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;
+    font-size:10.5px; font-weight:700; color:var(--muted);
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+   /* The inline comment boxes (hero card, clip cards) aren't modals, so
+      nothing was keeping them clear of the on-screen keyboard — the
+      keyboard overlays the page instead of resizing it (see the
+      visualViewport script below), so a field near the bottom of the
+      content can end up hidden underneath it. Hiding the nav while one of
+      these is focused frees up that reserved space, and the matching JS
+      scrolls the field itself up above the keyboard. */
+   body.keyboard-open .bottomnav{ display:none; }
+   .nav-item.active{ color:var(--text); }
+  .nav-item svg{ stroke:var(--muted); }
+   .nav-item.active svg{ stroke:var(--accent); }
+   .nav-item.active:before{content:'';position:absolute;top:-10px;left:50%;transform:translateX(-50%);width:26px;height:4px;border-radius:6px;background:var(--accent-bg);opacity:.85;}
+   .theme-toggle{
+     width:30px;height:30px;border:1px solid var(--line);border-radius:50%;
+     background:var(--surface);color:var(--accent);display:flex;align-items:center;
+     justify-content:center;cursor:pointer;transition:.2s ease;
+   }
+   .theme-toggle svg{ display:block; stroke:var(--accent); }
+   .theme-toggle:hover{transform:rotate(12deg);border-color:var(--accent);}
+   .theme-toggle .moon{display:none;}
+   /* .theme-toggle sets display:flex, which — being an author style —
+      beats the browser's default [hidden]{display:none} UA rule. That's
+      why installBtn.hidden = true wasn't actually hiding the button after
+      install: the attribute was set correctly, CSS just ignored it. This
+      rule restores [hidden]'s priority for anything using this class. */
+   .theme-toggle[hidden]{ display:none; }
+   .signin-btn{
+     width:30px;height:30px;border:1px solid var(--line);border-radius:50%;
+     background:var(--surface);color:var(--text);display:flex;align-items:center;
+     justify-content:center;cursor:pointer;transition:.2s ease;
+   }
+   .signin-btn svg{ display:block; stroke:var(--text); }
+   .signin-btn:hover{border-color:var(--accent);}
+   .signin-btn:hover svg{ stroke:var(--accent); }
+   body.light .signin-btn{background:var(--surface2);border-color:var(--line);}
+   .signin-btn.is-avatar{
+     position:relative; background:var(--accent-bg); color:#0A0806; font:700 12px 'Rajdhani',sans-serif;
+     overflow:hidden; border-color:var(--accent);
+   }
+   .signin-btn.is-avatar img{ width:100%; height:100%; object-fit:cover; display:block; position:relative; z-index:2; }
+   .signin-btn.is-avatar.has-decoration{ overflow:visible; }
+   .signin-btn.is-avatar .profile-deco{ inset:-2px; }
+   .account-menu-wrap{ position:relative; }
+   .account-dropdown{
+     position:absolute; top:38px; right:0; min-width:150px;
+     background:var(--surface); border:1px solid var(--line); border-radius:12px;
+     padding:6px; box-shadow:0 12px 24px rgba(0,0,0,.45); z-index:50;
+     display:flex; flex-direction:column; gap:2px;
+   }
+   .account-dropdown[hidden]{ display:none; }
+   .account-dropdown-item{
+     background:transparent; border:0; text-align:left; padding:9px 10px; border-radius:8px;
+     font:700 11.5px 'Instrument Sans',sans-serif; color:var(--text); cursor:pointer;
+   }
+   .account-dropdown-item:hover{ background:var(--surface2); }
+   .account-dropdown-item.danger{ color:#e15c5c; }
+
+   /* notifications bell */
+   .notif-badge{
+     position:absolute; top:-3px; right:-3px; min-width:15px; height:15px; padding:0 3px;
+     border-radius:50%; background:var(--accent-bg); color:#0A0806;
+     font:800 9px 'Martian Mono',monospace; display:flex; align-items:center; justify-content:center;
+     border:2px solid var(--bg);
+   }
+   .notif-badge[hidden]{ display:none; }
+   .notif-dropdown{ min-width:260px; max-width:78vw; max-height:340px; overflow-y:auto; padding:8px; }
+   .notif-dropdown-title{
+     font:700 11px 'Rajdhani',sans-serif; text-transform:uppercase; letter-spacing:.6px;
+     color:var(--muted); padding:6px 8px 8px;
+   }
+   .notif-item{
+     display:flex; gap:10px; align-items:flex-start; padding:9px 8px; border-radius:9px;
+     cursor:pointer; text-align:left; background:transparent; border:0; width:100%;
+     color:var(--text); /* buttons don't inherit text color by default — without
+       this, notification text rendered black regardless of theme */
+   }
+   .notif-item:hover{ background:var(--surface2); }
+   .notif-item-icon{
+     position:relative; width:26px; height:26px; border-radius:50%; flex-shrink:0; margin-top:1px;
+     display:flex; align-items:center; justify-content:center;
+     background:var(--surface2); color:var(--accent);
+   }
+   .notif-item-icon svg{ width:14px; height:14px; display:block; }
+   .notif-item-dot{
+     position:absolute; top:-1px; right:-1px; width:9px; height:9px; border-radius:50%;
+     background:var(--accent-bg); border:2px solid var(--surface);
+   }
+   .notif-item.read .notif-item-dot{ display:none; }
+   .notif-item-body{ font-size:11.5px; line-height:1.4; color:var(--text); }
+   .notif-item-body b{ display:block; font-size:11.5px; color:var(--text); }
+   .notif-item-body span{ color:var(--muted); font-size:10.5px; }
+   .notif-item-time{ font:10px 'Martian Mono',monospace; color:var(--muted); margin-top:2px; }
+   .notif-empty{ color:var(--muted); font-size:11.5px; padding:16px 8px; text-align:center; }
+
+   body.light{
+      --bg:#f1f1ef;
+      --bg-rgb:241,241,239;
+      --surface:#ffffff;
+      --surface2:#e4e4e2;
+      --line:#d6d6d3;
+       --ember-dim:#8A6A1E;
+      --text:#1c1c1a;
+      --muted:#6e6e6b;
+      --surface-veil:rgba(255,255,255,.88);
+      --nav-pitch:color-mix(in srgb, var(--bg) 18%, black);
+   }
+    body.light .phone{box-shadow:0 30px 70px rgba(0,0,0,.18);}
+   body.light .topbar{
+      background:linear-gradient(180deg,var(--bg) 0%,var(--bg) 55%,rgba(241,241,239,0) 100%);
+   }
+     body.light .logo-badge{border-color:var(--accent);}
+     body.light .logo-badge .logo-hilt{fill:var(--accent);}
+     body.light .brand-small{color:var(--accent);}
+   body.light .theme-toggle{background:var(--surface2);border-color:var(--line);}
+   body.light .theme-toggle .sun{display:none;}
+   body.light .theme-toggle .moon{display:block;}
+    body.light .hero{border-color:var(--line);background-image:linear-gradient(180deg,rgba(255,255,255,.93) 0%,rgba(228,228,226,.93) 100%), url('/icons/intro-collage.webp');background-size:cover;background-position:center;background-repeat:no-repeat;}
+    body.light .hero-vs{background-image:radial-gradient(circle at 50% 0%,rgba(255,255,255,.93) 0%,rgba(228,228,226,.93) 68%), url('/icons/intro-collage.webp');background-size:cover;background-position:center;background-repeat:no-repeat;}
+   body.light .avatar.hi{border-color:#ffffff;}
+   body.light .avatar.lo{color:#fff;border-color:#ffffff;}
+   body.light .live-tag{border-color:var(--line);}
+   body.light .vote-btn.hi{color:#ffffff;}
+   body.light .trend-card{}
+   body.light .bottomnav{
+      background:linear-gradient(180deg,rgba(var(--bg-rgb),0) 0%,rgba(var(--bg-rgb),.92) 28%,var(--bg) 56%);
+   }
+   body.light .nav-item{ color:var(--muted); }
+   body.light .nav-item.active{ color:var(--text); }
+   body.light .nav-item svg{ stroke:var(--muted); }
+   body.light .nav-item.active svg{ stroke:var(--accent); }
+
+    /* full-screen reels-style clip player — the ONLY place a clip's video
+       or YouTube embed ever actually renders/plays. Opening a new clip
+       always tears down whatever was here before, so it's structurally
+       impossible for two clips to be playing at once. */
+    .reels-overlay{
+      position:fixed; inset:0; background:#000; z-index:9999;
+      display:none; align-items:center; justify-content:center;
+      overscroll-behavior:contain; touch-action:none;
+    }
+    .reels-overlay.show{ display:flex; }
+    .reels-overlay::after{
+      content:''; position:absolute; left:0; right:0; bottom:0; height:190px;
+      background:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.8) 100%);
+      pointer-events:none; z-index:1;
+    }
+    .reels-media{ position:absolute; inset:0; transition:opacity .18s ease, transform .22s ease; }
+    .reels-media.switching{ opacity:0; transform:translateY(10px) scale(.98); }
+    .reels-media video, .reels-media iframe{
+      width:100%; height:100%; object-fit:contain; border:0; background:#000; display:block;
+    }
+    /* Touches that start on top of a YouTube iframe never reach the
+       page's own touch listeners — iframes are a separate document, so the
+       swipe gesture is invisible to us unless it starts outside the
+       iframe entirely. This transparent layer sits above the video (but
+       below the close/like/share buttons, via z-index) purely to catch
+       that swipe. It intentionally blocks tapping the embedded player's
+       own controls — the trade-off that makes swipe-to-next work at all.
+       touch-action:none stops the browser from also treating the drag as
+       a native scroll/bounce gesture underneath — without it, a swipe in
+       one direction could rubber-band the page behind this fixed overlay
+       while the opposite direction looked fine, making the whole thing
+       feel like it only scrolled properly one way. */
+    .reels-swipe-catcher{ position:absolute; inset:0; z-index:2; background:transparent; touch-action:none; }
+    .reels-close{
+      position:absolute; top:calc(16px + env(safe-area-inset-top)); left:16px; z-index:3;
+      width:36px; height:36px; border-radius:50%; background:rgba(0,0,0,.55); border:0; color:#fff;
+      display:flex; align-items:center; justify-content:center; cursor:pointer;
+    }
+    .reels-actions{
+      position:absolute; right:12px; bottom:calc(110px + env(safe-area-inset-bottom)); z-index:3;
+      display:flex; flex-direction:column; align-items:center; gap:22px;
+    }
+    .reels-action-btn{
+      background:none; border:0; color:#fff; padding:0; cursor:pointer;
+      display:flex; flex-direction:column; align-items:center; gap:4px;
+      font:10px 'Martian Mono',monospace;
+    }
+    .reels-action-btn svg{ width:26px; height:26px; }
+    .reels-action-btn.liked{ color:var(--accent); }
+    .reels-caption{
+      position:absolute; left:16px; right:72px; bottom:calc(24px + env(safe-area-inset-bottom)); z-index:3; color:#fff;
+    }
+    .reels-caption-title{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; margin-bottom:4px; }
+    .reels-caption-sub{ font-size:11.5px; opacity:.85; }
+
+    /* toast */
+    .toast{
+      position:fixed; left:50%; bottom:110px; transform:translateX(-50%) translateY(20px);
+      background:var(--surface2); color:var(--text); border:1px solid var(--line);
+      padding:10px 18px; border-radius:20px; font-size:12.5px; font-weight:700;
+      opacity:0; pointer-events:none; transition:opacity .25s ease, transform .25s ease;
+      z-index:100; white-space:nowrap;
+    }
+    .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+    /* Rank toast (vote/comment/like) needs its own tappable link inside,
+       so it can't stay pointer-events:none like the plain text toast. */
+    .toast.interactive{ pointer-events:auto; white-space:normal; text-align:center; max-width:88vw; }
+    .toast-xp-line{ display:block; margin-bottom:2px; }
+    .toast-rank-link{ color:var(--accent); text-decoration:none; font-weight:800; cursor:pointer; }
+
+    /* leaderboard: your-rank card + weekly/all-time tabs */
+    .your-rank-card{
+      display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:14px;
+      background:var(--surface2); border:1px solid var(--line); border-radius:14px;
+    }
+    .your-rank-num{ font-size:20px; font-weight:900; color:var(--accent); min-width:38px; text-align:center; }
+    .your-rank-info{ flex:1; min-width:0; }
+    .your-rank-name{ font-size:12.5px; font-weight:800; }
+    .your-rank-xp{ font-size:10.5px; color:var(--muted); margin-top:1px; }
+    .your-rank-gap{ font-size:10.5px; color:var(--muted); margin-top:4px; }
+    .leaderboard-tabs{ display:flex; gap:8px; margin-bottom:12px; }
+    .leaderboard-tab{
+      flex:1; text-align:center; padding:8px 0; border-radius:10px; border:1px solid var(--line);
+      background:transparent; color:var(--muted); font-size:11.5px; font-weight:800; letter-spacing:.03em;
+      cursor:pointer;
+    }
+    .leaderboard-tab.active{ background:var(--accent-bg); border-color:var(--accent); color:#12100e; }
+    .leaderboard-tab.hidden{ display:none; }
+
+    /* Comments sheet: Comments / Replies split — keeps reply threads out
+       of the main comment list entirely instead of nesting them inline,
+       which is what was making the sheet grow tall and fight the keyboard
+       when a reply's own quote block pushed the input further down. */
+    .comments-modal-tabs{ display:flex; gap:8px; margin-bottom:12px; }
+    .comments-modal-tab{
+      flex:1; text-align:center; padding:8px 0; border-radius:10px; border:1px solid var(--line);
+      background:transparent; color:var(--muted); font-size:11.5px; font-weight:800; letter-spacing:.03em;
+      cursor:pointer;
+    }
+    .comments-modal-tab.active{ background:var(--accent-bg); border-color:var(--accent); color:#12100e; }
+
+    /* sign-in modal */
+    .modal-overlay{
+      position:absolute; inset:0; background:rgba(0,0,0,.6);
+      display:flex; align-items:flex-end; justify-content:center;
+      opacity:0; pointer-events:none; transition:opacity .2s ease;
+      z-index:200;
+    }
+    .modal-overlay.show{ opacity:1; pointer-events:auto; }
+    .modal-sheet{
+      width:100%; border-radius:24px 24px 0 0;
+      padding:24px 22px 28px; border:1px solid var(--line); border-bottom:none;
+      transform:translateY(100%); transition:transform .25s ease;
+      background-image: linear-gradient(var(--surface-veil), var(--surface-veil)), url('/icons/intro-collage.webp');
+      background-size: cover; background-position: center; background-repeat: no-repeat;
+    }
+    .modal-overlay.show .modal-sheet{ transform:translateY(0); }
+    /* A non-"none" transform (even translateY(0), post slide-in) makes
+       .modal-sheet a containing block for any position:fixed descendant —
+       which is exactly what breaks the Facebook-style docked composer
+       (.comment-form.docked below) for comments opened from the full
+       comments screen: instead of pinning to the real viewport edge
+       above the keyboard, the fixed bar was pinning to .modal-sheet's
+       own box, landing in the wrong place and dragging the sheet's
+       layout with it. While a comment field is focused (body gets
+       .keyboard-open, see the docking script), drop the transform to a
+       literal `none` so the containing block is the true viewport again.
+       translateY(0) and none render identically, so this causes no
+       visual jump — it only removes the invisible containing-block that
+       was hijacking the fixed bar. */
+    body.keyboard-open .modal-overlay.show .modal-sheet{ transform:none; }
+    .modal-title{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:18px; margin-bottom:6px; }
+    .modal-sub{ font-size:12.5px; color:var(--muted); margin-bottom:18px; }
+    .modal-input{
+      width:100%; padding:13px 14px; border-radius:12px; border:1.5px solid var(--line);
+      background:var(--bg); color:var(--text); font-family:'Instrument Sans',sans-serif; font-size:13px;
+      margin-bottom:12px; outline:none;
+    }
+    .modal-input:focus{ border-color:var(--accent); }
+    .modal-submit{
+      width:100%; padding:13px 0; border-radius:12px; border:none; cursor:pointer;
+      background:var(--accent-bg); color:#0A0806; font-weight:800; font-size:13px;
+      font-family:'Rajdhani',sans-serif; margin-bottom:10px;
+      display:flex;align-items:center;justify-content:center;gap:8px;
+    }
+    .modal-submit:active{ transform:scale(.98); }
+    .modal-close{
+      width:100%; padding:11px 0; border-radius:12px; border:none; cursor:pointer;
+      background:transparent; color:var(--muted); font-weight:700; font-size:12.5px;
+      font-family:'Instrument Sans',sans-serif;
+    }
+    .modal-sheet-tall{ max-height:82vh; max-height:min(82vh, calc(var(--vvh, 100vh) - 24px)); overflow-y:auto; }
+
+    /* Full-page comments screen (was a half-height bottom sheet). Reuses
+       the same slide-up transform/overlay as every other modal, but fills
+       the entire phone edge-to-edge instead of stopping at 82vh, so
+       "Reply" opens a real full page rather than a sheet with the app
+       still visible (dimmed) behind it. */
+    .modal-sheet-full{
+      width:100%; height:100%; max-height:100%;
+      border-radius:0; border:none; background-image:none; background-color:var(--bg);
+      padding:0; display:flex; flex-direction:column; overflow:hidden;
+    }
+    .modal-sheet-full-header{
+      display:flex; align-items:center; gap:12px; flex:0 0 auto;
+      padding:calc(14px + env(safe-area-inset-top)) 16px 12px;
+      border-bottom:1px solid var(--line);
+    }
+    .modal-sheet-full-header .modal-title,
+    .modal-sheet-full-header .modal-sub{ margin:0; }
+    .modal-sheet-full-back{
+      width:32px; height:32px; flex:0 0 auto; padding:0;
+      border:none; background:transparent; color:var(--text);
+      border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;
+    }
+    /* Settings and the Avatar Store reuse .modal-sheet-full but scroll a
+       plain stack of grouped cards instead of a comments list. */
+    .settings-scroll{
+      flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
+      padding:16px 16px 28px;
+    }
+    .settings-group{ margin-bottom:22px; }
+    .settings-group.hidden{ display:none; }
+    .settings-group-title{
+      font-family:'Martian Mono',monospace; font-weight:700; font-size:10.5px;
+      letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
+      margin:0 2px 9px;
+    }
+    .settings-group .account-card + .account-card{ margin-top:12px; }
+    .modal-sheet-full .comments-modal-tabs{ flex:0 0 auto; padding:12px 16px 0; margin-bottom:0; }
+    .modal-sheet-full #commentsModalList{
+      flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
+      margin-bottom:0; padding:14px 16px;
+      overscroll-behavior:contain; transform:translateZ(0);
+    }
+    .modal-sheet-full .comment-form{
+      flex:0 0 auto; margin-top:0;
+      padding:9px 14px calc(9px + env(safe-area-inset-bottom));
+      border-top:1px solid var(--line); background:var(--bg);
+    }
+
+    /* first-visit intro splash */
+    .intro-fullbleed{
+      align-items:flex-end;
+      background-image:
+        linear-gradient(180deg, rgba(10,8,6,0.15) 0%, rgba(10,8,6,0.5) 42%, rgba(10,8,6,0.97) 76%, #0A0806 100%),
+        url('/icons/intro-collage.webp');
+      background-size: cover;
+      background-position: top center;
+      background-repeat: no-repeat;
+      background-color: #171009;
+    }
+    .intro-close-btn{
+      position:absolute; top:calc(18px + env(safe-area-inset-top)); left:18px;
+      width:36px; height:36px; border-radius:50%; border:none; cursor:pointer;
+      background:rgba(0,0,0,.45); color:#fff; display:flex; align-items:center; justify-content:center;
+      z-index:2;
+    }
+    .intro-sheet{
+      width:100%; padding:0 22px calc(28px + env(safe-area-inset-bottom));
+    }
+    .intro-headline{
+      font-family:'Rajdhani',sans-serif; font-weight:700; font-size:34px; line-height:1.12;
+      color:#fff; margin-bottom:12px;
+    }
+    .intro-sub{ font-size:13px; line-height:1.5; color:rgba(255,255,255,.78); margin-bottom:22px; }
+    .intro-fullbleed .account-divider{ color:rgba(255,255,255,.55); }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
