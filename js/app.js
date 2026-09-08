@@ -1026,6 +1026,29 @@ import {
   document.getElementById('cookieBannerPolicyLink').addEventListener('click', (e) => { e.preventDefault(); openCookiePolicy(); });
   document.getElementById('cookiePolicyClose').addEventListener('click', () => cookiePolicyOverlay.classList.remove('show'));
   cookiePolicyOverlay.addEventListener('click', (e) => { if (e.target === cookiePolicyOverlay) cookiePolicyOverlay.classList.remove('show'); });
+
+  // ---------- open source licenses ----------
+  // Same open/close pattern as the two policy modals above. The license
+  // text itself is fetched once from a static file on the server (not
+  // inlined into index.html — it's several thousand lines) and cached in
+  // memory so re-opening this later in the same session doesn't re-fetch.
+  const licensesOverlay = document.getElementById('licensesOverlay');
+  const licensesText = document.getElementById('licensesText');
+  let licensesLoaded = false;
+  function openLicenses(){
+    licensesOverlay.classList.add('show');
+    if (licensesLoaded) return;
+    fetch('/open-source-licenses.txt')
+      .then(res => { if (!res.ok) throw new Error('Not found'); return res.text(); })
+      .then(text => { licensesText.textContent = text; licensesLoaded = true; })
+      .catch(err => {
+        console.error('Licenses fetch failed', err);
+        licensesText.textContent = "Couldn't load licenses right now — please try again.";
+      });
+  }
+  document.getElementById('openLicensesBtn').addEventListener('click', openLicenses);
+  document.getElementById('licensesClose').addEventListener('click', () => licensesOverlay.classList.remove('show'));
+  licensesOverlay.addEventListener('click', (e) => { if (e.target === licensesOverlay) licensesOverlay.classList.remove('show'); });
   document.getElementById('cookieAcceptBtn').addEventListener('click', () => applyCookieConsentChoice('accepted'));
   document.getElementById('cookieRejectBtn').addEventListener('click', () => applyCookieConsentChoice('rejected'));
   document.getElementById('cookiePolicyAccept').addEventListener('click', () => applyCookieConsentChoice('accepted'));
