@@ -3184,7 +3184,7 @@ import {
       if (data.avatarUrl) userProfileAvatar.innerHTML = commentAvatarHtml(data.name, data.avatarUrl);
       if (userProfileBanner) {
         userProfileBanner.style.backgroundImage = data.coverPhotoUrl
-          ? `linear-gradient(var(--surface-veil),var(--surface-veil)), url('${data.coverPhotoUrl}')`
+          ? `linear-gradient(to bottom, rgba(10,8,6,0) 55%, rgba(10,8,6,.75) 100%), url('${data.coverPhotoUrl}')`
           : '';
       }
       // Re-apply the decoration on top of the freshly-set avatar markup
