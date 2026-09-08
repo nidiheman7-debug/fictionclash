@@ -3126,6 +3126,7 @@ import {
   // bio itself is fetched fresh each time the card opens since it's not
   // otherwise kept in memory anywhere.
   const userProfileOverlay = document.getElementById('userProfileOverlay');
+  const userProfileBanner = document.getElementById('userProfileBanner');
   const userProfileAvatar = document.getElementById('userProfileAvatar');
   const userProfileNameText = document.getElementById('userProfileNameText');
   const userProfileVerified = document.getElementById('userProfileVerified');
@@ -3156,6 +3157,7 @@ import {
     // (including the VERIFIED_BADGE_SVG constant, declared further down)
     // has finished running, so it's safe to read here.
     if (!userProfileVerified.innerHTML) userProfileVerified.innerHTML = VERIFIED_BADGE_SVG;
+    if (userProfileBanner) userProfileBanner.style.backgroundImage = '';
     userProfileAvatar.className = 'user-profile-avatar';
     userProfileAvatar.innerHTML = commentAvatarHtml(fallback.name, fallback.avatarUrl);
     userProfileNameText.textContent = fallback.name || 'User';
@@ -3180,6 +3182,11 @@ import {
       if (data.name) userProfileNameText.textContent = data.name;
       if (data.handle) userProfileHandle.textContent = data.handle;
       if (data.avatarUrl) userProfileAvatar.innerHTML = commentAvatarHtml(data.name, data.avatarUrl);
+      if (userProfileBanner) {
+        userProfileBanner.style.backgroundImage = data.coverPhotoUrl
+          ? `linear-gradient(var(--surface-veil),var(--surface-veil)), url('${data.coverPhotoUrl}')`
+          : '';
+      }
       // Re-apply the decoration on top of the freshly-set avatar markup
       // above, since setting .innerHTML just now would have wiped it out.
       attachDecoration(userProfileAvatar, uid);
