@@ -518,6 +518,11 @@
             <p>What we store on your device, why, and how to change your choice.</p>
             <button class="remove-avatar-btn" id="openCookiePolicyBtn" type="button">Cookie Policy &amp; Preferences</button>
           </div>
+          <div class="account-card">
+            <h3>Open Source Licenses</h3>
+            <p>Third-party libraries this app is built on, and their license terms.</p>
+            <button class="remove-avatar-btn" id="openLicensesBtn" type="button">View Licenses</button>
+          </div>
         </div>
         <div class="settings-group hidden" id="settingsAdminGroup">
           <div class="settings-group-title">Season &amp; moderation</div>
@@ -919,6 +924,29 @@ Contact: fictionclash.app@gmail.com</div>
         <button class="cookie-banner-btn primary" id="cookiePolicyAccept" type="button">Accept all</button>
       </div>
       <button class="modal-close" id="cookiePolicyClose">Close</button>
+    </div>
+  </div>
+
+  <!-- Open Source Licenses — required attribution for third-party libraries
+       pulled in by the Play/TWA build tooling (Google hands these over as
+       a plain-text file per release, e.g. arcore_open_source_licenses).
+       Full-page like Settings/Avatar Store rather than a bottom sheet,
+       since the text itself runs to several thousand lines — fetched
+       lazily the first time this opens instead of inlined into the page. -->
+  <div class="modal-overlay" id="licensesOverlay">
+    <div class="modal-sheet modal-sheet-full">
+      <div class="modal-sheet-full-header">
+        <button type="button" class="modal-sheet-full-back" id="licensesClose" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div>
+          <div class="modal-title">Open Source Licenses</div>
+          <div class="modal-sub">Third-party libraries this app is built on.</div>
+        </div>
+      </div>
+      <div class="settings-scroll" id="licensesScroll">
+        <div class="license-text" id="licensesText">Loading…</div>
+      </div>
     </div>
   </div>
 

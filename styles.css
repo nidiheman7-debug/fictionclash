@@ -1246,6 +1246,14 @@
    .consent-check-row label{ font-size:11px;color:var(--muted);line-height:1.5; }
    .consent-check-row a{ color:var(--accent);text-decoration:underline; }
    .policy-text{ font-size:12px;color:var(--muted);line-height:1.7;white-space:pre-line; }
+   /* Open Source Licenses — unlike the short hand-written policy text
+      above, this is raw third-party license text (numbered clauses, ASCII
+      layout) where indentation is part of the meaning, so pre-wrap (not
+      pre-line) keeps it intact while still wrapping to the phone's width. */
+   .license-text{
+     font-family:'Martian Mono',monospace; font-size:10.5px; line-height:1.6;
+     white-space:pre-wrap; word-break:break-word; color:var(--muted);
+   }
 
    /* Cookie consent banner + the matching Accept/Reject controls reused
       inside the Cookie Policy modal so a choice can be changed later. */
