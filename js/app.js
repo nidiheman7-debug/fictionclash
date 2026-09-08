@@ -6281,7 +6281,15 @@ import {
         avatarUrl: smallEnough ? profile.avatar : '',
         coverPhotoUrl: coverSmallEnough ? profile.cover : '',
         updatedAt: serverTimestamp()
-      }, { merge: true }).catch(err => console.error('Profile sync failed', err));
+      }, { merge: true }).catch(err => {
+        console.error('Profile sync failed', err);
+        // The name/avatar/cover were still saved to localStorage above, so
+        // they'll look fine in THIS session — but without this toast a
+        // rejected Firestore write (e.g. a security-rules mismatch) is
+        // invisible until the user logs out/in or switches devices and
+        // finds the change silently gone.
+        showToast('Saved on this device, but syncing to your account failed');
+      });
       // Drop this account's cached name/avatar so every comment, reply, and
       // clip already on screen picks up the change on its next re-render
       // instead of waiting for a full reload.
