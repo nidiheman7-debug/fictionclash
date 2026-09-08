@@ -660,17 +660,25 @@
    .comment-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; }
    /* Discord-style profile card, opened by tapping a comment (or
       leaderboard) avatar — see #userProfileOverlay + openUserProfileCard(). */
-   .user-profile-card{ position:relative; overflow:hidden; border-radius:12px; display:flex; flex-direction:column; align-items:center; text-align:center; padding:4px 4px 6px; }
+   .user-profile-card{ position:relative; overflow:hidden; border-radius:12px; display:flex; flex-direction:column; align-items:center; text-align:center; padding:0 4px 6px; }
+   /* Cover-photo banner, same idea as .account-banner on the Account page —
+      falls back to the same default collage art when the tapped account
+      has no cover photo saved, so the card never looks unfinished. */
+   .user-profile-banner{
+     width:calc(100% + 8px); margin:0 -4px; height:88px; position:relative; z-index:1;
+     background-image:linear-gradient(var(--surface-veil),var(--surface-veil)), url('/icons/intro-collage.webp');
+     background-size:cover; background-position:center; background-repeat:no-repeat;
+   }
    /* Card effect canvas for the tapped-user card (see .card-fx-canvas
       below for the shared position/blend rules) — its content needs to
       paint above the plain z-index:2 canvas the same way account-hero-body
       does, except for Abyssal Depths' .submerged variant, which is
       *meant* to sit above and tint everything (see .submerged below). */
-   .user-profile-card > *:not(.card-fx-canvas){ position:relative; z-index:3; }
+   .user-profile-card > *:not(.card-fx-canvas):not(.user-profile-banner){ position:relative; z-index:3; }
    .user-profile-avatar{
      position:relative; width:72px; height:72px; border-radius:50%; display:flex; align-items:center; justify-content:center;
      background:var(--accent-bg); color:#0A0806; font:26px 'Instrument Sans',sans-serif; overflow:hidden;
-     border:3px solid var(--surface); box-shadow:0 0 0 1px var(--line); margin-bottom:10px;
+     border:3px solid var(--surface); box-shadow:0 0 0 1px var(--line); margin-bottom:10px; margin-top:-40px;
    }
    .user-profile-avatar.has-decoration{ overflow:visible; }
    .user-profile-avatar img{ width:100%; height:100%; border-radius:50%; object-fit:cover; display:block; position:relative; z-index:2; }
