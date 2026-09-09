@@ -1,11 +1,12 @@
 // /api/vote.js
-// Server-authoritative vote endpoint for Fiction Clash.
+// Server-authoritative vote endpoint for Fiction Clash. Voting itself
+// does not award XP — only backing the winning side of a matchup does,
+// paid out in a batch by /api/settle-matchup once revealAt passes.
 // Requires FIREBASE_SERVICE_ACCOUNT_KEY env var on Vercel (the full JSON
 // key from Firebase Console > Project Settings > Service Accounts,
 // stored as a single-line stringified JSON).
 
 import admin from 'firebase-admin';
-import { awardXp } from './lib/xp.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -18,7 +19,6 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const MILESTONES = [10, 50, 100, 500, 1000, 5000, 10000];
-const VOTE_XP = 5;
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
 const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY;
 
@@ -142,41 +142,20 @@ export default async function handler(req, res) {
       sendMilestoneNotification(result.matchup, result.crossedMilestone);
     }
 
-    // Award XP for the vote itself — but ONLY for an ordinary (non-timed)
-    // matchup. A matchup with revealAt set is in blind-voting mode: XP
-    // isn't earned by voting at all, only by having backed the winning
-    // side once results reveal (see settle-matchup.js, which pays out
-    // MATCHUP_WIN_XP to each winning-side voter in one batch at that
-    // point). Paying VOTE_XP here too would double-dip a timed matchup's
-    // voters on top of their win payout.
-    // Also handles the verified-badge threshold (crossing a new 1000
-    // points) via the shared helper — bypasses Firestore rules entirely
-    // via the Admin SDK, so this is the only path that can ever change
-    // `xp` or `verifiedUntil`.
-    // Kept outside the vote transaction since an XP/badge hiccup should
-    // never roll back or block a successful vote — but it IS awaited
-    // (just wrapped so it can't fail the request) because Vercel can
-    // freeze this function's execution the instant the response is
-    // sent, killing any dangling un-awaited promise before it finishes
-    // writing to Firestore.
-    let xpResult = null;
-    if (!result.matchup.revealAt) {
-      try {
-        xpResult = await awardXp(db, uid, VOTE_XP);
-      } catch (err) {
-        console.error('XP award failed:', err);
-      }
-    }
-
+    // Voting itself no longer awards XP — win-only now. Backing the
+    // winning side of a matchup pays out via /api/settle-matchup once
+    // revealAt passes (see settle-matchup.js for the batch payout of
+    // MATCHUP_WIN_XP to each winning-side voter). A matchup with no
+    // revealAt at all simply never pays vote XP to anyone.
     return res.status(200).json({
       success: true,
       votesA: result.votesA,
       votesB: result.votesB,
-      xpAwarded: xpResult ? VOTE_XP : 0,
-      rank: xpResult ? xpResult.rank : null,
-      seasonShards: xpResult ? xpResult.newShards : null,
-      badgeGranted: xpResult ? xpResult.badgeGranted : false,
-      verifiedUntil: xpResult ? xpResult.verifiedUntil : null,
+      xpAwarded: 0,
+      rank: null,
+      seasonShards: null,
+      badgeGranted: false,
+      verifiedUntil: null,
     });
   } catch (err) {
     if (err && err.status) {

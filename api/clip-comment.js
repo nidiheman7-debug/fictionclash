@@ -1,11 +1,12 @@
 // /api/clip-comment.js
 // Server-authoritative comment posting for movie clips. Same pattern as
-// comment.js (matchup comments): verifies identity, pulls the poster's
-// profile fields from Firestore server-side, and awards XP. Requires the
-// same FIREBASE_SERVICE_ACCOUNT_KEY env var as vote.js/comment.js.
+// comment.js (matchup comments): verifies identity and pulls the poster's
+// profile fields from Firestore server-side. Does NOT award XP — XP only
+// comes from backing the winning side of a vote (see vote.js /
+// settle-matchup.js). Requires the same FIREBASE_SERVICE_ACCOUNT_KEY env
+// var as vote.js/comment.js.
 
 import admin from 'firebase-admin';
-import { awardXp } from './lib/xp.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -17,7 +18,6 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-const CLIP_COMMENT_XP = 5;
 const MAX_COMMENT_LENGTH = 500;
 
 export default async function handler(req, res) {
@@ -99,20 +99,13 @@ export default async function handler(req, res) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Awaited (not fire-and-forget) so Vercel can't freeze this function
-    // before the XP write lands — see vote.js/comment.js for the same fix.
-    let xpResult = null;
-    try {
-      xpResult = await awardXp(db, uid, CLIP_COMMENT_XP);
-    } catch (err) {
-      console.error('XP award failed:', err);
-    }
-
+    // Comments no longer award XP — only backing the winning side of a
+    // vote does (see vote.js / settle-matchup.js).
     return res.status(200).json({
       success: true,
       commentId: commentRef.id,
-      xpAwarded: xpResult ? CLIP_COMMENT_XP : 0,
-      rank: xpResult ? xpResult.rank : null,
+      xpAwarded: 0,
+      rank: null,
     });
   } catch (err) {
     console.error('Clip comment post failed:', err);

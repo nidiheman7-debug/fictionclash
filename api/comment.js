@@ -1,12 +1,12 @@
 // /api/comment.js
-// Server-authoritative comment posting for matchups. Verifies identity,
+// Server-authoritative comment posting for matchups. Verifies identity and
 // pulls the poster's profile fields from Firestore (so a comment can't be
-// spoofed to show a different name/avatar), and awards XP toward the
-// verified badge. Requires the same FIREBASE_SERVICE_ACCOUNT_KEY env var
-// as vote.js.
+// spoofed to show a different name/avatar). Does NOT award XP — XP only
+// comes from backing the winning side of a vote (see vote.js /
+// settle-matchup.js). Requires the same FIREBASE_SERVICE_ACCOUNT_KEY env
+// var as vote.js.
 
 import admin from 'firebase-admin';
-import { awardXp } from './lib/xp.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -18,7 +18,6 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-const COMMENT_XP = 10;
 const MAX_COMMENT_LENGTH = 500;
 
 export default async function handler(req, res) {
@@ -110,27 +109,16 @@ export default async function handler(req, res) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Awarded (and awaited) here rather than fired-and-forgotten: a
-    // comment should never FAIL because XP hiccuped, so failures are
-    // swallowed — but the write itself must be awaited, because Vercel
-    // can freeze this function's execution the instant the response is
-    // sent, killing any dangling un-awaited promise before it finishes
-    // writing to Firestore.
-    let xpResult = null;
-    try {
-      xpResult = await awardXp(db, uid, COMMENT_XP);
-    } catch (err) {
-      console.error('XP award failed:', err);
-    }
-
+    // Comments no longer award XP — only backing the winning side of a
+    // vote does (see vote.js / settle-matchup.js).
     return res.status(200).json({
       success: true,
       commentId: commentRef.id,
-      xpAwarded: xpResult ? COMMENT_XP : 0,
-      rank: xpResult ? xpResult.rank : null,
-      seasonShards: xpResult ? xpResult.newShards : null,
-      badgeGranted: xpResult ? xpResult.badgeGranted : false,
-      verifiedUntil: xpResult ? xpResult.verifiedUntil : null,
+      xpAwarded: 0,
+      rank: null,
+      seasonShards: null,
+      badgeGranted: false,
+      verifiedUntil: null,
     });
   } catch (err) {
     console.error('Comment post failed:', err);
