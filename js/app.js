@@ -245,6 +245,12 @@ import {
   // below, both of which work today).
   const DEFAULT_REVEAL_HOURS = 48;
 
+  // Inline SVG padlock — used in place of the 🔒 emoji for blind-voting's
+  // "results reveal in..." state, so it renders consistently across
+  // platforms/fonts instead of however each OS draws the lock emoji.
+  // currentColor so it always matches .vote-reveal-state's text color.
+  const REVEAL_LOCK_SVG = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-1px;"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+
   const SEASONS = {
     anime: {
       id: 'anime',
@@ -285,6 +291,7 @@ import {
     if (season) document.body.classList.add(season.bodyClass);
     const seasonChanged = activeSeasonId !== (season ? season.id : null);
     activeSeasonId = season ? season.id : null;
+    recomputeSeasonShards();
     if (typeof renderCustomizationStore === 'function') renderCustomizationStore();
     if (typeof updateLeaderboardSeasonAvailability === 'function') updateLeaderboardSeasonAvailability();
     // The matchups onSnapshot listener only filters docs AS THEY ARRIVE —
@@ -1490,7 +1497,7 @@ import {
     if (blind) {
       voteRevealState.hidden = false;
       voteRevealState.classList.remove('winner');
-      voteRevealState.textContent = `🔒 Results reveal in ${formatRevealCountdown(m.revealAt.toMillis() - Date.now())}`;
+      voteRevealState.innerHTML = `${REVEAL_LOCK_SVG}Results reveal in ${formatRevealCountdown(m.revealAt.toMillis() - Date.now())}`;
     } else if (m.revealAt && m.winningSide && m.winningSide !== 'tie') {
       // Just revealed (or was already settled the last time this matchup
       // loaded) — call out the winner for a beat rather than jumping
@@ -1700,18 +1707,27 @@ import {
     return 'XP';
   }
 
+  // The 'seasonShards' tab is displayed generically, but the real
+  // Firestore field is namespaced per season (seasonShards.<id> — see
+  // api/lib/xp.js), so queries/reads need the resolved path, not the
+  // bare tab name. Falls back to the bare field for xp/weeklyXp.
+  function leaderboardQueryField(field){
+    return field === 'seasonShards' && activeSeasonId ? `seasonShards.${activeSeasonId}` : field;
+  }
+
   // Top players by the given field — `xp` (lifetime, awarded server-side
   // via /api/vote, /api/comment, /api/like, /api/clip-comment) or
   // `weeklyXp` (same awards, zeroed out every Monday). Firestore rules
   // make users/{uid} publicly readable, so a straight orderBy desc query
   // works without any extra grants.
   async function fetchTopUsers(field){
+    const queryField = leaderboardQueryField(field);
     const snap = await getDocs(
-      query(collection(db, 'users'), orderBy(field, 'desc'), limit(50))
+      query(collection(db, 'users'), orderBy(queryField, 'desc'), limit(50))
     );
     return snap.docs
       .map(d => ({ uid: d.id, ...d.data() }))
-      .filter(u => (u[field] || 0) > 0);
+      .filter(u => (fieldPath(u, queryField) || 0) > 0);
   }
 
   // Renders the "Your Rank" card at the top of the sheet. If the signed-in
@@ -1724,6 +1740,7 @@ import {
     const user = auth.currentUser;
     if (!user) { yourRankCard.classList.add('hidden'); return; }
 
+    const queryField = leaderboardQueryField(field);
     const myValue = field === 'xp' ? currentUserXp : field === 'seasonShards' ? seasonShards : currentUserWeeklyXp;
     let rank;
     const idx = ranked.findIndex(u => u.uid === user.uid);
@@ -1731,7 +1748,7 @@ import {
       rank = idx + 1;
     } else if (myValue > 0) {
       try {
-        const aggSnap = await getCountFromServer(query(collection(db, 'users'), where(field, '>', myValue)));
+        const aggSnap = await getCountFromServer(query(collection(db, 'users'), where(queryField, '>', myValue)));
         rank = aggSnap.data().count + 1;
       } catch (err) {
         console.error('Your-rank lookup failed', err);
@@ -1753,11 +1770,11 @@ import {
     if (rank <= 1) {
       yourRankGap.textContent = "You're #1!";
     } else if (rank <= 10) {
-      const topValue = ranked[0] ? (ranked[0][field] || 0) : myValue;
+      const topValue = ranked[0] ? (fieldPath(ranked[0], queryField) || 0) : myValue;
       const gap = topValue - myValue;
       yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} ${leaderboardUnitLabel(field)} to reach #1` : '';
     } else if (ranked[9]) {
-      const gap = (ranked[9][field] || 0) - myValue + 1;
+      const gap = (fieldPath(ranked[9], queryField) || 0) - myValue + 1;
       yourRankGap.textContent = gap > 0 ? `+${gap.toLocaleString()} ${leaderboardUnitLabel(field)} to reach #10` : '';
     } else {
       yourRankGap.textContent = '';
@@ -1791,7 +1808,7 @@ import {
         <div class="leaderboard-info">
           <div class="leaderboard-name">${escapeHtml(entry.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></div>
         </div>
-        <div class="leaderboard-votes">${(entry[field] || 0).toLocaleString()}<br>${leaderboardUnitLabel(field).toLowerCase()}</div>
+        <div class="leaderboard-votes">${(fieldPath(entry, leaderboardQueryField(field)) || 0).toLocaleString()}<br>${leaderboardUnitLabel(field).toLowerCase()}</div>
       </div>`).join('');
 
     leaderboardList.querySelectorAll('.leaderboard-row').forEach((row, index) => {
@@ -4320,7 +4337,26 @@ import {
   let avatarDataUrl = '';
   let coverPhotoDataUrl = '';
   let clashPoints = 0;
-  let seasonShards = 0; // standalone currency for the active season's exclusive decorations — see SEASONS
+  // seasonShardsRaw is the full { seasonId: amount } map as stored in
+  // Firestore (see api/lib/xp.js). seasonShards is the derived, display-
+  // ready balance for WHICHEVER season is currently active — recomputed
+  // by recomputeSeasonShards() below whenever either changes, so a
+  // newly-activated season correctly shows 0 until shards are earned
+  // into its own key, instead of carrying over another season's total.
+  let seasonShardsRaw = {};
+  let seasonShards = 0;
+  function recomputeSeasonShards(){
+    seasonShards = (seasonShardsRaw && typeof seasonShardsRaw === 'object' && activeSeasonId)
+      ? Number(seasonShardsRaw[activeSeasonId] || 0)
+      : 0;
+  }
+  // Reads a possibly-nested field off a plain object by dot path, e.g.
+  // fieldPath(data, 'seasonShards.horror') — used because Firestore doc
+  // data comes back as real nested objects, not flattened dot-keys, even
+  // though query field paths themselves use dot notation.
+  function fieldPath(obj, path){
+    return path.split('.').reduce((o, k) => (o && typeof o === 'object') ? o[k] : undefined, obj);
+  }
   let shareCount = 0;
   let unlockedDecorations = [];
   let unlockedFonts = [];
@@ -6029,7 +6065,12 @@ import {
     // a completely separate balance/field, never mixed with the evergreen
     // currency (see awardXp in api/lib/xp.js for where shards come from).
     const usesShards = type === 'decoration' && !!item.season;
-    const currencyField = usesShards ? 'seasonShards' : 'clashPoints';
+    // Dotted key (e.g. 'seasonShards.horror') — both updateDoc and
+    // set(...,{merge:true}) treat a top-level key containing a dot as a
+    // nested field path, so this writes into that one season's slot in
+    // the map without touching any other season's balance. See
+    // api/lib/xp.js for why seasonShards is a map keyed by season id.
+    const currencyField = usesShards ? `seasonShards.${item.season}` : 'clashPoints';
     const currencyLabel = usesShards ? (SEASONS[item.season]?.currencyLabel || 'Shards') : 'Clash Points';
     const userRef = doc(db, 'users', user.uid);
 
@@ -6054,7 +6095,9 @@ import {
       await runTransaction(db, async transaction => {
         const snap = await transaction.get(userRef);
         const data = snap.exists() ? snap.data() : {};
-        const remoteBalance = Number(data[currencyField] || 0);
+        // data is the real nested doc — a dotted key won't resolve here
+        // the way it does in the query/update side, so read it manually.
+        const remoteBalance = Number(fieldPath(data, currencyField) || 0);
         const remoteOwned = type === 'decoration'
           ? (Array.isArray(data.unlockedDecorations) ? data.unlockedDecorations : [])
           : (Array.isArray(data.unlockedFonts) ? data.unlockedFonts : []);
@@ -6066,7 +6109,12 @@ import {
           [type === 'decoration' ? 'lastRedeemedDecoration' : 'lastRedeemedFont']: id
         }, { merge: true });
       });
-      if (usesShards) seasonShards -= cost; else clashPoints -= cost;
+      if (usesShards) {
+        seasonShardsRaw[item.season] = (seasonShardsRaw[item.season] || 0) - cost;
+        recomputeSeasonShards();
+      } else {
+        clashPoints -= cost;
+      }
       ownedList.push(id);
       renderCustomizationStore();
       haptic('success');
@@ -6511,7 +6559,10 @@ import {
       if (data.avatarUrl) avatarDataUrl = data.avatarUrl;
       if (data.coverPhotoUrl) coverPhotoDataUrl = data.coverPhotoUrl;
       clashPoints = Number(data.clashPoints || 0);
-      seasonShards = Number(data.seasonShards || 0);
+      seasonShardsRaw = (data.seasonShards && typeof data.seasonShards === 'object' && !Array.isArray(data.seasonShards))
+        ? data.seasonShards
+        : {}; // legacy flat-number accounts start clean — see api/lib/xp.js
+      recomputeSeasonShards();
       shareCount = Number(data.shareCount || 0);
       unlockedDecorations = Array.isArray(data.unlockedDecorations) ? [...data.unlockedDecorations] : [];
       unlockedFonts = Array.isArray(data.unlockedFonts) ? [...data.unlockedFonts] : [];
@@ -6741,6 +6792,7 @@ import {
         avatarDataUrl = user.photoURL || '';
         coverPhotoDataUrl = '';
          clashPoints = 0;
+         seasonShardsRaw = {};
          seasonShards = 0;
          shareCount = 0;
          unlockedDecorations = [];
@@ -6776,6 +6828,7 @@ import {
       avatarDataUrl = '';
       coverPhotoDataUrl = '';
        clashPoints = 0;
+       seasonShardsRaw = {};
        seasonShards = 0;
        shareCount = 0;
        unlockedDecorations = [];
