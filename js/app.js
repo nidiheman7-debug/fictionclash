@@ -244,6 +244,25 @@ import {
       bodyClass: 'season-anime',
       bannerAsset: '/public/seasons/anime/store-banner.png?v=2',
       currencyLabel: 'Shards',
+      // The below three drive the share-card canvas (drawBattleCardShell),
+      // which can't read CSS variables — literal values pulled out of what
+      // used to be hardcoded isAnime branches, so a new season is a data
+      // addition here too, not a new canvas branch.
+      currencyIcon: '/public/seasons/anime/shard-icon.png',
+      cardArt: '/public/seasons/anime/battle-card-bg.jpg',
+      cardAccentColor: '#FF3D7A',
+      cardGlowRgb: '244,185,92',
+    },
+    horror: {
+      id: 'horror',
+      label: 'Horror Season',
+      bodyClass: 'season-horror',
+      bannerAsset: '/public/seasons/horror/store-banner.png?v=1',
+      currencyLabel: 'Skulls',
+      currencyIcon: '/public/seasons/horror/skull-icon.svg',
+      cardArt: '/public/seasons/horror/battle-card-bg.jpg',
+      cardAccentColor: '#FF1B3C',
+      cardGlowRgb: '139,0,0',
     },
   };
 
@@ -2273,13 +2292,15 @@ import {
     ctx.stroke();
   }
 
-  // Async because the anime-season path has to await the hero art before
-  // it can draw anything — callers must `await` this now (both do).
+  // Async because a live-season path has to await the hero art before it
+  // can draw anything — callers must `await` this now (both do). Reads
+  // its art/colors from the active season's own SEASONS entry, so adding
+  // a season here is a config addition, not a new canvas branch.
   async function drawBattleCardShell(ctx, w, h, kicker){
-    const isAnime = document.body.classList.contains('season-anime');
-    const heroImgPath = '/public/seasons/anime/battle-card-bg.jpg';
-    const heroImg = isAnime ? await loadImageEl(heroImgPath) : null;
-    if (isAnime && !heroImg) {
+    const activeSeason = activeSeasonId ? SEASONS[activeSeasonId] : null;
+    const heroImgPath = activeSeason ? activeSeason.cardArt : null;
+    const heroImg = heroImgPath ? await loadImageEl(heroImgPath) : null;
+    if (heroImgPath && !heroImg) {
       console.warn(`Battle card art failed to load from ${heroImgPath} — falling back to the plain background. Check the file is actually deployed at that path (open the URL directly in a tab to confirm it 200s).`);
     }
 
@@ -2299,7 +2320,7 @@ import {
       ctx.fillRect(0, 0, w, h);
     }
 
-    const glowRgb = isAnime ? '244,185,92' : '228,169,41'; // warm lantern-gold, matches the new art
+    const glowRgb = activeSeason ? activeSeason.cardGlowRgb : '228,169,41'; // warm lantern-gold outside any season
     const glow = ctx.createRadialGradient(w / 2, h * 0.22, 10, w / 2, h * 0.22, w * 0.65);
     glow.addColorStop(0, `rgba(${glowRgb},.28)`);
     glow.addColorStop(1, `rgba(${glowRgb},0)`);
@@ -2307,7 +2328,7 @@ import {
     ctx.fillRect(0, 0, w, h);
 
     ctx.textAlign = 'center';
-    ctx.fillStyle = isAnime ? '#FF3D7A' : '#E4A929';
+    ctx.fillStyle = activeSeason ? activeSeason.cardAccentColor : '#E4A929';
     ctx.font = `700 34px 'Rajdhani', sans-serif`;
     ctx.fillText('FICTION CLASH', w / 2, 96);
     ctx.fillStyle = '#999';
@@ -5299,7 +5320,14 @@ import {
     { id:'spirit-portal', name:'Spirit Portal', category:'Mystic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', season:'anime' },
     { id:'skeletal-reaper', name:'Skeletal Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6, premium:true, cash:{ usd:0.72, ngnRef:1000 } },
     { id:'dragon-balls', name:'Dragon Balls', category:'Legendary', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'dragonballs', fxParticles:7, season:'anime' },
-    { id:'star-struck', name:'Star Struck', category:'Discord Picks', rarity:'Epic', cost:90, fx:'canvas', canvasType:'star_struck', fxParticles:14, season:'anime' }
+    { id:'star-struck', name:'Star Struck', category:'Discord Picks', rarity:'Epic', cost:90, fx:'canvas', canvasType:'star_struck', fxParticles:14, season:'anime' },
+    // Horror Season exclusives — same pattern as the anime set above:
+    // reuse existing canvasType particle effects, just tagged season:'horror'
+    // so they only show up in the store while Horror Season is live.
+    { id:'phantom-mist', name:'Phantom Mist', category:'Dark', rarity:'Rare', cost:80, fx:'canvas', canvasType:'toxic', season:'horror' },
+    { id:'wraith-veil', name:'Wraith Veil', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', season:'horror' },
+    { id:'grim-reaper', name:'Grim Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6, season:'horror' },
+    { id:'cursed-flame', name:'Cursed Flame', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', season:'horror' }
   ];
   // Profile CARD effects — full-card particle overlays that sit over the
   // banner + body (see card-fx-canvas / activateCardFx below), as opposed
@@ -5629,10 +5657,13 @@ import {
     const seasonItems = activeSeason ? PROFILE_DECORATIONS.filter(item => item.season === activeSeasonId) : [];
     const evergreenItems = PROFILE_DECORATIONS.filter(item => !item.season);
 
-    // The glowing sakura petal (their supplied artwork) is the Shards
-    // currency icon — shown wherever a Shards cost or balance appears.
-    function shardsIconHtml(){
-      return `<img src="/public/seasons/anime/shard-icon.png" alt="" class="shards-currency-icon" style="width:16px;height:16px;object-fit:contain;vertical-align:-3px;margin-right:3px;">`;
+    // Each season's own currency icon (the anime Shards' glowing sakura
+    // petal, the Horror Skulls' skull mark, etc.) — shown wherever that
+    // season's cost or balance appears. Icon path comes from the season's
+    // own SEASONS entry, so a new season's currency is a data addition.
+    function seasonCurrencyIconHtml(season){
+      if (!season || !season.currencyIcon) return '';
+      return `<img src="${season.currencyIcon}" alt="" class="shards-currency-icon" style="width:16px;height:16px;object-fit:contain;vertical-align:-3px;margin-right:3px;">`;
     }
 
     function decorationCardHtml(item, currency, balance){
@@ -5640,9 +5671,11 @@ import {
       const equipped = equippedDecoration === item.id;
       const isPremium = !!item.premium;
       const buttonLabel = equipped ? 'Equipped' : owned ? 'Equip' : (isPremium ? 'Buy' : 'Redeem');
+      // 'pts' is the evergreen Clash Points currency — anything else is a
+      // season currency (shards, skulls, ...) and gets that season's icon.
       const costHtml = owned ? '' : isPremium
         ? `$${item.cash.usd.toFixed(2)}`
-        : `${currency === 'shards' ? shardsIconHtml() : ''}${item.cost} ${currency}`;
+        : `${currency !== 'pts' ? seasonCurrencyIconHtml(activeSeason) : ''}${item.cost} ${currency}`;
       return `<div class="profile-store-item${owned ? ' owned' : ''}${isPremium ? ' premium' : ''}">
         ${owned ? '<span class="profile-owned-tag">OWNED</span>' : ''}
         ${!owned && isPremium ? '<span class="profile-premium-tag">PREMIUM</span>' : ''}
@@ -5659,7 +5692,7 @@ import {
       <div class="profile-store-season">
         <div class="profile-store-season-banner">
           <span class="profile-store-season-label">${activeSeason.label}</span>
-          <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${shardsIconHtml()}${seasonShards} available)</div>
+          <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${seasonCurrencyIconHtml(activeSeason)}${seasonShards} available)</div>
         </div>
         <div class="profile-store-season-grid">
           ${seasonItems.map(item => decorationCardHtml(item, activeSeason.currencyLabel.toLowerCase(), seasonShards)).join('')}
