@@ -524,11 +524,17 @@
      background:var(--surface2);
   }
    .vote-split .hi-bar{ background:var(--accent-bg); width:57%; transition:width .5s ease; }
+  /* Same author-style-beats-[hidden] issue already fixed for .theme-toggle
+     etc. — .vote-split/.vote-pct set display:flex directly, so setting
+     .hidden = true in updatePercentages() was doing nothing visually
+     during blind voting. These restore [hidden]'s priority. */
+  .vote-split[hidden]{ display:none; }
   .vote-pct{
     display:flex; justify-content:space-between;
     font-family:'Martian Mono',monospace;
     font-size:11px; color:var(--muted); margin-top:6px;
   }
+  .vote-pct[hidden]{ display:none; }
   /* Shown instead of .vote-split/.vote-pct while a matchup's revealAt
      timer is still running (blind voting — see updatePercentages() in
      app.js), and again briefly to announce the winner right after reveal.
@@ -1400,9 +1406,18 @@
    }
    .admin-report-row img{ width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0; }
    .admin-report-info{ flex:1;min-width:0; }
-   .admin-report-info b{ font-size:12px;display:block; }
+   .admin-report-info b{ font-size:12px;display:block;overflow-wrap:break-word; }
    .admin-report-info span{ font-size:10.5px;color:var(--muted);display:block; }
    .admin-report-actions{ display:flex;gap:6px;flex-wrap:wrap; }
+   /* This row (matchup category tagging) packs a select + number input +
+      two buttons in .admin-report-actions — too wide to sit beside the
+      title on a phone screen. Flex would just squeeze .admin-report-info
+      toward 0 width, causing long matchup names to overflow underneath
+      the controls instead of wrapping normally. Stacking the two blocks
+      full-width, one above the other, keeps the title fully visible. */
+   .admin-report-row.admin-matchup-row{ flex-direction:column;align-items:stretch;gap:8px; }
+   .admin-report-row.admin-matchup-row .admin-report-info{ width:100%; }
+   .admin-report-row.admin-matchup-row .admin-report-actions{ width:100%; }
    .admin-report-actions select{
      background:var(--bg);border:1px solid var(--line);border-radius:8px;
      color:var(--text);font:700 10px 'Instrument Sans',sans-serif;padding:6px 8px;
