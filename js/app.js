@@ -237,6 +237,14 @@ import {
   // side (body.season-<id> rules) lives in the <style> block above and
   // must exist for any id added here, or applySeason() just adds a class
   // that does nothing.
+  // Every new matchup gets a 48h blind-voting window by default now (see
+  // /api/moderate.js for where this actually needs to be read at
+  // creation time — that file wasn't available here, so the auto-default
+  // on brand-new matchups isn't wired in yet; this constant just drives
+  // the admin bulk-apply action and the per-matchup timer input's default
+  // below, both of which work today).
+  const DEFAULT_REVEAL_HOURS = 48;
+
   const SEASONS = {
     anime: {
       id: 'anime',
@@ -360,27 +368,90 @@ import {
   function renderMatchupCategoryList(){
     updateMatchupCategoryCardVisibility();
     if (!matchupCategoryList || !isAdmin()) return;
-    matchupCategoryList.innerHTML = adminAllMatchups.map(m => `
+    matchupCategoryList.innerHTML = adminAllMatchups.map(m => {
+      const revealAtMs = m.revealAt ? m.revealAt.toMillis() : null;
+      const revealStatus = !revealAtMs ? 'No reveal timer — results are always visible'
+        : revealAtMs > Date.now() ? `Blind until ${new Date(revealAtMs).toLocaleString()}`
+        : `Revealed${m.resultsSettled ? ' · XP paid out' : ' · settling…'}`;
+      return `
       <div class="admin-report-row" data-matchup-id="${m.docId}">
         <div class="admin-report-info">
           <b>${escapeHtml(m.a.name)} vs ${escapeHtml(m.b.name)}</b>
           <span>${m.category ? SEASONS[m.category]?.label || m.category : 'Untagged'}</span>
+          <span>${revealStatus}</span>
         </div>
         <div class="admin-report-actions">
           <select data-category-select>
             <option value="">— Untagged —</option>
             ${Object.values(SEASONS).map(s => `<option value="${s.id}" ${m.category === s.id ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}
           </select>
+          <input type="number" min="1" step="1" placeholder="Hrs" value="${DEFAULT_REVEAL_HOURS}" class="admin-reveal-hours" data-reveal-hours>
+          <button type="button" data-reveal-action="set">Blind vote for N hrs</button>
+          ${revealAtMs ? '<button type="button" class="danger" data-reveal-action="clear">Clear timer</button>' : ''}
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
+  }
+  // "Apply 48h... to every matchup without one" — the retroactive half of
+  // making blind-voting the default: catches every matchup that predates
+  // (or otherwise missed) whatever auto-applies revealAt at creation, in
+  // one pass instead of clicking "Blind vote for 48 hrs" on each row by
+  // hand. Straight sequential updateDoc calls rather than a writeBatch —
+  // simpler, and fine at the matchup counts this app has today; would be
+  // worth batching if that list ever gets into the hundreds.
+  const bulkRevealBtn = document.getElementById('bulkRevealBtn');
+  if (bulkRevealBtn) {
+    bulkRevealBtn.addEventListener('click', async () => {
+      const targets = adminAllMatchups.filter(m => !m.revealAt);
+      if (!targets.length) { showToast('Every matchup already has a timer'); return; }
+      bulkRevealBtn.disabled = true;
+      bulkRevealBtn.textContent = `Applying to ${targets.length}…`;
+      const revealAt = Timestamp.fromMillis(Date.now() + DEFAULT_REVEAL_HOURS * 3600000);
+      let succeeded = 0;
+      for (const m of targets) {
+        try {
+          await updateDoc(doc(db, 'matchups', m.docId), { revealAt });
+          succeeded++;
+        } catch (err) {
+          console.error('Bulk reveal-timer apply failed for', m.docId, err);
+        }
+      }
+      showToast(`Applied ${DEFAULT_REVEAL_HOURS}h timer to ${succeeded}/${targets.length} matchups`);
+      bulkRevealBtn.disabled = false;
+      bulkRevealBtn.textContent = 'Apply 48h blind timer to every matchup without one';
+    });
   }
   onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
     adminAllMatchups = snapshot.docs
       .filter(d => d.data().a && d.data().b)
-      .map(d => ({ docId: d.id, a: d.data().a, b: d.data().b, category: d.data().category || null }));
+      .map(d => ({ docId: d.id, a: d.data().a, b: d.data().b, category: d.data().category || null, revealAt: d.data().revealAt || null, resultsSettled: !!d.data().resultsSettled }));
     renderMatchupCategoryList();
   }, err => console.error('Admin matchup-category listener failed', err));
+  if (matchupCategoryList) {
+    matchupCategoryList.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-reveal-action]');
+      if (!btn) return;
+      const row = btn.closest('[data-matchup-id]');
+      const matchupId = row?.dataset.matchupId;
+      if (!matchupId) return;
+      if (btn.dataset.revealAction === 'clear') {
+        btn.disabled = true;
+        updateDoc(doc(db, 'matchups', matchupId), { revealAt: deleteField() })
+          .then(() => showToast('Reveal timer cleared — results visible again'))
+          .catch(err => { console.error('Clear reveal timer failed', err); showToast('Could not clear timer — try again'); btn.disabled = false; });
+        return;
+      }
+      const hoursInput = row.querySelector('[data-reveal-hours]');
+      const hours = parseFloat(hoursInput?.value);
+      if (!hours || hours <= 0) { showToast('Enter how many hours first'); return; }
+      btn.disabled = true;
+      updateDoc(doc(db, 'matchups', matchupId), { revealAt: Timestamp.fromMillis(Date.now() + hours * 3600000) })
+        .then(() => showToast(`Blind voting for ${hours}h — results reveal then`))
+        .catch(err => { console.error('Set reveal timer failed', err); showToast('Could not set timer — try again'); })
+        .finally(() => { btn.disabled = false; });
+    });
+  }
   if (matchupCategoryList) {
     matchupCategoryList.addEventListener('change', (e) => {
       const select = e.target.closest('[data-category-select]');
@@ -452,6 +523,7 @@ import {
   const voteBar = document.getElementById('voteBar');
   const votePctA = document.getElementById('votePctA');
   const votePctB = document.getElementById('votePctB');
+  const voteRevealState = document.getElementById('voteRevealState');
   const aiStatsButton = document.getElementById('aiStatsButton');
   const aiStatsResult = document.getElementById('aiStatsResult');
   const aiStatsProfiles = {
@@ -1344,6 +1416,57 @@ import {
     });
   });
 
+  // "2h 14m" / "45s" — coarse on purpose, this is a countdown label, not a
+  // stopwatch; re-derived fresh every tick rather than cached anywhere.
+  function formatRevealCountdown(msLeft){
+    const totalSec = Math.max(0, Math.ceil(msLeft / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  // Any signed-in viewer's browser can be the one that "flips the switch"
+  // once a matchup's reveal timer runs out — /api/settle-matchup is
+  // idempotent (resultsSettled is claimed atomically server-side via a
+  // transaction before any XP goes out), so it's safe to fire this from
+  // whoever happens to load the matchup right after expiry rather than
+  // needing a dedicated background job. The real tradeoff this accepts:
+  // there's no queue/retry behind it, so if the payout loop itself times
+  // out partway through a very large voter list, the remaining winners
+  // silently don't get paid (resultsSettled is already true by then, to
+  // guarantee nobody's ever paid twice) — fine at today's vote counts,
+  // worth revisiting for a real job queue once matchups regularly pull
+  // hundreds+ voters. See settle-matchup.js for the full reasoning.
+  const settleAttempted = new Set();
+  async function triggerSettleIfNeeded(m){
+    if (!m.docId || !m.revealAt || m.resultsSettled) return;
+    if (m.revealAt.toMillis() > Date.now()) return;
+    if (settleAttempted.has(m.docId)) return;
+    settleAttempted.add(m.docId);
+    const user = auth.currentUser;
+    if (!user) { settleAttempted.delete(m.docId); return; } // try again once signed in
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/settle-matchup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ matchupId: m.docId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data) {
+        m.resultsSettled = true;
+        m.winningSide = data.winningSide;
+        if (matchups[activeIdx] === m) updatePercentages();
+      }
+    } catch (err) {
+      console.error('Settle trigger failed', err);
+      settleAttempted.delete(m.docId); // allow a retry on a later tick/view
+    }
+  }
+
   function updatePercentages(){
     const m = matchups[activeIdx];
     const total = m.votesA + m.votesB;
@@ -1353,6 +1476,33 @@ import {
     voteBar.style.width = pctA + '%';
     votePctA.textContent = `${pctA}% ${m.a.name.split(' ')[0]}`;
     votePctB.textContent = `${pctB}% ${m.b.name.split(' ')[0]}`;
+
+    // Blind voting: while revealAt is set and still in the future, hide
+    // the live split entirely instead of just fuzzing it — showing a
+    // rounded/delayed percentage is still information, and the entire
+    // point of this mode is that nobody can see which side is ahead
+    // until the timer's up. Voting itself stays open; only the numbers
+    // are hidden (see vote.js for the matching server-side close-at-
+    // revealAt check, which is the part that actually enforces this).
+    const blind = !!(m.revealAt && m.revealAt.toMillis() > Date.now());
+    voteBar.parentElement.hidden = blind;
+    votePctA.parentElement.hidden = blind;
+    if (blind) {
+      voteRevealState.hidden = false;
+      voteRevealState.classList.remove('winner');
+      voteRevealState.textContent = `🔒 Results reveal in ${formatRevealCountdown(m.revealAt.toMillis() - Date.now())}`;
+    } else if (m.revealAt && m.winningSide && m.winningSide !== 'tie') {
+      // Just revealed (or was already settled the last time this matchup
+      // loaded) — call out the winner for a beat rather than jumping
+      // straight to a bare percentage bar with no context.
+      const winnerName = (m.winningSide === 'a' ? m.a : m.b).name.split(' ')[0];
+      voteRevealState.hidden = false;
+      voteRevealState.classList.add('winner');
+      voteRevealState.textContent = `🏆 ${winnerName} won — XP paid out to backers`;
+    } else {
+      voteRevealState.hidden = true;
+    }
+    if (m.revealAt && !blind) triggerSettleIfNeeded(m);
   }
 
   async function castVote(side){
@@ -1889,7 +2039,7 @@ import {
       if (data.expiresAt && data.expiresAt.toMillis() < Date.now()) return;
       if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
       if (activeSeasonId && data.category !== activeSeasonId) return;
-      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null });
+      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null, revealAt: data.revealAt || null, resultsSettled: !!data.resultsSettled, winningSide: data.winningSide || null });
     });
     // Try to keep whatever was on screen still on screen if it survived
     // the filter; otherwise fall back to the start of the (new) list
@@ -1951,7 +2101,7 @@ import {
         }
         return;
       }
-      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null });
+      matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null, revealAt: data.revealAt || null, resultsSettled: !!data.resultsSettled, winningSide: data.winningSide || null });
       listChanged = true;
       if (matchupsSynced) pushNotification('matchup', 'New matchup', `${data.a.name} vs ${data.b.name}`, docSnap.id);
     });
@@ -6095,6 +6245,17 @@ import {
     }
   }, 60000);
   setInterval(renderVerifiedBadge, 60000);
+
+  // Keeps a blind matchup's reveal countdown ticking, and catches the
+  // blind→revealed transition for whoever's actively looking at it. No
+  // Firestore listener does this — 'modified' doc changes are ignored
+  // everywhere in this app, votesA/votesB included (see the matchups
+  // onSnapshot above), so this matches how live vote counts already
+  // behave here: it self-corrects on the next render, not via a push.
+  setInterval(() => {
+    const m = matchups[activeIdx];
+    if (m && m.revealAt) updatePercentages();
+  }, 15000);
 
   // ---------- equipped decoration (shown on OTHER accounts' comments) ----------
   // Same idea as the verified badge above: a comment only stores who posted
