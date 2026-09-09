@@ -927,9 +927,13 @@ import {
       if (!res.ok) throw new Error(data.error || 'Comment failed');
       haptic('success');
       setReplyTarget(sourceForm, null);
-      currentUserXp += 10;
-      currentUserWeeklyXp += 10;
-      renderVerifiedProgress();
+      // Comments no longer award XP server-side — only bump locally if
+      // the server actually sent xpAwarded (kept for forward-compat).
+      if (data.xpAwarded) {
+        currentUserXp += data.xpAwarded;
+        currentUserWeeklyXp += data.xpAwarded;
+        renderVerifiedProgress();
+      }
       showXpToast(data.xpAwarded, data.rank);
     } catch (err) {
       console.error('Matchup comment post failed', err);
@@ -1555,12 +1559,14 @@ import {
         }
         m.votesA = data.votesA;
         m.votesB = data.votesB;
-        // Optimistic local bump so the progress bar feels live — the
-        // server awarded the real +5 XP already; this just avoids
-        // waiting on a full profile reload to reflect it here.
-        currentUserXp += 5;
-        currentUserWeeklyXp += 5;
-        renderVerifiedProgress();
+        // Voting itself no longer awards XP — win-only now, paid out
+        // later by /api/settle-matchup once the reveal timer passes.
+        // Only bump locally if the server actually sent xpAwarded.
+        if (data.xpAwarded) {
+          currentUserXp += data.xpAwarded;
+          currentUserWeeklyXp += data.xpAwarded;
+          renderVerifiedProgress();
+        }
         showXpToast(data.xpAwarded, data.rank);
       } catch (err) {
         console.error('Vote sync failed', err);
@@ -2329,12 +2335,13 @@ import {
     remoteLikeUids[key] = nextUids;
     if (likeRenderers[key]) likeRenderers[key]();
 
-    // Server-authoritative toggle via /api/like — verifies identity,
-    // enforces one uid per like, and awards a one-time XP credit. Direct
-    // Firestore writes to `likes/{id}` are rejected by the security rules.
+    // Server-authoritative toggle via /api/like — verifies identity and
+    // enforces one uid per like. No longer awards XP (win-only now).
+    // Direct Firestore writes to `likes/{id}` are rejected by the
+    // security rules.
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/like', {
+      const res = await fetch(`${PAYMENT_API_BASE}/api/like`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
         body: JSON.stringify({ targetType, targetId }),
@@ -3467,10 +3474,10 @@ import {
     if (!user) { requireSignIn('Sign in to comment'); return; }
     const replyTarget = form._replyTarget || null;
     input.value = '';
-    // Server-authoritative post via /api/clip-comment — verifies identity,
-    // pulls the poster's real profile fields server-side, and awards XP.
-    // Direct Firestore writes to this subcollection are rejected by the
-    // security rules.
+    // Server-authoritative post via /api/clip-comment — verifies identity
+    // and pulls the poster's real profile fields server-side. No longer
+    // awards XP (win-only now). Direct Firestore writes to this
+    // subcollection are rejected by the security rules.
     try {
       const idToken = await user.getIdToken();
       const res = await fetch('/api/clip-comment', {
@@ -3482,11 +3489,12 @@ import {
       if (!res.ok) throw new Error(data.error || 'Comment failed');
       haptic('success');
       setReplyTarget(form, null);
-      // Optimistic local bump so the progress bar feels live — the server
-      // already awarded the real +10 XP.
-      currentUserXp += 10;
-      currentUserWeeklyXp += 10;
-      renderVerifiedProgress();
+      // Only bump locally if the server actually sent xpAwarded.
+      if (data.xpAwarded) {
+        currentUserXp += data.xpAwarded;
+        currentUserWeeklyXp += data.xpAwarded;
+        renderVerifiedProgress();
+      }
       showXpToast(data.xpAwarded, data.rank);
     } catch (err) {
       console.error('Comment post failed', err);
