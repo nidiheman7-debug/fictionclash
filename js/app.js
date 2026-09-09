@@ -381,7 +381,7 @@ import {
         : revealAtMs > Date.now() ? `Blind until ${new Date(revealAtMs).toLocaleString()}`
         : `Revealed${m.resultsSettled ? ' · XP paid out' : ' · settling…'}`;
       return `
-      <div class="admin-report-row" data-matchup-id="${m.docId}">
+      <div class="admin-report-row admin-matchup-row" data-matchup-id="${m.docId}">
         <div class="admin-report-info">
           <b>${escapeHtml(m.a.name)} vs ${escapeHtml(m.b.name)}</b>
           <span>${m.category ? SEASONS[m.category]?.label || m.category : 'Untagged'}</span>
