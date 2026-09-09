@@ -24,6 +24,14 @@ const db = admin.firestore();
 const ADMIN_UID = 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2';
 
 const LIFETIME_MS = 14 * 24 * 60 * 60 * 1000; // same 14-day TTL the old client-side code used
+// Every new matchup now launches in blind-voting mode by default: votes
+// count immediately but results stay hidden, and voting itself closes,
+// once revealAt passes — see settle-matchup.js, which is what actually
+// reveals the winner and pays out XP once this timer runs out. Matches
+// the 48h the admin panel's manual "Blind vote for N hrs" control now
+// defaults to (see DEFAULT_REVEAL_HOURS in app.js), so a matchup created
+// here and one an admin times by hand behave identically.
+const MATCHUP_REVEAL_MS = 48 * 60 * 60 * 1000;
 
 const PENDING_COLLECTION = { matchup: 'pendingMatchups', clip: 'pendingClips' };
 const LIVE_COLLECTION = { matchup: 'matchups', clip: 'movieClips' };
@@ -104,6 +112,9 @@ export default async function handler(req, res) {
     }
     liveData.createdAt = admin.firestore.FieldValue.serverTimestamp();
     liveData.expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + LIFETIME_MS);
+    if (type === 'matchup') {
+      liveData.revealAt = admin.firestore.Timestamp.fromMillis(Date.now() + MATCHUP_REVEAL_MS);
+    }
 
     const liveRef = db.collection(LIVE_COLLECTION[type]).doc();
     const batch = db.batch();

@@ -95,6 +95,14 @@ export default async function handler(req, res) {
       if (matchup.expiresAt && matchup.expiresAt.toMillis() < Date.now()) {
         throw { status: 410, message: 'This clash has ended' };
       }
+      // Blind-voting mode (see settle-matchup.js): once revealAt passes,
+      // voting closes the same way expiresAt already does — the winning
+      // side has to be a frozen snapshot at exactly that moment, or the
+      // XP payout at reveal could hand out rewards for a result that
+      // changes again a minute later.
+      if (matchup.revealAt && matchup.revealAt.toMillis() < Date.now()) {
+        throw { status: 410, message: 'Voting closed — results are revealing now' };
+      }
 
       if (voterSnap.exists) {
         throw { status: 409, message: 'You already voted on this clash' };
@@ -134,10 +142,17 @@ export default async function handler(req, res) {
       sendMilestoneNotification(result.matchup, result.crossedMilestone);
     }
 
-    // Award XP for the vote itself. Also handles the verified-badge
-    // threshold (crossing a new 1000 points) via the shared helper —
-    // bypasses Firestore rules entirely via the Admin SDK, so this is
-    // the only path that can ever change `xp` or `verifiedUntil`.
+    // Award XP for the vote itself — but ONLY for an ordinary (non-timed)
+    // matchup. A matchup with revealAt set is in blind-voting mode: XP
+    // isn't earned by voting at all, only by having backed the winning
+    // side once results reveal (see settle-matchup.js, which pays out
+    // MATCHUP_WIN_XP to each winning-side voter in one batch at that
+    // point). Paying VOTE_XP here too would double-dip a timed matchup's
+    // voters on top of their win payout.
+    // Also handles the verified-badge threshold (crossing a new 1000
+    // points) via the shared helper — bypasses Firestore rules entirely
+    // via the Admin SDK, so this is the only path that can ever change
+    // `xp` or `verifiedUntil`.
     // Kept outside the vote transaction since an XP/badge hiccup should
     // never roll back or block a successful vote — but it IS awaited
     // (just wrapped so it can't fail the request) because Vercel can
@@ -145,10 +160,12 @@ export default async function handler(req, res) {
     // sent, killing any dangling un-awaited promise before it finishes
     // writing to Firestore.
     let xpResult = null;
-    try {
-      xpResult = await awardXp(db, uid, VOTE_XP);
-    } catch (err) {
-      console.error('XP award failed:', err);
+    if (!result.matchup.revealAt) {
+      try {
+        xpResult = await awardXp(db, uid, VOTE_XP);
+      } catch (err) {
+        console.error('XP award failed:', err);
+      }
     }
 
     return res.status(200).json({
