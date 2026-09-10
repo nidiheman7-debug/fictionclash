@@ -40,13 +40,13 @@
      live for every user without a redeploy. Un-set (no active season) ==
      none of these classes present == app looks exactly as it does today. */
   body.season-anime{
-    --bg:#12081F;
-    --bg-rgb:18,8,31;
-    --accent-bg:linear-gradient(135deg,#FF3D7A 0%,#C93DA8 50%,#00E5FF 100%);
-    --accent:color-mix(in srgb,#FF3D7A,#00E5FF);
+    --bg:#0A0A0A;
+    --bg-rgb:10,10,10;
+    --accent-bg:linear-gradient(135deg,#FF1A1A 0%,#B22222 50%,#4A0000 100%);
+    --accent:color-mix(in srgb,#FF1A1A,#4A0000);
   }
   body.season-anime .phone{
-    background-image:linear-gradient(180deg,rgba(18,8,31,.55) 0%,rgba(18,8,31,.85) 40%,var(--bg) 75%),url('/public/seasons/anime/hero-bg.png?v=2');
+    background-image:linear-gradient(180deg,rgba(10,10,10,.55) 0%,rgba(10,10,10,.85) 40%,var(--bg) 75%),url('/public/seasons/anime/hero-bg.png?v=2');
     background-size:cover;
     background-position:top center;
     background-repeat:no-repeat;
@@ -65,8 +65,8 @@
      so the light theme actually reads as "this season" instead of a
      generic light background. */
   body.season-anime.light{
-    --bg:#f7edf1;
-    --bg-rgb:247,237,241;
+    --bg:#f2eeee;
+    --bg-rgb:242,238,238;
   }
   body.season-anime.light .phone{
     background-image:linear-gradient(180deg,color-mix(in srgb,var(--bg) 12%,transparent) 0%,color-mix(in srgb,var(--bg) 45%,transparent) 38%,color-mix(in srgb,var(--bg) 78%,transparent) 65%,var(--bg) 88%),url('/public/seasons/anime/hero-bg.png?v=2');
@@ -1275,7 +1275,7 @@
      /* --season-banner-img is set inline per-season (see renderCustomizationStore
         in app.js, driven by SEASONS[id].bannerAsset) — this url() is only a
         fallback if that inline var is ever missing. */
-     background-image:linear-gradient(180deg,rgba(18,8,31,.35) 0%,rgba(18,8,31,.85) 100%),var(--season-banner-img,url('/public/seasons/anime/store-banner.png?v=2'));
+     background-image:linear-gradient(180deg,rgba(10,10,10,.35) 0%,rgba(10,10,10,.85) 100%),var(--season-banner-img,url('/public/seasons/anime/store-banner.png?v=2'));
      background-size:cover;background-position:center;
    }
    .profile-store-season-label{
