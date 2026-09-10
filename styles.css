@@ -1613,6 +1613,12 @@
       install: the attribute was set correctly, CSS just ignored it. This
       rule restores [hidden]'s priority for anything using this class. */
    .theme-toggle[hidden]{ display:none; }
+   /* Anime/Horror season: light mode is switched off entirely for the
+      duration, so the toggle goes inert instead of just disappearing —
+      a dimmed, non-interactive icon communicates "unavailable right now"
+      rather than looking like a missing feature. Re-enabled the moment
+      the season ends (see applySeason()'s toggle handling in app.js). */
+   .theme-toggle.season-locked{ opacity:.4; cursor:not-allowed; pointer-events:none; }
    .signin-btn{
      width:30px;height:30px;border:1px solid var(--line);border-radius:50%;
      background:var(--surface);color:var(--text);display:flex;align-items:center;

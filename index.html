@@ -83,12 +83,26 @@
           light:{ember:'#2A2A2A',emberDim:'#8A8A8A',navy:'#1c1c1c'}
         }
       };
+      // The live season comes from Firestore and isn't known until app.js's
+      // onSnapshot listener fires, well after first paint — but app.js
+      // mirrors whichever season was last seen into this key (see
+      // applySeason()) so this synchronous boot script can guess right
+      // before that. A stale guess (season toggled off while this device
+      // was away) just means one extra repaint once the real listener
+      // reports back — same tradeoff as the accent-theme caching below.
+      var lastSeason = localStorage.getItem('fictionClashLastSeason');
+      var seasonLocksLight = lastSeason === 'anime' || lastSeason === 'horror';
+      if (seasonLocksLight) document.body.classList.add('season-' + lastSeason);
+
       var savedLight = localStorage.getItem('fictionClashLight');
-      // No saved choice yet — default to the device's own light/dark
-      // setting instead of always forcing dark.
-      var isLight = savedLight === null
-        ? window.matchMedia('(prefers-color-scheme: light)').matches
-        : savedLight === '1';
+      // Anime/Horror season: light mode is off for everyone, full stop —
+      // the saved preference is ignored for as long as the season runs.
+      // Outside a season: light is the app's default look, so with no
+      // saved choice yet it's just "on" rather than following the
+      // device's own light/dark setting.
+      var isLight = seasonLocksLight
+        ? false
+        : (savedLight === null ? true : savedLight === '1');
       if (isLight) document.body.classList.add('light');
       var name = localStorage.getItem('fictionClashTheme') || 'mono';
       var entry = accentThemes[name] || accentThemes.mono;
