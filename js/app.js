@@ -4697,7 +4697,7 @@ import {
           const idx = (typeof index === 'number') ? index : Math.floor(Math.random() * 7);
           const baseAngle = (idx / 7) * Math.PI * 2;
           const orbitRadius = this.radius * (1.08 + (idx % 2 === 0 ? 0.06 : -0.05));
-          return { subType: 'ball', angle: baseAngle, orbitSpeed: 0.45 + (idx % 3) * 0.05,
+          return { subType: 'ball', angle: baseAngle, orbitSpeed: 0.16 + (idx % 3) * 0.018,
             orbitRadius, bobPhase: idx * 0.9, bobAmp: 2 + (idx % 3), size: 7,
             starCount: idx + 1, age: 0, maxAge: Infinity, x, y };
         }
@@ -4764,7 +4764,7 @@ import {
           }
           case 'dragonballs': {
             p.angle += p.orbitSpeed * dt;
-            const r = p.orbitRadius + Math.sin(p.age * 1.3 + p.bobPhase) * p.bobAmp;
+            const r = p.orbitRadius + Math.sin(p.age * 0.7 + p.bobPhase) * p.bobAmp;
             p.x = this.center.x + Math.cos(p.angle) * r;
             p.y = this.center.y + Math.sin(p.angle) * r;
             break;
@@ -5043,13 +5043,13 @@ import {
     _makeSmokeField(n, angleMin, angleMax, baseRadius) {
       return Array.from({ length: n }, () => ({
         baseAngle: angleMin + Math.random() * (angleMax - angleMin),
-        drift: (Math.random() * 0.00012 + 0.00003) * (Math.random() < 0.5 ? 1 : -1),
+        drift: (Math.random() * 0.00006 + 0.000015) * (Math.random() < 0.5 ? 1 : -1),
         baseRadius: baseRadius + Math.random() * 10 - 5,
         ampR: 3 + Math.random() * 5,
-        freqR: 0.0003 + Math.random() * 0.0006,
+        freqR: 0.00018 + Math.random() * 0.00035,
         phaseR: Math.random() * 100,
         size: (18 + Math.random() * 18) * this._s,
-        pulseFreq: 0.0008 + Math.random() * 0.0012,
+        pulseFreq: 0.0006 + Math.random() * 0.0009,
         phasePulse: Math.random() * 100,
         face: Math.random() < 0.18
       }));
@@ -5092,7 +5092,7 @@ import {
         const angle = p.baseAngle + t * p.drift;
         const r = p.baseRadius + Math.sin(t * p.freqR + p.phaseR) * p.ampR;
         const x = CX + Math.cos(angle) * r, y = CY + Math.sin(angle) * r;
-        const alpha = 0.3 + Math.sin(t * 0.003 + p.phasePulse) * 0.25;
+        const alpha = 0.3 + Math.sin(t * 0.0018 + p.phasePulse) * 0.25;
         this._drawTinyWraithFace(x, y, p.size * 0.14, Math.max(0, alpha));
       });
     }
@@ -5112,17 +5112,17 @@ import {
       const ctx = this.ctx, CX = this.center.x, CY = this.center.y, k = this._s;
       const orbitR = this.radius * 1.18;
       this._ravens.forEach(rv => {
-        const ang = t * 0.0009 + rv.offset;
+        const ang = t * 0.00035 + rv.offset;
         const x = CX + Math.cos(ang) * orbitR, y = CY + Math.sin(ang) * orbitR * 0.85;
         rv.trail.push({ x, y, life: 0.4, maxLife: 0.4 });
-        rv.trail = rv.trail.filter(p => { p.life -= 0.02; return p.life > 0; });
+        rv.trail = rv.trail.filter(p => { p.life -= 0.012; return p.life > 0; });
         ctx.globalCompositeOperation = 'lighter';
         rv.trail.forEach(p => {
           ctx.globalAlpha = (p.life / p.maxLife) * 0.15; ctx.fillStyle = '#7a5ea8';
           ctx.beginPath(); ctx.arc(p.x, p.y, 6 * k, 0, Math.PI * 2); ctx.fill();
         });
         ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-        const flap = Math.sin(t * 0.012 + rv.offset * 3);
+        const flap = Math.sin(t * 0.008 + rv.offset * 3);
         const heading = ang + Math.PI / 2;
         ctx.save(); ctx.translate(x, y); ctx.rotate(heading); ctx.scale(k, k);
         ctx.shadowColor = 'rgba(90,60,140,0.6)'; ctx.shadowBlur = 6;
@@ -5152,7 +5152,7 @@ import {
         { a: 1.35, s: 1.0 }, { a: 1.6, s: 0.85 }, { a: 1.85, s: 0.75 }
       ];
       positions.forEach((p, i) => {
-        const bob = Math.sin(t * 0.003 + i) * 1.5 * k;
+        const bob = Math.sin(t * 0.0015 + i) * 1.5 * k;
         const x = CX + Math.cos(Math.PI * p.a) * this.radius * 0.95;
         const y = CY + Math.sin(Math.PI * p.a) * this.radius * 0.95 * 0.9 + bob;
         ctx.save(); ctx.translate(x, y); ctx.scale(k, k); this._drawLordSkull(p.s, t, i * 1.7); ctx.restore();
@@ -5160,7 +5160,7 @@ import {
       if (Math.random() < 0.15) {
         const a = Math.PI * 0.15 + Math.random() * Math.PI * 0.7;
         this._wisps.push({ x: CX + Math.cos(a) * this.radius * 0.9, y: CY + Math.sin(a) * this.radius * 0.9,
-          vx: (Math.random() - 0.5) * 4, vy: -(10 + Math.random() * 8), life: 1.6, maxLife: 1.6, size: 3 * k, color: '220,70,60', alphaMul: 0.55 });
+          vx: (Math.random() - 0.5) * 2.5, vy: -(6 + Math.random() * 5), life: 1.6, maxLife: 1.6, size: 3 * k, color: '220,70,60', alphaMul: 0.55 });
       }
       this._wisps = this._wisps.filter(p => this._stepWisp(p, 0.04));
       ctx.globalCompositeOperation = 'lighter';
@@ -5181,7 +5181,7 @@ import {
       ctx.beginPath();
       ctx.moveTo(-1, -10); ctx.lineTo(1, -4); ctx.lineTo(-1, 0); ctx.lineTo(2, 5);
       ctx.stroke();
-      const pulse = 0.65 + Math.sin(t * 0.008 + seed) * 0.35;
+      const pulse = 0.65 + Math.sin(t * 0.005 + seed) * 0.35;
       ctx.globalCompositeOperation = 'lighter';
       [-3.5, 3.5].forEach(dx => {
         const g = ctx.createRadialGradient(dx, -2, 0, dx, -2, 4.5);
@@ -5275,13 +5275,13 @@ import {
       }
       ctx.strokeStyle = 'rgba(200,200,210,0.16)';
       ctx.beginPath(); ctx.arc(CX, CY, radius, 0, Math.PI * 2); ctx.stroke();
-      const crawlAngle = t * 0.0004;
+      const crawlAngle = t * 0.00015;
       const x = CX + Math.cos(crawlAngle) * radius, y = CY + Math.sin(crawlAngle) * radius;
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(crawlAngle + Math.PI / 2);
       ctx.scale(k, k);
-      this._drawSpider(t * 0.02);
+      this._drawSpider(t * 0.013);
       ctx.restore();
     }
     _drawSpider(legPhase) {
@@ -5326,7 +5326,7 @@ import {
       if (Math.random() < 0.3) {
         const a = Math.random() * Math.PI * 2;
         this._wisps.push({ x: CX + Math.cos(a) * this.radius, y: CY + Math.sin(a) * this.radius,
-          vx: (Math.random() - 0.5) * 6, vy: (Math.random() - 0.5) * 6, life: 1.4, maxLife: 1.4, size: 3 * k, color: '110,210,230', alphaMul: 0.5 });
+          vx: (Math.random() - 0.5) * 3.5, vy: (Math.random() - 0.5) * 3.5, life: 1.4, maxLife: 1.4, size: 3 * k, color: '110,210,230', alphaMul: 0.5 });
       }
       this._wisps = this._wisps.filter(p => this._stepWisp(p, 0.045));
       ctx.globalCompositeOperation = 'lighter';
@@ -6248,7 +6248,15 @@ import {
     { id:'russo', name:'Russo One', category:'Anime', cls:'profile-font-russo' },
     { id:'cinzel', name:'Cinzel Decorative', category:'Artistic', cls:'profile-font-cinzel' },
     { id:'bungee', name:'Bungee', category:'Comic', cls:'profile-font-bungee' },
-    { id:'orbitron', name:'Orbitron Edge', category:'Anime', cls:'profile-font-orbitron' }
+    { id:'orbitron', name:'Orbitron Edge', category:'Anime', cls:'profile-font-orbitron' },
+    // Horror Season exclusives — same season-gating pattern as the Final Six
+    // decorations above (see PROFILE_DECORATIONS): only shown/purchasable
+    // while season:'horror' is the live season, priced in Skulls instead
+    // of Clash Points (see the season-aware branch in renderCustomizationStore).
+    { id:'nosifer', name:'Nosifer', category:'Horror', cls:'profile-font-nosifer', season:'horror', cost:60 },
+    { id:'eater', name:'Eater', category:'Horror', cls:'profile-font-eater', season:'horror', cost:60 },
+    { id:'butcherman', name:'Butcherman', category:'Horror', cls:'profile-font-butcherman', season:'horror', cost:60 },
+    { id:'metal-mania', name:'Metal Mania', category:'Horror', cls:'profile-font-metalmania', season:'horror', cost:60 }
   ];
   const decorationById = id => PROFILE_DECORATIONS.find(item => item.id === id);
   const fontById = id => PROFILE_FONTS.find(item => item.id === id);
@@ -6581,7 +6589,7 @@ import {
 
     seasonSection.innerHTML = (activeSeason && seasonItems.length) ? `
       <div class="profile-store-season">
-        <div class="profile-store-season-banner" style="--season-banner-img:url('${activeSeason.bannerAsset}')">
+        <div class="profile-store-season-head">
           <span class="profile-store-season-label">${activeSeason.label}</span>
           <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${seasonCurrencyIconHtml(activeSeason)}${seasonShards} available)</div>
         </div>
@@ -6590,19 +6598,33 @@ import {
         </div>
       </div>` : '';
 
-    decorationGrid.innerHTML = evergreenItems.map(item => decorationCardHtml(item, 'pts', clashPoints)).join('');
+    // While a season is live, the store shows only that season's own themed
+    // items — the evergreen catalogue (Hellflame, Dragon Balls, etc.) steps
+    // aside so the whole "Avatar decorations" tab reads as the season, not
+    // just the section up top. It comes back the moment no season is active.
+    decorationGrid.innerHTML = activeSeason ? '' : evergreenItems.map(item => decorationCardHtml(item, 'pts', clashPoints)).join('');
 
-    fontGrid.innerHTML = PROFILE_FONTS.map(item => {
+    // Same season-gating as the decorations above: season-tagged fonts
+    // (Nosifer & co.) only show while their own season is live and are
+    // priced in that season's currency; evergreen fonts show the rest of
+    // the time, priced in Clash Points as before.
+    const fontItems = activeSeason ? PROFILE_FONTS.filter(item => item.season === activeSeasonId) : PROFILE_FONTS.filter(item => !item.season);
+    fontGrid.innerHTML = fontItems.map(item => {
       const owned = unlockedFonts.includes(item.id);
       const equipped = equippedFont === item.id;
+      const usesShards = !!item.season;
+      const cost = item.cost || 70;
+      const balance = usesShards ? seasonShards : clashPoints;
+      const currency = usesShards ? activeSeason.currencyLabel.toLowerCase() : 'pts';
       const buttonLabel = equipped ? 'Equipped' : owned ? 'Equip' : 'Redeem';
+      const costHtml = owned ? '' : `${usesShards ? seasonCurrencyIconHtml(activeSeason) : ''}${cost} ${currency}`;
       return `<div class="profile-store-item${owned ? ' owned' : ''}">
         ${owned ? '<span class="profile-owned-tag">OWNED</span>' : ''}
         <div class="profile-store-preview ${item.cls}">Aa</div>
         <h4>${item.name}</h4>
         <p class="profile-store-cat">${item.category}</p>
-        <div class="profile-store-cost">${owned ? '' : '70 pts'}</div>
-        <button class="profile-store-action${equipped ? ' equipped' : ''}" type="button" data-font-action="${item.id}" ${!owned && clashPoints < 70 ? 'disabled' : ''}>${buttonLabel}</button>
+        <div class="profile-store-cost">${costHtml}</div>
+        <button class="profile-store-action${equipped ? ' equipped' : ''}" type="button" data-font-action="${item.id}" ${!owned && balance < cost ? 'disabled' : ''}>${buttonLabel}</button>
       </div>`;
     }).join('');
 
@@ -6765,11 +6787,12 @@ import {
     if (!item) return;
     const ownedList = type === 'decoration' ? unlockedDecorations : unlockedFonts;
     if (item.premium && !ownedList.includes(id)) { handlePremiumPurchase(item); return; }
-    const cost = type === 'decoration' ? item.cost : 70;
-    // Season-tagged decorations spend seasonShards instead of clashPoints —
-    // a completely separate balance/field, never mixed with the evergreen
-    // currency (see awardXp in api/lib/xp.js for where shards come from).
-    const usesShards = type === 'decoration' && !!item.season;
+    const cost = type === 'decoration' ? item.cost : (item.cost || 70);
+    // Season-tagged items (decorations AND fonts) spend seasonShards instead
+    // of clashPoints — a completely separate balance/field, never mixed
+    // with the evergreen currency (see awardXp in api/lib/xp.js for where
+    // shards come from).
+    const usesShards = !!item.season;
     // Dotted key (e.g. 'seasonShards.horror') — both updateDoc and
     // set(...,{merge:true}) treat a top-level key containing a dot as a
     // nested field path, so this writes into that one season's slot in
