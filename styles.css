@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Bungee&family=Cinzel+Decorative:wght@700&family=Creepster&family=Instrument+Sans:wght@400;500;600;700&family=Luckiest+Guy&family=Martian+Mono:wght@400;600&family=Permanent+Marker&family=Rajdhani:wght@500;600;700&family=Russo+One&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Bungee&family=Butcherman&family=Cinzel+Decorative:wght@700&family=Creepster&family=Eater&family=Instrument+Sans:wght@400;500;600;700&family=Luckiest+Guy&family=Martian+Mono:wght@400;600&family=Metal+Mania&family=Nosifer&family=Permanent+Marker&family=Rajdhani:wght@500;600;700&family=Russo+One&display=swap');
 
   :root{
     --bg:#111217;
@@ -1258,6 +1258,10 @@
    .profile-font-cinzel{font-family:'Cinzel Decorative',serif!important;}
    .profile-font-bungee{font-family:'Bungee',cursive!important;}
    .profile-font-orbitron{font-family:'Russo One',sans-serif!important;letter-spacing:1.5px;}
+   .profile-font-nosifer{font-family:'Nosifer',cursive!important;}
+   .profile-font-eater{font-family:'Eater',cursive!important;}
+   .profile-font-butcherman{font-family:'Butcherman',cursive!important;}
+   .profile-font-metalmania{font-family:'Metal Mania',cursive!important;}
    .profile-customization-card{margin-top:14px;}
    .theme-store-modal{padding:20px 16px 26px;max-height:88vh;overflow-y:auto;}
    .theme-store-modal .profile-customization-card{margin:0;border:0;padding:0;background:none;}
@@ -1287,20 +1291,17 @@
      background-origin:border-box;
      background-clip:padding-box,border-box;
    }
-   .profile-store-season-banner{
-     position:relative;padding:16px 14px 12px;
-     /* --season-banner-img is set inline per-season (see renderCustomizationStore
-        in app.js, driven by SEASONS[id].bannerAsset) — this url() is only a
-        fallback if that inline var is ever missing. */
-     background-image:linear-gradient(180deg,rgba(10,10,10,.35) 0%,rgba(10,10,10,.85) 100%),var(--season-banner-img,url('/public/seasons/anime/store-banner.png?v=2'));
-     background-size:cover;background-position:center;
+   /* Flat header living directly on the season container's own surface —
+      no separate bannered box, so the whole card (header + grid) reads as
+      one continuous container instead of two stacked pieces. */
+   .profile-store-season-head{
+     padding:14px 14px 10px;background:var(--surface);
    }
    .profile-store-season-label{
      display:inline-block;font:800 10px 'Russo One',sans-serif;letter-spacing:1px;
-     color:#fff;text-transform:uppercase;
-     text-shadow:0 2px 6px rgba(0,0,0,.6);
+     color:var(--accent);text-transform:uppercase;
    }
-   .profile-store-season-sub{font:600 9px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.75);margin-top:2px;}
+   .profile-store-season-sub{font:600 9px 'Instrument Sans',sans-serif;color:var(--muted);margin-top:2px;}
    .profile-store-season-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px;background:var(--surface);}
    /* Cards intentionally have no border/background of their own anymore —
       just the preview, text and button sitting directly in the grid. Keeps
