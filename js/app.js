@@ -1356,8 +1356,18 @@ import {
         <div class="admin-report-info">
           <b>${escapeHtml(charLabel(item.a))} vs ${escapeHtml(charLabel(item.b))}</b>
           <span>submitted by ${escapeHtml(item.submittedByName || 'unknown')}</span>
+          <span>${item.category ? SEASONS[item.category]?.label || item.category : 'Untagged'}${item.category ? ' — the season live when this was submitted' : ' — no season was live at submission'}</span>
         </div>
         <div class="admin-report-actions">
+          <!-- Defaults to whatever season was live at submission time (see
+               the pendingMatchups write in the submit form) — an admin can
+               still change it here before approving, so the matchup that
+               actually goes live carries whichever season tag was chosen
+               at approval time, not just whatever was auto-captured earlier. -->
+          <select data-pending-category-select>
+            <option value="">— Untagged —</option>
+            ${Object.values(SEASONS).map(s => `<option value="${s.id}" ${item.category === s.id ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}
+          </select>
           <button data-action="reject" class="danger">Reject</button>
           <button data-action="approve">Approve</button>
         </div>
@@ -1384,7 +1394,10 @@ import {
   // `movieClips` at all anymore (see rules), and can't be trusted to
   // delete its own way out of the pending queue either, since anyone with
   // devtools open could otherwise "moderate" their own submission in.
-  async function moderatePending(type, pendingId, action, btn, pushTitle, pushBody){
+  // `extra` carries fields that should ride along with the action itself
+  // (right now: the chosen `category` on a matchup approval) rather than
+  // being written to the pending doc directly beforehand.
+  async function moderatePending(type, pendingId, action, btn, pushTitle, pushBody, extra){
     const user = auth.currentUser;
     if (!user) return;
     btn.disabled = true;
@@ -1393,7 +1406,7 @@ import {
       const res = await fetch('/api/moderate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-        body: JSON.stringify({ type, pendingId, action }),
+        body: JSON.stringify({ type, pendingId, action, ...(extra || {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Moderation action failed');
@@ -1413,7 +1426,11 @@ import {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const row = btn.closest('.admin-report-row');
-    moderatePending('matchup', row.dataset.docId, btn.dataset.action, btn, row.dataset.pushTitle, row.dataset.pushBody);
+    // Only meaningful for 'approve' — /api/moderate ignores it for 'reject',
+    // but reading it here either way is harmless.
+    const categorySelect = row.querySelector('[data-pending-category-select]');
+    const category = categorySelect ? categorySelect.value : '';
+    moderatePending('matchup', row.dataset.docId, btn.dataset.action, btn, row.dataset.pushTitle, row.dataset.pushBody, { category: category || null });
   });
   pendingClipsList.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
