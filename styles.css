@@ -42,8 +42,12 @@
   body.season-anime{
     --bg:#0A0A0A;
     --bg-rgb:10,10,10;
-    --accent-bg:linear-gradient(135deg,#FF1A1A 0%,#B22222 50%,#4A0000 100%);
-    --accent:color-mix(in srgb,#FF1A1A,#4A0000);
+    /* Ultra Instinct-style shiny silver, swapped in from the season's
+       original red/maroon gradient — same variable, so every surface that
+       already reads --accent-bg / --accent (buttons, borders, the store
+       banner block) picks it up automatically. */
+    --accent-bg:linear-gradient(135deg,#FFFFFF 0%,#C8C8C8 22%,#8E8E93 45%,#F2F2F2 60%,#A8A8AE 80%,#FFFFFF 100%);
+    --accent:color-mix(in srgb,#E8E8EC,#9A9AA0);
   }
   body.season-anime .phone{
     background-image:linear-gradient(180deg,rgba(10,10,10,.55) 0%,rgba(10,10,10,.85) 40%,var(--bg) 75%),url('/public/seasons/anime/hero-bg.png?v=2');
@@ -138,12 +142,6 @@
       url('/public/seasons/anime/battle-card-bg.jpg');
     background-size:cover; background-position:center; background-repeat:no-repeat;
   }
-  body.season-anime .profile-store-item{
-    border:1px solid transparent;
-    background-image:linear-gradient(var(--surface),var(--surface)), var(--accent-bg);
-    background-origin:padding-box, border-box;
-    background-clip:padding-box, border-box;
-  }
   /* Horror Season reskin — same structure as season-anime above, just its
      own palette/art/font. Blood-red → near-black gradient for accents,
      a near-black base tinted maroon instead of true neutral black, and
@@ -223,12 +221,6 @@
       url('/public/seasons/horror/battle-card-bg.jpg');
     background-size:cover; background-position:center; background-repeat:no-repeat;
   }
-  body.season-horror .profile-store-item{
-    border:1px solid transparent;
-    background-image:linear-gradient(var(--surface),var(--surface)), var(--accent-bg);
-    background-origin:padding-box, border-box;
-    background-clip:padding-box, border-box;
-  }
   *{box-sizing:border-box; margin:0; padding:0;}
    html{
      height:100%;
@@ -294,6 +286,31 @@
     flex-direction:column;
   }
   .phone-scroll::-webkit-scrollbar{ display:none; }
+  /* Pull-to-refresh indicator — positioned at the very top of the scroll
+     flow (see markup, right before .topbar), collapsed to 0 height by
+     default so it takes up no space and the page looks unchanged. JS
+     drives --ptr-pull (0–1 progress) and the .pulling/.loading/.releasing
+     classes; this file only owns how those states look. */
+  .ptr-indicator{
+    flex:0 0 auto;
+    height:0;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+    color:var(--accent);
+    transition:height .2s ease;
+  }
+  .ptr-indicator.pulling{ transition:none; }
+  .ptr-indicator.loading{ height:44px; transition:height .2s ease; }
+  .ptr-spinner{
+    width:20px; height:20px;
+    transform:rotate(calc(var(--ptr-pull,0) * 360deg));
+    opacity:calc(.35 + var(--ptr-pull,0) * .65);
+  }
+  .ptr-indicator.loading .ptr-spinner{
+    animation:ptr-spin .7s linear infinite;
+    opacity:1;
+  }
+  @keyframes ptr-spin{ to{ transform:rotate(360deg); } }
   /* .bottomnav is now position:absolute (see .bottomnav above) and no
      longer takes up space in the document flow, so without this the last
      bit of whatever section is showing would render underneath it. This
@@ -1285,13 +1302,17 @@
    }
    .profile-store-season-sub{font:600 9px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.75);margin-top:2px;}
    .profile-store-season-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px;background:var(--surface);}
+   /* Cards intentionally have no border/background of their own anymore —
+      just the preview, text and button sitting directly in the grid. Keeps
+      the store from reading as a wall of boxed-in tiles, especially in a
+      2-column grid on a narrow phone screen. The grid's own gap plus this
+      padding is what keeps items from crowding each other. */
    .profile-store-item{
      position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;
-     padding:14px 8px 10px;border:1px solid var(--line);border-radius:13px;background:var(--surface);
-     transition:border-color .15s ease,transform .15s ease;
+     padding:10px 6px;
+     transition:transform .15s ease;
    }
    .profile-store-item:active{transform:scale(.97);}
-   .profile-store-item.owned{border-color:rgba(58,107,58,.7);background:linear-gradient(180deg,rgba(58,107,58,.08),var(--surface));}
    .profile-store-item h4{font-size:11px;font-weight:800;line-height:1.2;margin-top:9px;}
    .profile-store-item p.profile-store-cat{font-size:9px;color:var(--muted);margin-top:2px;}
    .profile-store-preview{
@@ -1322,7 +1343,6 @@
      position:absolute;top:8px;right:8px;color:#a3e6b0;font:800 7.5px 'Instrument Sans',sans-serif;
      letter-spacing:.4px;background:rgba(45,92,58,.35);padding:2px 6px;border-radius:20px;
    }
-   .profile-store-item.premium{border-color:rgba(228,169,41,.55);}
    .profile-premium-tag{
      position:absolute;top:8px;right:8px;color:#ffcf4d;font:800 7.5px 'Instrument Sans',sans-serif;
      letter-spacing:.4px;background:rgba(228,169,41,.18);padding:2px 6px;border-radius:20px;
