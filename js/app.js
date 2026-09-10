@@ -2073,7 +2073,11 @@ import {
       if (!data.a || !data.b) return;
       if (data.expiresAt && data.expiresAt.toMillis() < Date.now()) return;
       if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
-      if (activeSeasonId && data.category !== activeSeasonId) return;
+      // Season-exclusive tagging: a tagged matchup only shows while its own
+      // season is the one live, in either direction — not just hidden from
+      // *other* seasons, but hidden from the normal/no-season feed too.
+      // Untagged matchups (data.category unset) are unaffected either way.
+      if (data.category && data.category !== activeSeasonId) return;
       matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null, revealAt: data.revealAt || null, resultsSettled: !!data.resultsSettled, winningSide: data.winningSide || null });
     });
     // Try to keep whatever was on screen still on screen if it survived
@@ -2114,13 +2118,15 @@ import {
       // This browser chose to hide this exact matchup before — respect
       // that even though the doc is still live in Firestore for everyone else.
       if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
-      // Anime-season-only filtering: while a season is active, only
-      // matchups explicitly tagged with that season's category show up.
-      // Untagged matchups (data.category is unset — true for every
-      // matchup that existed before this feature) are hidden rather than
-      // shown by default, per the "hide until tagged" decision — an admin
-      // tags each one via the Season Control card's matchup list.
-      if (activeSeasonId && data.category !== activeSeasonId) return;
+      // Season-exclusive filtering, both directions:
+      // - Untagged matchups (data.category unset — true for every matchup
+      //   that existed before this feature) always show, season or no
+      //   season, per the "hide until tagged" decision — an admin tags
+      //   each one via the Season Control card's matchup list.
+      // - Tagged matchups only show while their own season is the live
+      //   one — including staying hidden from the normal/no-season feed,
+      //   not just from other seasons' feeds.
+      if (data.category && data.category !== activeSeasonId) return;
       const existingMatchup = matchups.find(m => matchupPairKey(m) === matchupPairKey(data));
       if (existingMatchup) {
         // Already showing locally (e.g. the one we just optimistically
@@ -5372,6 +5378,33 @@ import {
       cardFxSharedRaf = null;
     }
   }
+  // Pause both shared canvas-FX rAF loops (avatar decorations + card-fx)
+  // while the tab/app is backgrounded. Browsers already throttle
+  // background rAF on their own, but cancelling outright avoids the
+  // wasted draw calls entirely, and clearing the lastTime/lastFrameTime
+  // state means the first frame back computes a fresh, small delta
+  // instead of one huge dt built up over however long the tab was
+  // hidden (each loop's dt is already clamped to 0.1s as a backstop,
+  // but resetting is cleaner than relying on the clamp).
+  function pauseCanvasFxLoops(){
+    if (AvatarEffect.rafId != null) { cancelAnimationFrame(AvatarEffect.rafId); AvatarEffect.rafId = null; }
+    AvatarEffect.lastTime = 0;
+    if (cardFxSharedRaf != null) { cancelAnimationFrame(cardFxSharedRaf); cardFxSharedRaf = null; }
+    cardFxLastFrameTime = 0;
+  }
+  function resumeCanvasFxLoops(){
+    if (AvatarEffect.instances.size > 0 && AvatarEffect.rafId == null) {
+      AvatarEffect.lastTime = performance.now();
+      AvatarEffect.rafId = requestAnimationFrame(AvatarEffect._globalTick);
+    }
+    if (cardFxRegistry.size > 0 && cardFxSharedRaf == null) {
+      cardFxSharedRaf = requestAnimationFrame(cardFxSharedTick);
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) pauseCanvasFxLoops();
+    else resumeCanvasFxLoops();
+  });
   // Changing tiers restarts any card-fx canvases currently on screen so
   // they pick up the new particle counts/fps immediately, instead of
   // only applying next time each one happens to remount.
