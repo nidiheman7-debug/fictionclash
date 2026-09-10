@@ -429,12 +429,24 @@ import {
       bulkRevealBtn.textContent = 'Apply 48h blind timer to every matchup without one';
     });
   }
-  onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
-    adminAllMatchups = snapshot.docs
-      .filter(d => d.data().a && d.data().b)
-      .map(d => ({ docId: d.id, a: d.data().a, b: d.data().b, category: d.data().category || null, revealAt: d.data().revealAt || null, resultsSettled: !!d.data().resultsSettled }));
-    renderMatchupCategoryList();
-  }, err => console.error('Admin matchup-category listener failed', err));
+  // Was previously an unconditional collection-wide onSnapshot attached at
+  // load time for every visitor — a second full read of 'matchups' on top
+  // of the main feed listener below, doing a full array rebuild + filter
+  // on every change even though renderMatchupCategoryList() immediately
+  // bails out for non-admins. Now attached/detached alongside the other
+  // admin-only listeners in refreshModerationListeners(), so it only ever
+  // runs for the admin account.
+  let unsubAdminMatchupCategories = null;
+  function refreshAdminMatchupCategoryListener(){
+    if (unsubAdminMatchupCategories) { unsubAdminMatchupCategories(); unsubAdminMatchupCategories = null; }
+    if (!isAdmin()) { adminAllMatchups = []; renderMatchupCategoryList(); return; }
+    unsubAdminMatchupCategories = onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
+      adminAllMatchups = snapshot.docs
+        .filter(d => d.data().a && d.data().b)
+        .map(d => ({ docId: d.id, a: d.data().a, b: d.data().b, category: d.data().category || null, revealAt: d.data().revealAt || null, resultsSettled: !!d.data().resultsSettled }));
+      renderMatchupCategoryList();
+    }, err => console.error('Admin matchup-category listener failed', err));
+  }
   if (matchupCategoryList) {
     matchupCategoryList.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-reveal-action]');
@@ -1351,7 +1363,7 @@ import {
     if (unsubPendingClips) { unsubPendingClips(); unsubPendingClips = null; }
     updateSeasonCardVisibility();
     if (typeof updateMatchupCategoryCardVisibility === 'function') updateMatchupCategoryCardVisibility();
-    if (typeof renderMatchupCategoryList === 'function') renderMatchupCategoryList();
+    if (typeof refreshAdminMatchupCategoryListener === 'function') refreshAdminMatchupCategoryListener();
     if (!isAdmin()) { updateModerationCardVisibility(); return; }
     unsubPendingMatchups = onSnapshot(query(collection(db, 'pendingMatchups'), orderBy('createdAt', 'asc')), renderPendingMatchups, err => console.error('Pending matchups listener failed', err));
     unsubPendingClips = onSnapshot(query(collection(db, 'pendingClips'), orderBy('createdAt', 'asc')), renderPendingClips, err => console.error('Pending clips listener failed', err));
@@ -2201,13 +2213,28 @@ import {
   }
   renderTrendScroll();
 
+  // Just moves the .active-card class between the two affected cards
+  // instead of tearing down and rebuilding the entire strip's HTML —
+  // picking a different matchup doesn't change which cards exist or what
+  // they say, only which one is highlighted, so a full innerHTML rebuild
+  // (via renderTrendScroll()) was doing a lot of unnecessary layout/paint
+  // work on every tap. Falls back to a full render if the DOM doesn't
+  // have a matching card for some reason (e.g. list is out of sync).
+  function updateTrendScrollActiveCard(){
+    const current = trendScroll.querySelector('.trend-card.active-card');
+    if (current) current.classList.remove('active-card');
+    const next = trendScroll.querySelector(`.trend-card[data-matchup="${activeIdx}"]`);
+    if (next) next.classList.add('active-card');
+    else renderTrendScroll();
+  }
+
   trendScroll.addEventListener('click', event => {
     const card = event.target.closest('.trend-card');
     if (!card) return;
     activeIdx = parseInt(card.dataset.matchup, 10);
     heroAnalyzing = false; // picking a different matchup means they're done with the old one's analysis
     heroCommentsActive = false; // ...and with its comments, too
-    renderTrendScroll();
+    updateTrendScrollActiveCard();
     renderHero();
     document.getElementById('heroCard').scrollIntoView({ behavior:'smooth', block:'start' });
   });
@@ -2247,7 +2274,7 @@ import {
     heroRotateTimer = setTimeout(() => {
       if (document.hidden) { scheduleHeroRotate(); return; } // tab not visible — just reschedule, don't burn a cycle
       activeIdx = (activeIdx + 1) % matchups.length;
-      renderTrendScroll();
+      updateTrendScrollActiveCard();
       renderHero();
       scheduleHeroRotate();
     }, HERO_ROTATE_MS);
