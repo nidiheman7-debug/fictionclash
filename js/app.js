@@ -6371,7 +6371,7 @@ import {
 
     seasonSection.innerHTML = (activeSeason && seasonItems.length) ? `
       <div class="profile-store-season">
-        <div class="profile-store-season-banner">
+        <div class="profile-store-season-banner" style="--season-banner-img:url('${activeSeason.bannerAsset}')">
           <span class="profile-store-season-label">${activeSeason.label}</span>
           <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${seasonCurrencyIconHtml(activeSeason)}${seasonShards} available)</div>
         </div>
