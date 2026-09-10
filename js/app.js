@@ -308,8 +308,8 @@ import {
       // addition here too, not a new canvas branch.
       currencyIcon: '/public/seasons/anime/shard-icon.png',
       cardArt: '/public/seasons/anime/battle-card-bg.jpg',
-      cardAccentColor: '#FF3D7A',
-      cardGlowRgb: '244,185,92',
+      cardAccentColor: '#FF1A1A',
+      cardGlowRgb: '178,34,34',
     },
     horror: {
       id: 'horror',
@@ -2171,7 +2171,51 @@ import {
         }
         return;
       }
-      if (change.type !== 'added') return; // vote-count edits arrive as 'modified' — ignored here, same as before
+      // 'modified' fires for vote-count edits (deliberately ignored below —
+      // those are synced by the dedicated per-doc listener instead) but
+      // also for the fields an admin can change after creation: category
+      // (season tagging), revealAt/resultsSettled/winningSide (blind-vote
+      // timer). Those DO need to be picked up live — otherwise tagging a
+      // matchup for the season that's currently live never actually makes
+      // it appear (or disappear, if retagged away) until something else
+      // happens to trigger a full resyncMatchupsForSeason().
+      if (change.type === 'modified') {
+        const data = docSnap.data();
+        if (!data.a || !data.b) return;
+        const idx = matchups.findIndex(m => m.docId === docSnap.id);
+        const expired = data.expiresAt && data.expiresAt.toMillis() < Date.now();
+        const hiddenLocally = hiddenMatchupKeys.has(matchupPairKey(data));
+        const outOfSeason = data.category && data.category !== activeSeasonId;
+        const shouldShow = !expired && !hiddenLocally && !outOfSeason;
+        if (!shouldShow) {
+          if (idx !== -1) {
+            matchups.splice(idx, 1);
+            if (activeIdx >= matchups.length) activeIdx = matchups.length - 1;
+            else if (idx < activeIdx) activeIdx--;
+            listChanged = true;
+            if (idx === activeIdx || idx <= activeIdx) heroNeedsRefresh = true;
+          }
+          return;
+        }
+        if (idx === -1) {
+          // Just became eligible under the live season filter (e.g. newly
+          // tagged for the season that's now active) — bring it into view
+          // the same way a fresh 'added' event would.
+          matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null, revealAt: data.revealAt || null, resultsSettled: !!data.resultsSettled, winningSide: data.winningSide || null });
+          listChanged = true;
+          return;
+        }
+        // Already showing — refresh only the admin-editable fields;
+        // votesA/votesB stay untouched here, same as before.
+        const m = matchups[idx];
+        m.category = data.category || null;
+        m.revealAt = data.revealAt || null;
+        m.resultsSettled = !!data.resultsSettled;
+        m.winningSide = data.winningSide || null;
+        if (idx === activeIdx) heroNeedsRefresh = true;
+        return;
+      }
+      if (change.type !== 'added') return;
       const data = docSnap.data();
       if (!data.a || !data.b) return;
       // TTL policies need the Blaze plan, so we can't have Firestore
