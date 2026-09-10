@@ -308,8 +308,8 @@ import {
       // addition here too, not a new canvas branch.
       currencyIcon: '/public/seasons/anime/shard-icon.png',
       cardArt: '/public/seasons/anime/battle-card-bg.jpg',
-      cardAccentColor: '#FF1A1A',
-      cardGlowRgb: '178,34,34',
+      cardAccentColor: '#C8C8C8',
+      cardGlowRgb: '200,200,200',
     },
     horror: {
       id: 'horror',
