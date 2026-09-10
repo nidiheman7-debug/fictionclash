@@ -61,6 +61,13 @@ import {
     themeColorMeta.setAttribute('content', isLight ? '#f1f1ef' : '#1c1d23');
   }
   themeToggle.addEventListener('click', () => {
+    // Anime/Horror season: light mode is off, full stop — the button sits
+    // disabled (see applySeasonLightLock) but bail out here too in case
+    // something still dispatches a click at it.
+    if (themeToggle.classList.contains('season-locked')) {
+      showToast('Light mode is off during ' + (activeSeasonId ? (SEASONS[activeSeasonId]?.label || 'this season') : 'this season'));
+      return;
+    }
     const isLight = document.body.classList.toggle('light');
     themeToggle.setAttribute('aria-label', isLight ? 'Switch to dark theme' : 'Switch to light theme');
     themeToggle.title = isLight ? 'Switch to dark theme' : 'Switch to light theme';
@@ -69,6 +76,43 @@ import {
     applyTheme(currentThemeName);
     syncStatusBarColor();
   });
+  // Called whenever the active season changes (including on first load).
+  // Anime/Horror season forces dark mode and locks the toggle for its
+  // duration; leaving the season restores whatever light/dark the user
+  // actually had saved (or the light default, if they never chose).
+  function applySeasonLightLock(seasonId){
+    const locksLight = !!SEASONS_LOCK_LIGHT[seasonId];
+    if (locksLight) {
+      if (document.body.classList.contains('light')) {
+        document.body.classList.remove('light');
+        applyTheme(currentThemeName);
+      }
+      themeToggle.classList.add('season-locked');
+      const label = 'Light mode is off during ' + (SEASONS[seasonId]?.label || 'this season');
+      themeToggle.setAttribute('aria-label', label);
+      themeToggle.title = label;
+    } else {
+      themeToggle.classList.remove('season-locked');
+      const savedLight = localStorage.getItem('fictionClashLight');
+      const isLight = savedLight === null ? true : savedLight === '1';
+      if (isLight !== document.body.classList.contains('light')) {
+        document.body.classList.toggle('light', isLight);
+        applyTheme(currentThemeName);
+      }
+      const label = isLight ? 'Switch to dark theme' : 'Switch to light theme';
+      themeToggle.setAttribute('aria-label', label);
+      themeToggle.title = label;
+    }
+    syncStatusBarColor();
+  }
+  // The inline boot script in index.html already guessed at a season lock
+  // from the cached fictionClashLastSeason key before first paint (adding
+  // the matching season-* body class) — bring the toggle's own state in
+  // line with that guess immediately, rather than waiting for the
+  // Firestore listener's first real callback further down.
+  if (document.body.classList.contains('season-anime') || document.body.classList.contains('season-horror')) {
+    themeToggle.classList.add('season-locked');
+  }
   // The inline script at the top of <body> already decided light vs dark
   // (saved choice, or the device's own setting) before first paint — just
   // bring this button's label/icon in line with whatever it picked.
@@ -282,6 +326,12 @@ import {
 
   let activeSeasonId = null;
 
+  // Anime Season and Horror Season both cancel light mode for as long as
+  // they're live — the app runs dark-only. Kept as a lookup (rather than
+  // an `=== 'anime' || === 'horror'` check scattered around) so a future
+  // season can opt in/out of the same lock in one place.
+  const SEASONS_LOCK_LIGHT = { anime: true, horror: true };
+
   function applySeason(seasonId){
     // Strip every season body-class before applying the new one, so
     // switching (or clearing) the active season never leaves a stale
@@ -291,6 +341,21 @@ import {
     if (season) document.body.classList.add(season.bodyClass);
     const seasonChanged = activeSeasonId !== (season ? season.id : null);
     activeSeasonId = season ? season.id : null;
+
+    // Mirror the season into localStorage so index.html's synchronous boot
+    // script can guess right on the *next* load, before Firebase has even
+    // connected — otherwise every reload would flash light-mode-on for a
+    // moment during a season. Cleared (not just left stale) once the
+    // season ends, so a later normal load doesn't wrongly lock light mode.
+    if (nonEssentialStorageAllowed()) {
+      if (season) localStorage.setItem('fictionClashLastSeason', season.id);
+      else localStorage.removeItem('fictionClashLastSeason');
+    }
+
+    // Not gated on seasonChanged — this also has to run on the very first
+    // call (page load), to correct a wrong guess from the inline boot
+    // script's cached season (e.g. a season that ended while offline).
+    applySeasonLightLock(season ? season.id : null);
     recomputeSeasonShards();
     if (typeof renderCustomizationStore === 'function') renderCustomizationStore();
     if (typeof updateLeaderboardSeasonAvailability === 'function') updateLeaderboardSeasonAvailability();
