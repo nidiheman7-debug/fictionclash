@@ -4392,6 +4392,13 @@ import {
     static instances = new Set();
     static rafId = null;
     static lastTime = 0;
+    // Final Six horror decorations: bespoke hand-authored animations, not a
+    // good fit for the generic particle lifecycle above (recursive branching
+    // roots, a crawling spider, blinking eyes...) — each renders itself
+    // directly from this.time every frame instead of going through
+    // _createParticle/_update/_draw's particle loop. See _initCustom /
+    // _drawCustomFrame near destroy() for the implementation.
+    static CUSTOM_TYPES = new Set(['raven-curse', 'lord-of-dead', 'watcher-ring', 'black-widow', 'styx-spirits', 'creeping-roots']);
 
     static _globalTick(timestamp) {
       if (!AvatarEffect.lastTime) AvatarEffect.lastTime = timestamp;
@@ -4427,7 +4434,8 @@ import {
       this.maxParticles = options.maxParticles || 26;
       this.particles = [];
       this.time = Math.random() * 10;
-      this._initParticles();
+      if (AvatarEffect.CUSTOM_TYPES.has(type)) this._initCustom();
+      else this._initParticles();
 
       AvatarEffect.instances.add(this);
       if (!AvatarEffect.rafId) {
@@ -4529,6 +4537,7 @@ import {
     // ---------- physics update ----------
     _update(dt) {
       this.time += dt;
+      if (AvatarEffect.CUSTOM_TYPES.has(this.type)) return; // custom types render straight from this.time in _draw
       for (let i = 0; i < this.particles.length; i++) {
         const p = this.particles[i];
         p.age += dt;
@@ -4599,6 +4608,8 @@ import {
     _draw() {
       const ctx = this.ctx;
       ctx.clearRect(0, 0, this.width, this.height);
+
+      if (AvatarEffect.CUSTOM_TYPES.has(this.type)) { this._drawCustomFrame(); return; }
 
       if (this.type === 'star_struck') { this._drawStarStruckRing(); }
       if (this.type === 'flame') { this._drawFlameGlow(); }
@@ -4797,6 +4808,468 @@ import {
         pts.push({ x: Math.cos(a) * spread * 0.6, y: Math.sin(a) * spread * 0.6 });
       }
       return pts;
+    }
+
+    // =====================================================================
+    // Final Six — custom (non-particle) canvas decorations
+    // Ported from the standalone preview (avatar radius 80 / orbit radii
+    // ~88-120 on a 340px canvas). this._s scales those absolute pixel
+    // values against this.radius so the effect sits correctly on whatever
+    // canvas size the decoration is rendered at (equipped avatar vs. the
+    // small store-preview canvas).
+    // =====================================================================
+    _initCustom() {
+      this._s = this.radius / 80;
+      switch (this.type) {
+        case 'raven-curse':
+          this._ravens = [0, 1, 2].map(i => ({ offset: i * (Math.PI * 2 / 3), trail: [] }));
+          break;
+        case 'lord-of-dead':
+          this._smoke = this._makeSmokeField(22, Math.PI * 1.05, Math.PI * 1.95, this.radius * 1.1);
+          this._wisps = [];
+          break;
+        case 'watcher-ring':
+          this._eyes = Array.from({ length: 6 }, (_, i) => ({ angle: i * (Math.PI * 2 / 6), blinkOffset: Math.random() * 10, tilt: (Math.random() - 0.5) * 0.4 }));
+          break;
+        case 'black-widow':
+          break;
+        case 'styx-spirits':
+          this._smoke = this._makeSmokeField(34, 0, Math.PI * 2, this.radius);
+          this._wisps = [];
+          break;
+        case 'creeping-roots':
+          this._trunks = this._buildRootTrunks(this._s);
+          this._rootPhase = Math.random();
+          break;
+      }
+    }
+
+    _drawCustomFrame() {
+      const t = this.time * 1000; // these were all tuned against a ms timestamp
+      switch (this.type) {
+        case 'raven-curse': this._drawRavenCurse(t); break;
+        case 'lord-of-dead': this._drawLordOfDead(t); break;
+        case 'watcher-ring': this._drawWatcherRing(t); break;
+        case 'black-widow': this._drawBlackWidow(t); break;
+        case 'styx-spirits': this._drawStyxSpirits(t); break;
+        case 'creeping-roots': this._drawCreepingRoots(t); break;
+      }
+    }
+
+    // ---- shared smoke/mist field + drifting glow-dot wisp helpers ----
+    _makeSmokeField(n, angleMin, angleMax, baseRadius) {
+      return Array.from({ length: n }, () => ({
+        baseAngle: angleMin + Math.random() * (angleMax - angleMin),
+        drift: (Math.random() * 0.00012 + 0.00003) * (Math.random() < 0.5 ? 1 : -1),
+        baseRadius: baseRadius + Math.random() * 10 - 5,
+        ampR: 3 + Math.random() * 5,
+        freqR: 0.0003 + Math.random() * 0.0006,
+        phaseR: Math.random() * 100,
+        size: (18 + Math.random() * 18) * this._s,
+        pulseFreq: 0.0008 + Math.random() * 0.0012,
+        phasePulse: Math.random() * 100,
+        face: Math.random() < 0.18
+      }));
+    }
+    _drawSmokePuff(x, y, size, alpha, color) {
+      const ctx = this.ctx;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, size);
+      g.addColorStop(0, `rgba(${color},${alpha})`);
+      g.addColorStop(0.55, `rgba(${color},${alpha * 0.35})`);
+      g.addColorStop(1, `rgba(${color},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
+    }
+    _drawTinyWraithFace(x, y, scale, alpha) {
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = 'rgba(5,20,22,0.9)';
+      ctx.beginPath(); ctx.arc(x - 1.6 * scale, y, 0.9 * scale, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 1.6 * scale, y, 0.9 * scale, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, y + 2.6 * scale, 0.8 * scale, 1.4 * scale, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    _drawSmokeFieldFrame(field, t, color, blurPx) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y;
+      ctx.save();
+      ctx.filter = `blur(${blurPx}px)`;
+      ctx.globalCompositeOperation = 'lighter';
+      field.forEach(p => {
+        const angle = p.baseAngle + t * p.drift;
+        const r = p.baseRadius + Math.sin(t * p.freqR + p.phaseR) * p.ampR;
+        const x = CX + Math.cos(angle) * r, y = CY + Math.sin(angle) * r;
+        const alpha = 0.3 + Math.sin(t * p.pulseFreq + p.phasePulse) * 0.08;
+        this._drawSmokePuff(x, y, p.size, Math.max(0.08, alpha), color);
+      });
+      ctx.filter = 'none';
+      ctx.restore();
+      field.forEach(p => {
+        if (!p.face) return;
+        const angle = p.baseAngle + t * p.drift;
+        const r = p.baseRadius + Math.sin(t * p.freqR + p.phaseR) * p.ampR;
+        const x = CX + Math.cos(angle) * r, y = CY + Math.sin(angle) * r;
+        const alpha = 0.3 + Math.sin(t * 0.003 + p.phasePulse) * 0.25;
+        this._drawTinyWraithFace(x, y, p.size * 0.14, Math.max(0, alpha));
+      });
+    }
+    _stepWisp(p, dt) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; return p.life > 0; }
+    _drawWisp(p) {
+      const ctx = this.ctx;
+      const a = Math.max(0, p.life / p.maxLife) * p.alphaMul;
+      ctx.globalAlpha = a;
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+      g.addColorStop(0, `rgba(${p.color},${a})`); g.addColorStop(1, `rgba(${p.color},0)`);
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // ---- 1. Raven's Curse ----
+    _drawRavenCurse(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, k = this._s;
+      const orbitR = this.radius * 1.18;
+      this._ravens.forEach(rv => {
+        const ang = t * 0.0009 + rv.offset;
+        const x = CX + Math.cos(ang) * orbitR, y = CY + Math.sin(ang) * orbitR * 0.85;
+        rv.trail.push({ x, y, life: 0.4, maxLife: 0.4 });
+        rv.trail = rv.trail.filter(p => { p.life -= 0.02; return p.life > 0; });
+        ctx.globalCompositeOperation = 'lighter';
+        rv.trail.forEach(p => {
+          ctx.globalAlpha = (p.life / p.maxLife) * 0.15; ctx.fillStyle = '#7a5ea8';
+          ctx.beginPath(); ctx.arc(p.x, p.y, 6 * k, 0, Math.PI * 2); ctx.fill();
+        });
+        ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+        const flap = Math.sin(t * 0.012 + rv.offset * 3);
+        const heading = ang + Math.PI / 2;
+        ctx.save(); ctx.translate(x, y); ctx.rotate(heading); ctx.scale(k, k);
+        ctx.shadowColor = 'rgba(90,60,140,0.6)'; ctx.shadowBlur = 6;
+        this._drawRavenShape(flap);
+        ctx.restore();
+      });
+    }
+    _drawRavenShape(flap) {
+      const ctx = this.ctx;
+      ctx.beginPath();
+      ctx.moveTo(0, -4); ctx.quadraticCurveTo(6, 0, 0, 5); ctx.quadraticCurveTo(-6, 0, 0, -4);
+      ctx.fillStyle = '#0c0a0d'; ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0, -1); ctx.quadraticCurveTo(14, -4 - flap * 10, 22, 1 - flap * 4); ctx.quadraticCurveTo(10, 2, 0, 2);
+      ctx.fillStyle = '#0c0a0d'; ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0, -1); ctx.quadraticCurveTo(-14, -4 - flap * 10, -22, 1 - flap * 4); ctx.quadraticCurveTo(-10, 2, 0, 2);
+      ctx.fillStyle = '#0c0a0d'; ctx.fill();
+    }
+
+    // ---- 2. Lord of the Dead ----
+    _drawLordOfDead(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, k = this._s;
+      this._drawSmokeFieldFrame(this._smoke, t, '220,60,50', 8);
+      const positions = [
+        { a: 0.62, s: 0.85 }, { a: 0.85, s: 1.0 }, { a: 1.1, s: 1.05 },
+        { a: 1.35, s: 1.0 }, { a: 1.6, s: 0.85 }, { a: 1.85, s: 0.75 }
+      ];
+      positions.forEach((p, i) => {
+        const bob = Math.sin(t * 0.003 + i) * 1.5 * k;
+        const x = CX + Math.cos(Math.PI * p.a) * this.radius * 0.95;
+        const y = CY + Math.sin(Math.PI * p.a) * this.radius * 0.95 * 0.9 + bob;
+        ctx.save(); ctx.translate(x, y); ctx.scale(k, k); this._drawLordSkull(p.s, t, i * 1.7); ctx.restore();
+      });
+      if (Math.random() < 0.15) {
+        const a = Math.PI * 0.15 + Math.random() * Math.PI * 0.7;
+        this._wisps.push({ x: CX + Math.cos(a) * this.radius * 0.9, y: CY + Math.sin(a) * this.radius * 0.9,
+          vx: (Math.random() - 0.5) * 4, vy: -(10 + Math.random() * 8), life: 1.6, maxLife: 1.6, size: 3 * k, color: '220,70,60', alphaMul: 0.55 });
+      }
+      this._wisps = this._wisps.filter(p => this._stepWisp(p, 0.04));
+      ctx.globalCompositeOperation = 'lighter';
+      this._wisps.forEach(p => this._drawWisp(p));
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    _drawLordSkull(s, t, seed) {
+      const ctx = this.ctx;
+      ctx.save(); ctx.scale(s, s);
+      ctx.beginPath();
+      ctx.arc(0, -2, 9, Math.PI, 0);
+      ctx.lineTo(6, 8); ctx.lineTo(3, 6); ctx.lineTo(0, 9); ctx.lineTo(-3, 6); ctx.lineTo(-6, 8);
+      ctx.closePath();
+      ctx.fillStyle = '#cfc6b8';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(40,30,25,0.6)';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(-1, -10); ctx.lineTo(1, -4); ctx.lineTo(-1, 0); ctx.lineTo(2, 5);
+      ctx.stroke();
+      const pulse = 0.65 + Math.sin(t * 0.008 + seed) * 0.35;
+      ctx.globalCompositeOperation = 'lighter';
+      [-3.5, 3.5].forEach(dx => {
+        const g = ctx.createRadialGradient(dx, -2, 0, dx, -2, 4.5);
+        g.addColorStop(0, `rgba(255,40,30,${pulse})`);
+        g.addColorStop(0.5, `rgba(200,10,10,${pulse * 0.6})`);
+        g.addColorStop(1, 'rgba(120,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(dx, -2, 4.5, 0, Math.PI * 2); ctx.fill();
+      });
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#0a0605';
+      ctx.beginPath(); ctx.arc(-3.5, -2, 2.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3.5, -2, 2.1, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(255,70,50,${pulse})`;
+      ctx.beginPath(); ctx.arc(-3.5, -2, 0.9, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3.5, -2, 0.9, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#cfc6b8';
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * 2.2 - 0.8, 7); ctx.lineTo(i * 2.2 + 0.8, 7); ctx.lineTo(i * 2.2, 9.5);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // ---- 3. Watcher's Ring ----
+    _drawWatcherRing(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, k = this._s;
+      this._eyes.forEach(e => {
+        const ex = CX + Math.cos(e.angle) * this.radius * 1.12, ey = CY + Math.sin(e.angle) * this.radius * 1.12;
+        const blinkPhase = Math.abs(Math.sin(t * 0.0015 + e.blinkOffset));
+        const openness = blinkPhase > 0.96 ? 0.06 : 1;
+        ctx.save();
+        ctx.translate(ex, ey);
+        ctx.rotate(e.angle + Math.PI / 2 + e.tilt * 0.3);
+        ctx.scale(k, k);
+        ctx.shadowColor = 'rgba(255,140,50,0.35)'; ctx.shadowBlur = 5;
+        this._drawRealEye(openness);
+        ctx.restore();
+      });
+    }
+    _drawRealEye(blink) {
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.scale(1, blink);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 11, 6.5, 0, 0, Math.PI * 2);
+      const scleraG = ctx.createRadialGradient(0, 0, 1, 0, 0, 11);
+      scleraG.addColorStop(0, '#efe7da');
+      scleraG.addColorStop(1, '#cfc2b0');
+      ctx.fillStyle = scleraG;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(150,30,30,0.35)';
+      ctx.lineWidth = 0.4;
+      ctx.beginPath(); ctx.moveTo(-9, 1); ctx.quadraticCurveTo(-5, 3, -2, 0.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(8, -1); ctx.quadraticCurveTo(4, 2, 1.5, 0.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-6, -3); ctx.quadraticCurveTo(-3, -1, -0.5, -0.5); ctx.stroke();
+      const irisG = ctx.createRadialGradient(0, 0, 0.5, 0, 0, 4.4);
+      irisG.addColorStop(0, '#ffb347');
+      irisG.addColorStop(0.55, '#a8420f');
+      irisG.addColorStop(1, '#3a1305');
+      ctx.fillStyle = irisG;
+      ctx.beginPath(); ctx.arc(0, 0, 4.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#050302';
+      ctx.beginPath(); ctx.arc(0, 0, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.arc(-1.3, -1.3, 0.9, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0, -3.4, 11.5, 3.6, 0, 0, Math.PI * 2);
+      const lidG = ctx.createLinearGradient(0, -7, 0, 0);
+      lidG.addColorStop(0, 'rgba(0,0,0,0.55)');
+      lidG.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = lidG;
+      ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0, 0, 11, 6.5, 0, 0, Math.PI * 2);
+      ctx.lineWidth = 0.7; ctx.strokeStyle = 'rgba(10,8,6,0.7)'; ctx.stroke();
+      ctx.restore();
+    }
+
+    // ---- 4. Black Widow ----
+    _drawBlackWidow(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, k = this._s, radius = this.radius * 1.15;
+      ctx.strokeStyle = 'rgba(200,200,210,0.12)';
+      ctx.lineWidth = 0.6;
+      for (let i = 0; i < 10; i++) {
+        const a1 = i * (Math.PI * 2 / 10), a2 = a1 + Math.PI * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(CX + Math.cos(a1) * radius, CY + Math.sin(a1) * radius);
+        ctx.lineTo(CX + Math.cos(a2) * radius, CY + Math.sin(a2) * radius);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(200,200,210,0.16)';
+      ctx.beginPath(); ctx.arc(CX, CY, radius, 0, Math.PI * 2); ctx.stroke();
+      const crawlAngle = t * 0.0004;
+      const x = CX + Math.cos(crawlAngle) * radius, y = CY + Math.sin(crawlAngle) * radius;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(crawlAngle + Math.PI / 2);
+      ctx.scale(k, k);
+      this._drawSpider(t * 0.02);
+      ctx.restore();
+    }
+    _drawSpider(legPhase) {
+      const ctx = this.ctx;
+      ctx.strokeStyle = '#0d0a0b'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      for (let side = -1; side <= 1; side += 2) {
+        for (let i = 0; i < 4; i++) {
+          const baseAngle = side * (0.5 + i * 0.35);
+          const wiggle = Math.sin(legPhase + i * 1.3) * 0.15;
+          const kneeX = Math.cos(baseAngle + wiggle) * 14, kneeY = Math.sin(baseAngle + wiggle) * 8 - 2;
+          const footX = Math.cos(baseAngle + wiggle) * 24, footY = Math.sin(baseAngle + wiggle) * 20 - 4;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.quadraticCurveTo(kneeX, kneeY, footX, footY);
+          ctx.stroke();
+        }
+      }
+      ctx.beginPath(); ctx.ellipse(0, 7, 8, 9, 0, 0, Math.PI * 2);
+      const bg = ctx.createRadialGradient(0, 4, 1, 0, 7, 10);
+      bg.addColorStop(0, '#2a2224'); bg.addColorStop(1, '#0a0708');
+      ctx.fillStyle = bg; ctx.fill();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = 'rgba(200,20,20,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(0, 3); ctx.lineTo(3, 7); ctx.lineTo(0, 11); ctx.lineTo(-3, 7); ctx.closePath();
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.beginPath(); ctx.ellipse(0, -4, 5, 5, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#0f0b0c'; ctx.fill();
+      ctx.fillStyle = '#d43a2a';
+      ctx.shadowColor = '#d43a2a'; ctx.shadowBlur = 4;
+      [[-1.6, -5], [1.6, -5], [-2.6, -3], [2.6, -3]].forEach(([dx, dy]) => {
+        ctx.beginPath(); ctx.arc(dx, dy, 0.7, 0, Math.PI * 2); ctx.fill();
+      });
+      ctx.shadowBlur = 0;
+    }
+
+    // ---- 5. Styx Spirits ----
+    _drawStyxSpirits(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, k = this._s;
+      this._drawSmokeFieldFrame(this._smoke, t, '90,220,225', 8);
+      if (Math.random() < 0.3) {
+        const a = Math.random() * Math.PI * 2;
+        this._wisps.push({ x: CX + Math.cos(a) * this.radius, y: CY + Math.sin(a) * this.radius,
+          vx: (Math.random() - 0.5) * 6, vy: (Math.random() - 0.5) * 6, life: 1.4, maxLife: 1.4, size: 3 * k, color: '110,210,230', alphaMul: 0.5 });
+      }
+      this._wisps = this._wisps.filter(p => this._stepWisp(p, 0.045));
+      ctx.globalCompositeOperation = 'lighter';
+      this._wisps.forEach(p => this._drawWisp(p));
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // ---- 6. Creeping Roots ----
+    _bezierPoint(p0, p1, p2, tt) {
+      const mt = 1 - tt;
+      return { x: mt * mt * p0.x + 2 * mt * tt * p1.x + tt * tt * p2.x, y: mt * mt * p0.y + 2 * mt * tt * p1.y + tt * tt * p2.y };
+    }
+    _bezierTangentAngle(p0, p1, p2, tt) {
+      const dx = 2 * (1 - tt) * (p1.x - p0.x) + 2 * tt * (p2.x - p1.x);
+      const dy = 2 * (1 - tt) * (p1.y - p0.y) + 2 * tt * (p2.y - p1.y);
+      return Math.atan2(dy, dx);
+    }
+    _easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+    _segmentFromEdge(angle, curl, len) {
+      const CX = this.center.x, CY = this.center.y, edgeR = this.radius;
+      const p0 = { x: CX + Math.cos(angle) * edgeR, y: CY + Math.sin(angle) * edgeR };
+      const midAngle = angle + curl * 0.4;
+      const midR = edgeR - len * 0.55;
+      const p1 = { x: CX + Math.cos(midAngle) * midR, y: CY + Math.sin(midAngle) * midR };
+      const endAngle = angle + curl;
+      const endR = Math.max(4, edgeR - len);
+      const p2 = { x: CX + Math.cos(endAngle) * endR, y: CY + Math.sin(endAngle) * endR };
+      return [p0, p1, p2];
+    }
+    _segmentFrom(start, dirAngle, curl, len) {
+      const midAngle = dirAngle + curl * 0.4;
+      const p1 = { x: start.x + Math.cos(midAngle) * len * 0.5, y: start.y + Math.sin(midAngle) * len * 0.5 };
+      const endAngle = dirAngle + curl;
+      const p2 = { x: start.x + Math.cos(endAngle) * len, y: start.y + Math.sin(endAngle) * len };
+      return [{ x: start.x, y: start.y }, p1, p2];
+    }
+    _buildRootTrunks(s) {
+      const N_TRUNKS = 6;
+      return Array.from({ length: N_TRUNKS }, (_, i) => {
+        const angle = i * (Math.PI * 2 / N_TRUNKS) + (Math.random() - 0.5) * 0.35;
+        const curl = (Math.random() - 0.5) * 1.0;
+        const len = (58 + Math.random() * 30) * s;
+        const [p0, p1, p2] = this._segmentFromEdge(angle, curl, len);
+        const seg = { p0, p1, p2, width: 4.6 * s, growStart: 0, growEnd: 0.5, children: [] };
+        const nChild = 1 + (Math.random() < 0.7 ? 1 : 0);
+        for (let c = 0; c < nChild; c++) {
+          const attachT = 0.4 + Math.random() * 0.35;
+          const attachPt = this._bezierPoint(p0, p1, p2, attachT);
+          const tangent = this._bezierTangentAngle(p0, p1, p2, attachT);
+          const bAngle = tangent + (Math.random() < 0.5 ? 1 : -1) * (0.6 + Math.random() * 0.5);
+          const bCurl = (Math.random() - 0.5) * 0.9;
+          const bLen = len * (0.5 + Math.random() * 0.25);
+          const [q0, q1, q2] = this._segmentFrom(attachPt, bAngle, bCurl, bLen);
+          const child = { p0: q0, p1: q1, p2: q2, width: 2.4 * s,
+            growStart: 0.35 + attachT * 0.15, growEnd: 0.35 + attachT * 0.15 + 0.4, children: [] };
+          if (Math.random() < 0.55) {
+            const gT = 0.4 + Math.random() * 0.3;
+            const gPt = this._bezierPoint(q0, q1, q2, gT);
+            const gTangent = this._bezierTangentAngle(q0, q1, q2, gT);
+            const gAngle = gTangent + (Math.random() < 0.5 ? 1 : -1) * (0.7 + Math.random() * 0.4);
+            const gCurl = (Math.random() - 0.5) * 0.8;
+            const gLen = bLen * 0.5;
+            const [r0, r1, r2] = this._segmentFrom(gPt, gAngle, gCurl, gLen);
+            child.children.push({ p0: r0, p1: r1, p2: r2, width: 1.3 * s,
+              growStart: Math.min(0.85, child.growEnd * 0.75), growEnd: Math.min(0.98, child.growEnd * 0.75 + 0.25), children: [] });
+          }
+          seg.children.push(child);
+        }
+        return { angle, tip: seg.p2, seg };
+      });
+    }
+    _drawTaperedSegment(p0, p1, p2, progress, baseWidth, colorDark, colorLight) {
+      const ctx = this.ctx;
+      if (progress <= 0.001) return;
+      const steps = 22;
+      const nSteps = Math.max(1, Math.floor(progress * steps));
+      for (let i = 0; i < nSteps; i++) {
+        const tt0 = i / steps, tt1 = (i + 1) / steps;
+        const a = this._bezierPoint(p0, p1, p2, tt0);
+        const b = this._bezierPoint(p0, p1, p2, tt1);
+        const w = Math.max(0.5, baseWidth * (1 - tt0 * 0.8));
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+        ctx.lineWidth = w; ctx.lineCap = 'round';
+        ctx.strokeStyle = tt0 < 0.55 ? colorDark : colorLight;
+        ctx.stroke();
+      }
+      if (progress > 0.04 && progress < 0.97) {
+        const tip = this._bezierPoint(p0, p1, p2, Math.min(0.999, progress));
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const g = ctx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, 4.5);
+        g.addColorStop(0, 'rgba(160,20,10,0.5)');
+        g.addColorStop(1, 'rgba(160,20,10,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(tip.x, tip.y, 4.5, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+    }
+    _drawSegRecursive(seg, localT, HOLD_END) {
+      const rawWindow = seg.growEnd > seg.growStart ? (localT - seg.growStart) / (seg.growEnd - seg.growStart) : 1;
+      const growFrac = this._easeOutCubic(Math.max(0, Math.min(1, rawWindow)));
+      let progress = growFrac;
+      if (localT > HOLD_END) {
+        const retreat = Math.max(0, 1 - (localT - HOLD_END) / (1 - HOLD_END));
+        progress = growFrac * retreat;
+      }
+      this._drawTaperedSegment(seg.p0, seg.p1, seg.p2, progress, seg.width, '#1c1410', '#3b2a1e');
+      seg.children.forEach(child => this._drawSegRecursive(child, localT, HOLD_END));
+    }
+    _drawCreepingRoots(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y;
+      const CYCLE = 20000, GROW_END = 0.55, HOLD_END = 0.82;
+      const cycleLocal = ((t / CYCLE) + this._rootPhase) % 1;
+      this._trunks.forEach(({ seg }) => this._drawSegRecursive(seg, cycleLocal, HOLD_END));
+      for (let i = 0; i < this._trunks.length; i++) {
+        const a = this._trunks[i], b = this._trunks[(i + 1) % this._trunks.length];
+        if (cycleLocal >= GROW_END * 0.7) {
+          const midAngle = (a.angle + b.angle) / 2;
+          const pull = 34 * this._s;
+          const mid = { x: CX + Math.cos(midAngle) * pull, y: CY + Math.sin(midAngle) * pull };
+          let connProgress = 1;
+          if (cycleLocal < GROW_END) connProgress = Math.max(0, (cycleLocal - GROW_END * 0.7) / (GROW_END * 0.3));
+          else if (cycleLocal > HOLD_END) connProgress = Math.max(0, 1 - (cycleLocal - HOLD_END) / (1 - HOLD_END));
+          this._drawTaperedSegment(a.tip, mid, b.tip, connProgress, 1.1 * this._s, '#1c1410', '#2e2118');
+        }
+      }
     }
 
     destroy() { this.active = false; AvatarEffect.instances.delete(this); this.ctx.clearRect(0, 0, this.width, this.height); }
@@ -5521,7 +5994,15 @@ import {
     { id:'phantom-mist', name:'Phantom Mist', category:'Dark', rarity:'Rare', cost:80, fx:'canvas', canvasType:'toxic', season:'horror' },
     { id:'wraith-veil', name:'Wraith Veil', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', season:'horror' },
     { id:'grim-reaper', name:'Grim Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6, season:'horror' },
-    { id:'cursed-flame', name:'Cursed Flame', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', season:'horror' }
+    { id:'cursed-flame', name:'Cursed Flame', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', season:'horror' },
+    // Final Six — bespoke non-particle canvas renderers (see AvatarEffect
+    // custom-type branch below), redeemed with Skulls like the rest of horror.
+    { id:'raven-curse', name:"Raven's Curse", category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'raven-curse', season:'horror' },
+    { id:'lord-of-dead', name:'Lord of the Dead', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'lord-of-dead', season:'horror' },
+    { id:'watcher-ring', name:"Watcher's Ring", category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'watcher-ring', season:'horror' },
+    { id:'black-widow', name:'Black Widow', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'black-widow', season:'horror' },
+    { id:'styx-spirits', name:'Styx Spirits', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'styx-spirits', season:'horror' },
+    { id:'creeping-roots', name:'Creeping Roots', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'creeping-roots', season:'horror' }
   ];
   // Profile CARD effects — full-card particle overlays that sit over the
   // banner + body (see card-fx-canvas / activateCardFx below), as opposed
