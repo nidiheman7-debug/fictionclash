@@ -506,8 +506,14 @@ import {
     if (unsubAdminMatchupCategories) { unsubAdminMatchupCategories(); unsubAdminMatchupCategories = null; }
     if (!isAdmin()) { adminAllMatchups = []; renderMatchupCategoryList(); return; }
     unsubAdminMatchupCategories = onSnapshot(query(collection(db, 'matchups'), orderBy('createdAt', 'asc')), snapshot => {
+      // Same expiresAt check the public feed uses (see resyncMatchupsForSeason)
+      // — without it, expired matchups (invisible everywhere else, but never
+      // actually deleted from Firestore — see the TTL note near expiresAt)
+      // just sat here forever, piling up in Settings long after they'd
+      // stopped being anything an admin needs to tag or manage.
       adminAllMatchups = snapshot.docs
         .filter(d => d.data().a && d.data().b)
+        .filter(d => !(d.data().expiresAt && d.data().expiresAt.toMillis() < Date.now()))
         .map(d => ({ docId: d.id, a: d.data().a, b: d.data().b, category: d.data().category || null, revealAt: d.data().revealAt || null, resultsSettled: !!d.data().resultsSettled }));
       renderMatchupCategoryList();
     }, err => console.error('Admin matchup-category listener failed', err));
@@ -2066,6 +2072,14 @@ import {
         b: { name: nameB, version: versionB, sub: subB, initials: initialsFor(nameB) },
         votesA: 0, votesB: 0, community: true,
         submittedBy: identity.uid, submittedByName: identity.name,
+        // Auto-scope the submission to whatever season (if any) is live
+        // right now, so an approved matchup lands already tagged instead
+        // of defaulting to untagged — which, now that untagged matchups
+        // are hidden while any season is live (see isOutOfSeason above),
+        // would otherwise mean it's invisible until an admin manually
+        // tags it from Settings. An admin can still retag or clear this
+        // from the Matchup categories list after approval.
+        ...(activeSeasonId ? { category: activeSeasonId } : {}),
       };
       // Apply any photos picked in the submit form the same way the
       // hero-card camera icon does — instant local paint, then a
@@ -2123,6 +2137,25 @@ import {
   // toggle (or a page load that resolves the season after matchups have
   // already streamed in) doesn't leave stale out-of-season matchups sitting
   // in the array, or miss ones that should now be visible.
+  // Season-exclusive visibility rule (single source of truth — see the
+  // three call sites below). The old inline check here was
+  // `data.category && data.category !== activeSeasonId`, which only ever
+  // hides a matchup tagged for a DIFFERENT season — an untagged matchup
+  // (falsy category) short-circuits that check and shows unconditionally,
+  // in every season AND on the default/no-season site. That contradicted
+  // the Settings copy ("Untagged matchups are hidden while any season is
+  // live" — see #adminMatchupCategoryCard in index.html) and is why fresh,
+  // not-yet-tagged matchups were showing up everywhere instead of staying
+  // scoped to whichever season they belong to.
+  // Correct rule, both directions:
+  //  - A season IS live: show only matchups tagged for THAT season.
+  //    Untagged and other-season matchups are both hidden.
+  //  - NO season is live: show only untagged matchups. Season-tagged
+  //    matchups stay exclusive to their own season and hide otherwise.
+  function isOutOfSeason(category){
+    return activeSeasonId ? category !== activeSeasonId : !!category;
+  }
+
   async function resyncMatchupsForSeason(){
     let snap;
     try {
@@ -2138,11 +2171,7 @@ import {
       if (!data.a || !data.b) return;
       if (data.expiresAt && data.expiresAt.toMillis() < Date.now()) return;
       if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
-      // Season-exclusive tagging: a tagged matchup only shows while its own
-      // season is the one live, in either direction — not just hidden from
-      // *other* seasons, but hidden from the normal/no-season feed too.
-      // Untagged matchups (data.category unset) are unaffected either way.
-      if (data.category && data.category !== activeSeasonId) return;
+      if (isOutOfSeason(data.category || null)) return;
       matchups.push({ a: data.a, b: data.b, votesA: data.votesA || 0, votesB: data.votesB || 0, community: true, docId: docSnap.id, category: data.category || null, revealAt: data.revealAt || null, resultsSettled: !!data.resultsSettled, winningSide: data.winningSide || null });
     });
     // Try to keep whatever was on screen still on screen if it survived
@@ -2185,7 +2214,7 @@ import {
         const idx = matchups.findIndex(m => m.docId === docSnap.id);
         const expired = data.expiresAt && data.expiresAt.toMillis() < Date.now();
         const hiddenLocally = hiddenMatchupKeys.has(matchupPairKey(data));
-        const outOfSeason = data.category && data.category !== activeSeasonId;
+        const outOfSeason = isOutOfSeason(data.category || null);
         const shouldShow = !expired && !hiddenLocally && !outOfSeason;
         if (!shouldShow) {
           if (idx !== -1) {
@@ -2227,15 +2256,10 @@ import {
       // This browser chose to hide this exact matchup before — respect
       // that even though the doc is still live in Firestore for everyone else.
       if (hiddenMatchupKeys.has(matchupPairKey(data))) return;
-      // Season-exclusive filtering, both directions:
-      // - Untagged matchups (data.category unset — true for every matchup
-      //   that existed before this feature) always show, season or no
-      //   season, per the "hide until tagged" decision — an admin tags
-      //   each one via the Season Control card's matchup list.
-      // - Tagged matchups only show while their own season is the live
-      //   one — including staying hidden from the normal/no-season feed,
-      //   not just from other seasons' feeds.
-      if (data.category && data.category !== activeSeasonId) return;
+      // Season-exclusive filtering, both directions — see isOutOfSeason()
+      // above for the actual rule and why it isn't a plain
+      // `data.category && data.category !== activeSeasonId` check.
+      if (isOutOfSeason(data.category || null)) return;
       const existingMatchup = matchups.find(m => matchupPairKey(m) === matchupPairKey(data));
       if (existingMatchup) {
         // Already showing locally (e.g. the one we just optimistically
