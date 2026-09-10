@@ -5991,12 +5991,18 @@ import {
     // Horror Season exclusives — same pattern as the anime set above:
     // reuse existing canvasType particle effects, just tagged season:'horror'
     // so they only show up in the store while Horror Season is live.
-    { id:'phantom-mist', name:'Phantom Mist', category:'Dark', rarity:'Rare', cost:80, fx:'canvas', canvasType:'toxic', season:'horror' },
-    { id:'wraith-veil', name:'Wraith Veil', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', season:'horror' },
-    { id:'grim-reaper', name:'Grim Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6, season:'horror' },
-    { id:'cursed-flame', name:'Cursed Flame', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', season:'horror' },
+    // Moved out of Horror Season — these reuse the same canvas types as the
+    // Anime season items (toxic/portal/reaper/flame), so they read as
+    // "anime effects" sitting in the horror shelf. Kept as evergreen
+    // (Clash Points) decorations instead of deleting them outright.
+    { id:'phantom-mist', name:'Phantom Mist', category:'Dark', rarity:'Rare', cost:80, fx:'canvas', canvasType:'toxic' },
+    { id:'wraith-veil', name:'Wraith Veil', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal' },
+    { id:'grim-reaper', name:'Grim Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6 },
+    { id:'cursed-flame', name:'Cursed Flame', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame' },
     // Final Six — bespoke non-particle canvas renderers (see AvatarEffect
-    // custom-type branch below), redeemed with Skulls like the rest of horror.
+    // custom-type branch below), redeemed with Skulls. These are now the
+    // only items tagged season:'horror', so the Horror Season shelf shows
+    // just these six.
     { id:'raven-curse', name:"Raven's Curse", category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'raven-curse', season:'horror' },
     { id:'lord-of-dead', name:'Lord of the Dead', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'lord-of-dead', season:'horror' },
     { id:'watcher-ring', name:"Watcher's Ring", category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'watcher-ring', season:'horror' },
