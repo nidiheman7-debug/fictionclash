@@ -1594,10 +1594,35 @@ import {
         m.resultsSettled = true;
         m.winningSide = data.winningSide;
         if (matchups[activeIdx] === m) updatePercentages();
+        // Same in-app bell used for "new matchup"/"new clip" above — fires
+        // once per client, whichever one happens to be the one that trips
+        // the settle (see triggerSettleIfNeeded's callers/comment for why
+        // this is lazy/client-triggered rather than a scheduled job).
+        if (data.winningSide && data.winningSide !== 'tie') {
+          const winnerName = (data.winningSide === 'a' ? m.a : m.b).name;
+          const loserName = (data.winningSide === 'a' ? m.b : m.a).name;
+          pushNotification('matchup', `${winnerName} wins!`, `${winnerName} beat ${loserName} — results are in`, m.docId);
+        }
       }
     } catch (err) {
       console.error('Settle trigger failed', err);
       settleAttempted.delete(m.docId); // allow a retry on a later tick/view
+    }
+  }
+
+  // A visible marker ON the winning avatar itself, not just the text line
+  // below the bar — a glowing ring around the circle plus a small badge
+  // that pops in once. Toggled every updatePercentages() call so it's
+  // always in sync with the current matchup (setAvatarPhoto wipes the
+  // avatar's innerHTML — badge included — on every matchup switch, so
+  // there's nothing extra to clean up when moving off a settled one).
+  function setHeroWinnerBadge(container, isWinner){
+    container.classList.toggle('winner-ring', isWinner);
+    const existing = container.querySelector('.hero-winner-badge');
+    if (isWinner && !existing) {
+      container.insertAdjacentHTML('beforeend', '<span class="hero-winner-badge">🏆 Winner</span>');
+    } else if (!isWinner && existing) {
+      existing.remove();
     }
   }
 
@@ -1625,6 +1650,8 @@ import {
       voteRevealState.hidden = false;
       voteRevealState.classList.remove('winner');
       voteRevealState.innerHTML = `${REVEAL_LOCK_SVG}Results reveal in ${formatRevealCountdown(m.revealAt.toMillis() - Date.now())}`;
+      setHeroWinnerBadge(heroAvatarA, false);
+      setHeroWinnerBadge(heroAvatarB, false);
     } else if (m.revealAt && m.winningSide && m.winningSide !== 'tie') {
       // Just revealed (or was already settled the last time this matchup
       // loaded) — call out the winner for a beat rather than jumping
@@ -1633,8 +1660,12 @@ import {
       voteRevealState.hidden = false;
       voteRevealState.classList.add('winner');
       voteRevealState.textContent = `🏆 ${winnerName} won — XP paid out to backers`;
+      setHeroWinnerBadge(heroAvatarA, m.winningSide === 'a');
+      setHeroWinnerBadge(heroAvatarB, m.winningSide === 'b');
     } else {
       voteRevealState.hidden = true;
+      setHeroWinnerBadge(heroAvatarA, false);
+      setHeroWinnerBadge(heroAvatarB, false);
     }
     if (m.revealAt && !blind) triggerSettleIfNeeded(m);
   }
