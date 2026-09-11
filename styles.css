@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Bungee&family=Butcherman&family=Cinzel+Decorative:wght@700&family=Creepster&family=Eater&family=Instrument+Sans:wght@400;500;600;700&family=Luckiest+Guy&family=Martian+Mono:wght@400;600&family=Metal+Mania&family=Nosifer&family=Permanent+Marker&family=Rajdhani:wght@500;600;700&family=Russo+One&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Bangers&family=Bebas+Neue&family=Bungee&family=Butcherman&family=Cinzel+Decorative:wght@700&family=Creepster&family=Eater&family=Instrument+Sans:wght@400;500;600;700&family=Luckiest+Guy&family=Martian+Mono:wght@400;600&family=Metal+Mania&family=Nosifer&family=Oswald:wght@600;700&family=Permanent+Marker&family=Rajdhani:wght@500;600;700&family=Russo+One&family=Staatliches&display=swap');
 
   :root{
     --bg:#111217;
@@ -219,6 +219,87 @@
     background-image:
       linear-gradient(var(--surface-veil),var(--surface-veil)),
       url('/public/seasons/horror/battle-card-bg.jpg');
+    background-size:cover; background-position:center; background-repeat:no-repeat;
+  }
+  /* Crossverse Season reskin — same structure as anime/horror above.
+     Gold-statuette → deep-crimson gradient for accents (an awards-night
+     palette, not any one studio's colors), a near-black base with a
+     faint warm cast like a dim theater, and Bebas Neue — a bold
+     condensed poster face — for branding. Unlike Nosifer for horror,
+     Bebas Neue stays perfectly legible at .brand-small's 8px, so it's
+     used for both the wordmark and (see PROFILE_FONTS) as a redeemable
+     name font. */
+  body.season-crossverse{
+    --bg:#0B0A08;
+    --bg-rgb:11,10,8;
+    --accent-bg:linear-gradient(135deg,#FFD54A 0%,#E8B923 45%,#B8102A 100%);
+    --accent:color-mix(in srgb,#FFD54A,#B8102A);
+  }
+  body.season-crossverse .phone{
+    background-image:linear-gradient(180deg,rgba(11,10,8,.55) 0%,rgba(11,10,8,.85) 40%,var(--bg) 75%),url('/public/seasons/crossverse/hero-bg.png?v=1');
+    background-size:cover;
+    background-position:top center;
+    background-repeat:no-repeat;
+  }
+  /* Crossverse Season's light mode gets a warm ivory/cream tint — like a
+     premiere invite card — instead of the app-wide neutral gray-white,
+     for the same reason the anime/horror light overrides exist. */
+  body.season-crossverse.light{
+    --bg:#f5efe2;
+    --bg-rgb:245,239,226;
+  }
+  body.season-crossverse.light .phone{
+    background-image:linear-gradient(180deg,color-mix(in srgb,var(--bg) 12%,transparent) 0%,color-mix(in srgb,var(--bg) 45%,transparent) 38%,color-mix(in srgb,var(--bg) 78%,transparent) 65%,var(--bg) 88%),url('/public/seasons/crossverse/hero-bg.png?v=1');
+  }
+  body.season-crossverse .movies-kicker,
+  body.season-crossverse .movies-title{
+    color:#fff;
+    text-shadow:0 2px 10px rgba(0,0,0,.55);
+  }
+  body.season-crossverse .wordmark,
+  body.season-crossverse .brand-small{
+    font-family:'Bebas Neue',sans-serif;
+    letter-spacing:1px;
+  }
+  body.season-crossverse .trend-card,
+  body.season-crossverse .clip-card,
+  body.season-crossverse .clip-uploader,
+  body.season-crossverse .account-card,
+  body.season-crossverse .account-banner,
+  body.season-crossverse .modal-sheet,
+  body.season-crossverse .hero{
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/crossverse/battle-card-bg.jpg');
+    background-size:cover;
+    background-position:center;
+    background-repeat:no-repeat;
+  }
+  body.season-crossverse .trend-card,
+  body.season-crossverse .clip-card,
+  body.season-crossverse .clip-uploader{
+    border:1px solid transparent;
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/crossverse/battle-card-bg.jpg'),
+      var(--accent-bg);
+    background-origin:padding-box, padding-box, border-box;
+    background-clip:padding-box, padding-box, border-box;
+    background-size:auto, cover, auto;
+    background-position:left top, center, left top;
+    background-repeat:no-repeat, no-repeat, no-repeat;
+  }
+  body.season-crossverse.light .hero,
+  body.season-crossverse.light .hero-vs{
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/crossverse/battle-card-bg.jpg');
+    background-size:cover; background-position:center; background-repeat:no-repeat;
+  }
+  body.season-crossverse .hero-vs{
+    background-image:
+      linear-gradient(var(--surface-veil),var(--surface-veil)),
+      url('/public/seasons/crossverse/battle-card-bg.jpg');
     background-size:cover; background-position:center; background-repeat:no-repeat;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
@@ -1262,6 +1343,10 @@
    .profile-font-eater{font-family:'Eater',cursive!important;}
    .profile-font-butcherman{font-family:'Butcherman',cursive!important;}
    .profile-font-metalmania{font-family:'Metal Mania',cursive!important;}
+   .profile-font-bebas{font-family:'Bebas Neue',sans-serif!important;letter-spacing:1px;}
+   .profile-font-anton{font-family:'Anton',sans-serif!important;}
+   .profile-font-oswald{font-family:'Oswald',sans-serif!important;}
+   .profile-font-staatliches{font-family:'Staatliches',cursive!important;}
    .profile-customization-card{margin-top:14px;}
    .theme-store-modal{padding:20px 16px 26px;max-height:88vh;overflow-y:auto;}
    .theme-store-modal .profile-customization-card{margin:0;border:0;padding:0;background:none;}
@@ -1283,25 +1368,28 @@
    /* Season section: a distinct, bannered block above the evergreen grid,
       shown only while its season is active (see renderCustomizationStore).
       Deliberately visually louder than the plain grid below it — it's the
-      limited-time stuff, so it should read that way at a glance. */
+      limited-time stuff, so it should read that way at a glance.
+      Plain flat container now (no accent-gradient border ring) — the
+      banner image sits flush against this box's own rounded edge instead
+      of being inset inside a second bordered layer. */
    .profile-store-season{
      position:relative;border-radius:16px;overflow:hidden;margin-bottom:16px;
-     border:1px solid transparent;
-     background-image:linear-gradient(var(--surface),var(--surface)),var(--accent-bg);
-     background-origin:border-box;
-     background-clip:padding-box,border-box;
+     background:var(--surface);
    }
-   /* Flat header living directly on the season container's own surface —
-      no separate bannered box, so the whole card (header + grid) reads as
-      one continuous container instead of two stacked pieces. */
-   .profile-store-season-head{
-     padding:14px 14px 10px;background:var(--surface);
+   .profile-store-season-banner{
+     position:relative;padding:16px 14px 12px;
+     /* --season-banner-img is set inline per-season (see renderCustomizationStore
+        in app.js, driven by SEASONS[id].bannerAsset) — this url() is only a
+        fallback if that inline var is ever missing. */
+     background-image:linear-gradient(180deg,rgba(10,10,10,.35) 0%,rgba(10,10,10,.85) 100%),var(--season-banner-img,url('/public/seasons/anime/store-banner.png?v=2'));
+     background-size:cover;background-position:center;
    }
    .profile-store-season-label{
      display:inline-block;font:800 10px 'Russo One',sans-serif;letter-spacing:1px;
-     color:var(--accent);text-transform:uppercase;
+     color:#fff;text-transform:uppercase;
+     text-shadow:0 2px 6px rgba(0,0,0,.6);
    }
-   .profile-store-season-sub{font:600 9px 'Instrument Sans',sans-serif;color:var(--muted);margin-top:2px;}
+   .profile-store-season-sub{font:600 9px 'Instrument Sans',sans-serif;color:rgba(255,255,255,.75);margin-top:2px;}
    .profile-store-season-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px;background:var(--surface);}
    /* Cards intentionally have no border/background of their own anymore —
       just the preview, text and button sitting directly in the grid. Keeps
