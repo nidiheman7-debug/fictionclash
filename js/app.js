@@ -4618,8 +4618,15 @@ import {
     // roots, a crawling spider, blinking eyes...) — each renders itself
     // directly from this.time every frame instead of going through
     // _createParticle/_update/_draw's particle loop. See _initCustom /
-    // _drawCustomFrame near destroy() for the implementation.
-    static CUSTOM_TYPES = new Set(['raven-curse', 'lord-of-dead', 'watcher-ring', 'black-widow', 'styx-spirits', 'creeping-roots']);
+    // _drawCustomFrame near destroy() for the implementation. The five
+    // Crossverse badges below share the same mechanism but lean the
+    // opposite direction on purpose — "almost static" emblems (a shield,
+    // a lightning bolt, a crown...) with only a slow glint/sway/twinkle,
+    // deliberately calmer than the Final Six's busy particle work.
+    // Original generic hero iconography throughout (a plain star-shield,
+    // a plain bolt, a cape ribbon, a crown, a "VS" burst) — nothing here
+    // is any specific franchise's trademarked logo/symbol.
+    static CUSTOM_TYPES = new Set(['raven-curse', 'lord-of-dead', 'watcher-ring', 'black-widow', 'styx-spirits', 'creeping-roots', 'legend-shield', 'vs-impact', 'hero-cape', 'voltage-bolt', 'champions-crown']);
 
     static _globalTick(timestamp) {
       if (!AvatarEffect.lastTime) AvatarEffect.lastTime = timestamp;
@@ -5062,6 +5069,15 @@ import {
           this._trunks = this._buildRootTrunks(this._s);
           this._rootPhase = Math.random();
           break;
+        case 'legend-shield':
+        case 'vs-impact':
+        case 'hero-cape':
+        case 'voltage-bolt':
+        case 'champions-crown':
+          // Just a random time offset so several people wearing the same
+          // badge don't all glint/twinkle/crackle in perfect unison.
+          this._badgePhase = Math.random() * 6000;
+          break;
       }
     }
 
@@ -5074,6 +5090,11 @@ import {
         case 'black-widow': this._drawBlackWidow(t); break;
         case 'styx-spirits': this._drawStyxSpirits(t); break;
         case 'creeping-roots': this._drawCreepingRoots(t); break;
+        case 'legend-shield': this._drawLegendShield(t + this._badgePhase); break;
+        case 'vs-impact': this._drawVsImpact(t + this._badgePhase); break;
+        case 'hero-cape': this._drawHeroCape(t + this._badgePhase); break;
+        case 'voltage-bolt': this._drawVoltageBolt(t + this._badgePhase); break;
+        case 'champions-crown': this._drawChampionsCrown(t + this._badgePhase); break;
       }
     }
 
@@ -5491,6 +5512,171 @@ import {
           this._drawTaperedSegment(a.tip, mid, b.tip, connProgress, 1.1 * this._s, '#1c1410', '#2e2118');
         }
       }
+    }
+
+    // ---- shared 5-point star path (used by Legend Shield's center mark) ----
+    _drawStarPath(cx, cy, points, outerR, innerR) {
+      const ctx = this.ctx;
+      ctx.beginPath();
+      for (let i = 0; i < points * 2; i++) {
+        const rad = i % 2 === 0 ? outerR : innerR;
+        const a = (Math.PI / points) * i - Math.PI / 2;
+        const x = cx + Math.cos(a) * rad, y = cy + Math.sin(a) * rad;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+    }
+
+    // A plain star-shield badge sitting at the bottom edge, like a worn
+    // medal — no orbiting or particles, just a slow breathing scale and a
+    // gold glint sweeping across it.
+    _drawLegendShield(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, s = this._s, r = this.radius;
+      const cx = CX, cy = CY + r * 0.78;
+      const breathe = 1 + Math.sin(t * 0.0009) * 0.035;
+      const w = 15 * s * breathe, h = 18 * s * breathe;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.beginPath();
+      ctx.moveTo(0, -h);
+      ctx.lineTo(w, -h * 0.35);
+      ctx.lineTo(w * 0.75, h * 0.55);
+      ctx.lineTo(0, h);
+      ctx.lineTo(-w * 0.75, h * 0.55);
+      ctx.lineTo(-w, -h * 0.35);
+      ctx.closePath();
+      const shinePos = (Math.sin(t * 0.0005) + 1) / 2;
+      const grad = ctx.createLinearGradient(-w, -h, w, h);
+      grad.addColorStop(Math.max(0, shinePos - 0.25), '#8a6a1e');
+      grad.addColorStop(shinePos, '#FFE9A8');
+      grad.addColorStop(Math.min(1, shinePos + 0.25), '#8a6a1e');
+      ctx.fillStyle = grad;
+      ctx.shadowColor = 'rgba(255,213,74,0.5)'; ctx.shadowBlur = 5 * s;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 1 * s; ctx.strokeStyle = 'rgba(20,14,4,0.7)'; ctx.stroke();
+      ctx.fillStyle = '#1a1206';
+      this._drawStarPath(0, -h * 0.05, 5, 4 * s, 1.8 * s);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // A "VS" impact badge with a handful of static-ish radiating lines —
+    // this app's whole identity is head-to-head matchups, so this is the
+    // one badge that's explicitly app-themed rather than generic-hero.
+    _drawVsImpact(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, s = this._s, r = this.radius;
+      const pulse = 0.85 + Math.sin(t * 0.0012) * 0.15;
+      const rays = 10;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < rays; i++) {
+        const a = (i / rays) * Math.PI * 2 + t * 0.00006;
+        const len = r * (1.05 + (i % 2 === 0 ? 0.18 : 0.06)) * pulse;
+        const x1 = CX + Math.cos(a) * r * 0.9, y1 = CY + Math.sin(a) * r * 0.9;
+        const x2 = CX + Math.cos(a) * len, y2 = CY + Math.sin(a) * len;
+        ctx.strokeStyle = `rgba(255,213,74,${0.28 * pulse})`;
+        ctx.lineWidth = (i % 2 === 0 ? 2.2 : 1.2) * s;
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+      ctx.restore();
+      const bx = CX, by = CY + r * 0.82;
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.rotate(Math.sin(t * 0.0007) * 0.04);
+      const bw = 13 * s, bh = 9 * s;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bw, bh, 0, 0, Math.PI * 2);
+      const g = ctx.createLinearGradient(-bw, 0, bw, 0);
+      g.addColorStop(0, '#7a0c1e'); g.addColorStop(0.5, '#E8B923'); g.addColorStop(1, '#7a0c1e');
+      ctx.fillStyle = g;
+      ctx.shadowColor = 'rgba(184,16,42,0.6)'; ctx.shadowBlur = 5 * s;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 1 * s; ctx.strokeStyle = 'rgba(20,10,4,0.75)'; ctx.stroke();
+      ctx.fillStyle = '#0d0705';
+      ctx.font = `900 ${9 * s}px Arial, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('VS', 0, 0.5 * s);
+      ctx.restore();
+    }
+
+    // Two cape ribbons anchored to the ring's upper sides and flaring
+    // outward/down — anchored AT the ring edge and flowing away from
+    // center, so (unlike a full cape shape) it can never cross in front
+    // of the avatar photo itself. Slow sway only, no other motion.
+    _drawHeroCape(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, s = this._s, r = this.radius;
+      const sway = Math.sin(t * 0.0006) * 0.12;
+      [-1, 1].forEach(side => {
+        const baseAngle = side * 0.95 + Math.PI * 0.5;
+        const ax = CX + Math.cos(baseAngle) * r, ay = CY + Math.sin(baseAngle) * r;
+        const midAngle = baseAngle + side * 0.3 + sway * side * 0.6;
+        const mx = CX + Math.cos(midAngle) * r * 1.15, my = CY + Math.sin(midAngle) * r * 1.15;
+        const flowAngle = baseAngle + side * 0.55 + sway * side;
+        const tx = CX + Math.cos(flowAngle) * r * 1.55, ty = CY + Math.sin(flowAngle) * r * 1.55;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.quadraticCurveTo(mx, my, tx, ty);
+        ctx.lineWidth = 5 * s;
+        ctx.lineCap = 'round';
+        const g = ctx.createLinearGradient(ax, ay, tx, ty);
+        g.addColorStop(0, 'rgba(184,16,42,0.75)');
+        g.addColorStop(1, 'rgba(120,8,20,0.15)');
+        ctx.strokeStyle = g;
+        ctx.stroke();
+      });
+    }
+
+    // A bolt badge on the upper-right that's static almost all the time,
+    // with an occasional bright crackle rather than continuous motion.
+    _drawVoltageBolt(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, s = this._s, r = this.radius;
+      const angle = -Math.PI * 0.32;
+      const bx = CX + Math.cos(angle) * r * 0.92, by = CY + Math.sin(angle) * r * 0.92;
+      const crackle = Math.sin(t * 0.003) > 0.85 ? 1 : 0.55 + Math.sin(t * 0.0015) * 0.15;
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.rotate(0.35);
+      ctx.scale(s, s);
+      ctx.beginPath();
+      ctx.moveTo(2, -11); ctx.lineTo(-6, 1); ctx.lineTo(-1, 1); ctx.lineTo(-3, 11);
+      ctx.lineTo(7, -2); ctx.lineTo(2, -2); ctx.closePath();
+      ctx.fillStyle = `rgba(255,224,120,${crackle})`;
+      ctx.shadowColor = `rgba(255,213,74,${crackle})`; ctx.shadowBlur = 7;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 0.8; ctx.strokeStyle = 'rgba(120,80,10,0.6)'; ctx.stroke();
+      ctx.restore();
+    }
+
+    // A crown sitting at the top edge — static aside from three softly
+    // twinkling gems (staggered phase) and a slow gold shine sweep.
+    _drawChampionsCrown(t) {
+      const ctx = this.ctx, CX = this.center.x, CY = this.center.y, s = this._s, r = this.radius;
+      ctx.save();
+      ctx.translate(CX, CY - r * 0.85);
+      ctx.scale(s, s);
+      const shinePos = (Math.sin(t * 0.0004) + 1) / 2;
+      ctx.beginPath();
+      ctx.moveTo(-11, 5); ctx.lineTo(-11, -3); ctx.lineTo(-6, 3); ctx.lineTo(-3.5, -7);
+      ctx.lineTo(0, 2); ctx.lineTo(3.5, -7); ctx.lineTo(6, 3); ctx.lineTo(11, -3);
+      ctx.lineTo(11, 5); ctx.closePath();
+      const g = ctx.createLinearGradient(-11, 0, 11, 0);
+      g.addColorStop(Math.max(0, shinePos - 0.3), '#9a7418');
+      g.addColorStop(shinePos, '#FFE9A8');
+      g.addColorStop(Math.min(1, shinePos + 0.3), '#9a7418');
+      ctx.fillStyle = g;
+      ctx.shadowColor = 'rgba(255,213,74,0.5)'; ctx.shadowBlur = 5;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 0.7; ctx.strokeStyle = 'rgba(20,14,4,0.7)'; ctx.stroke();
+      [[-3.5, -6], [0, 1], [3.5, -6]].forEach(([gx, gy], i) => {
+        const twinkle = 0.5 + Math.sin(t * 0.0025 + i * 2) * 0.5;
+        ctx.fillStyle = `rgba(184,16,42,${0.6 + twinkle * 0.4})`;
+        ctx.beginPath(); ctx.arc(gx, gy, 1.3, 0, Math.PI * 2); ctx.fill();
+      });
+      ctx.restore();
     }
 
     destroy() { this.active = false; AvatarEffect.instances.delete(this); this.ctx.clearRect(0, 0, this.width, this.height); }
@@ -6264,7 +6450,17 @@ import {
     { id:'spotlight-flare', name:'Spotlight Flare', category:'Cosmic', rarity:'Rare', cost:80, fx:'canvas', canvasType:'energy', season:'crossverse' },
     { id:'speedster-blur', name:'Speedster Blur', category:'Heroes', rarity:'Epic', cost:90, fx:'canvas', canvasType:'air', season:'crossverse' },
     { id:'multiverse-rift', name:'Multiverse Rift', category:'Cosmic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', season:'crossverse' },
-    { id:'red-carpet-blaze', name:'Red Carpet Blaze', category:'Heroes', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', season:'crossverse' }
+    { id:'red-carpet-blaze', name:'Red Carpet Blaze', category:'Heroes', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', season:'crossverse' },
+    // Bespoke Crossverse badges — same idea as Horror's Final Six (custom
+    // hand-authored animations instead of a reused canvasType), but
+    // "almost static" on purpose: plain generic hero iconography (a
+    // star-shield, a bolt, a cape, a crown, a "VS" burst) that mostly
+    // just sits there with a slow glint/sway/twinkle. See CUSTOM_TYPES.
+    { id:'legend-shield', name:'Legend Shield', category:'Heroes', rarity:'Epic', cost:90, fx:'canvas', canvasType:'legend-shield', season:'crossverse' },
+    { id:'vs-impact', name:'Vs. Impact', category:'Heroes', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'vs-impact', season:'crossverse' },
+    { id:'hero-cape', name:'Hero Cape', category:'Heroes', rarity:'Rare', cost:85, fx:'canvas', canvasType:'hero-cape', season:'crossverse' },
+    { id:'voltage-bolt', name:'Voltage Bolt', category:'Heroes', rarity:'Epic', cost:90, fx:'canvas', canvasType:'voltage-bolt', season:'crossverse' },
+    { id:'champions-crown', name:"Champion's Crown", category:'Heroes', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'champions-crown', season:'crossverse' }
   ];
   // Profile CARD effects — full-card particle overlays that sit over the
   // banner + body (see card-fx-canvas / activateCardFx below), as opposed
