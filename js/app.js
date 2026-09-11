@@ -322,6 +322,24 @@ import {
       cardAccentColor: '#FF1B3C',
       cardGlowRgb: '139,0,0',
     },
+    // Crossverse Season — a Hollywood-crossover event (the kind of "who
+    // wins" showdown the whole app already runs on: Marvel, DC, Mortal
+    // Kombat and friends), so the reskin itself avoids naming any single
+    // studio/franchise directly — gold-statuette + red-carpet premiere
+    // styling reads as "big movie event" without borrowing anyone's IP.
+    // Users are still free to label their own submitted characters with
+    // whatever source they like (see submitSourceA/B) — that's unchanged.
+    crossverse: {
+      id: 'crossverse',
+      label: 'Crossverse Season',
+      bodyClass: 'season-crossverse',
+      bannerAsset: '/public/seasons/crossverse/store-banner.png?v=1',
+      currencyLabel: 'Reels',
+      currencyIcon: '/public/seasons/crossverse/reel-icon.svg',
+      cardArt: '/public/seasons/crossverse/battle-card-bg.jpg',
+      cardAccentColor: '#FFD54A',
+      cardGlowRgb: '255,213,74',
+    },
   };
 
   let activeSeasonId = null;
@@ -330,7 +348,7 @@ import {
   // they're live — the app runs dark-only. Kept as a lookup (rather than
   // an `=== 'anime' || === 'horror'` check scattered around) so a future
   // season can opt in/out of the same lock in one place.
-  const SEASONS_LOCK_LIGHT = { anime: true, horror: true };
+  const SEASONS_LOCK_LIGHT = { anime: true, horror: true, crossverse: true };
 
   function applySeason(seasonId){
     // Strip every season body-class before applying the new one, so
@@ -997,6 +1015,12 @@ import {
   async function postHeroComment(text, sourceForm){
     const user = auth.currentUser;
     if (!user) { requireSignIn('Sign in to comment'); return; }
+    // navigator.vibrate only fires within a live user-activation window —
+    // by the time the awaited fetch below resolves that window has long
+    // since expired, so a post-await haptic() call silently does nothing.
+    // Firing it here, still inside the click handler's own synchronous
+    // call stack, is the only place in this function guaranteed to work.
+    haptic('tap');
     const matchupId = heroCommentsMatchupId;
     const replyTarget = sourceForm?._replyTarget || null;
     try {
@@ -1008,7 +1032,6 @@ import {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
-      haptic('success');
       setReplyTarget(sourceForm, null);
       // Comments no longer award XP server-side — only bump locally if
       // the server actually sent xpAwarded (kept for forward-compat).
@@ -3657,6 +3680,10 @@ import {
     if (!user) { requireSignIn('Sign in to comment'); return; }
     const replyTarget = form._replyTarget || null;
     input.value = '';
+    // See postHeroComment above — navigator.vibrate needs live user
+    // activation, which the awaited fetch below outlives, so this has to
+    // fire here rather than after the response comes back.
+    haptic('tap');
     // Server-authoritative post via /api/clip-comment — verifies identity
     // and pulls the poster's real profile fields server-side. No longer
     // awards XP (win-only now). Direct Firestore writes to this
@@ -3670,7 +3697,6 @@ import {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
-      haptic('success');
       setReplyTarget(form, null);
       // Only bump locally if the server actually sent xpAwarded.
       if (data.xpAwarded) {
@@ -4571,6 +4597,18 @@ import {
   // requestAnimationFrame loop (AvatarEffect._globalTick) so having many
   // decorated avatars on screen at once (feed, comments, store grid) still
   // costs only one rAF callback, not one per avatar.
+  // Avatar decorations read calmer at a slower pace on the website/TWA,
+  // but should run at their original full speed once there's a native
+  // app build — rather than re-tuning every effect's individual speed
+  // constants a third time, this scales the one shared clock every
+  // AvatarEffect instance reads from (this.time / dt), so the slowdown
+  // (or lack of it) applies uniformly to all of them, present and future.
+  // The native app shell should set `window.FICTION_CLASH_NATIVE_APP = true`
+  // before this script loads (e.g. injected JS in its WebView, or however
+  // it distinguishes itself) to opt back into full speed.
+  const IS_NATIVE_APP = typeof window !== 'undefined' && !!window.FICTION_CLASH_NATIVE_APP;
+  const AVATAR_FX_SPEED = IS_NATIVE_APP ? 1 : 0.4;
+
   class AvatarEffect {
     static instances = new Set();
     static rafId = null;
@@ -4585,7 +4623,7 @@ import {
 
     static _globalTick(timestamp) {
       if (!AvatarEffect.lastTime) AvatarEffect.lastTime = timestamp;
-      const dt = Math.min((timestamp - AvatarEffect.lastTime) / 1000, 0.1);
+      const dt = Math.min((timestamp - AvatarEffect.lastTime) / 1000, 0.1) * AVATAR_FX_SPEED;
       AvatarEffect.lastTime = timestamp;
 
       for (const instance of AvatarEffect.instances) {
@@ -6218,7 +6256,15 @@ import {
     { id:'watcher-ring', name:"Watcher's Ring", category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'watcher-ring', season:'horror' },
     { id:'black-widow', name:'Black Widow', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'black-widow', season:'horror' },
     { id:'styx-spirits', name:'Styx Spirits', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'styx-spirits', season:'horror' },
-    { id:'creeping-roots', name:'Creeping Roots', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'creeping-roots', season:'horror' }
+    { id:'creeping-roots', name:'Creeping Roots', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'creeping-roots', season:'horror' },
+    // Crossverse Season exclusives — reused canvas types under new
+    // premiere-themed names, same pattern Horror Season launched with
+    // (phantom-mist/wraith-veil/grim-reaper/cursed-flame above) before its
+    // bespoke Final Six landed. A good next step once these are live.
+    { id:'spotlight-flare', name:'Spotlight Flare', category:'Cosmic', rarity:'Rare', cost:80, fx:'canvas', canvasType:'energy', season:'crossverse' },
+    { id:'speedster-blur', name:'Speedster Blur', category:'Heroes', rarity:'Epic', cost:90, fx:'canvas', canvasType:'air', season:'crossverse' },
+    { id:'multiverse-rift', name:'Multiverse Rift', category:'Cosmic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', season:'crossverse' },
+    { id:'red-carpet-blaze', name:'Red Carpet Blaze', category:'Heroes', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', season:'crossverse' }
   ];
   // Profile CARD effects — full-card particle overlays that sit over the
   // banner + body (see card-fx-canvas / activateCardFx below), as opposed
@@ -6256,7 +6302,14 @@ import {
     { id:'nosifer', name:'Nosifer', category:'Horror', cls:'profile-font-nosifer', season:'horror', cost:60 },
     { id:'eater', name:'Eater', category:'Horror', cls:'profile-font-eater', season:'horror', cost:60 },
     { id:'butcherman', name:'Butcherman', category:'Horror', cls:'profile-font-butcherman', season:'horror', cost:60 },
-    { id:'metal-mania', name:'Metal Mania', category:'Horror', cls:'profile-font-metalmania', season:'horror', cost:60 }
+    { id:'metal-mania', name:'Metal Mania', category:'Horror', cls:'profile-font-metalmania', season:'horror', cost:60 },
+    // Crossverse Season exclusives — same season-gating pattern as the
+    // Horror fonts above: bold, condensed movie-poster faces, priced in
+    // Reels, only shown while season:'crossverse' is live.
+    { id:'bebas', name:'Bebas Neue', category:'Crossverse', cls:'profile-font-bebas', season:'crossverse', cost:60 },
+    { id:'anton', name:'Anton', category:'Crossverse', cls:'profile-font-anton', season:'crossverse', cost:60 },
+    { id:'oswald', name:'Oswald', category:'Crossverse', cls:'profile-font-oswald', season:'crossverse', cost:60 },
+    { id:'staatliches', name:'Staatliches', category:'Crossverse', cls:'profile-font-staatliches', season:'crossverse', cost:60 }
   ];
   const decorationById = id => PROFILE_DECORATIONS.find(item => item.id === id);
   const fontById = id => PROFILE_FONTS.find(item => item.id === id);
@@ -6589,7 +6642,7 @@ import {
 
     seasonSection.innerHTML = (activeSeason && seasonItems.length) ? `
       <div class="profile-store-season">
-        <div class="profile-store-season-head">
+        <div class="profile-store-season-banner" style="--season-banner-img:url('${activeSeason.bannerAsset}')">
           <span class="profile-store-season-label">${activeSeason.label}</span>
           <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${seasonCurrencyIconHtml(activeSeason)}${seasonShards} available)</div>
         </div>
@@ -6802,6 +6855,11 @@ import {
     const currencyLabel = usesShards ? (SEASONS[item.season]?.currencyLabel || 'Shards') : 'Clash Points';
     const userRef = doc(db, 'users', user.uid);
 
+    // See postHeroComment/addComment above — navigator.vibrate needs live
+    // user activation. Every branch below does an awaited Firestore
+    // round trip first, so the haptic has to fire here, still inside the
+    // click handler's synchronous call stack, or it silently no-ops.
+    haptic('tap');
     try {
       if (ownedList.includes(id)) {
         const field = type === 'decoration' ? 'equippedDecoration' : 'equippedFont';
@@ -6810,7 +6868,6 @@ import {
         if (type === 'decoration') equippedDecoration = nextValue;
         else equippedFont = nextValue;
         updateAccountHeader();
-        haptic('tap');
         showToast(nextValue ? `${item.name} equipped` : `${item.name} unequipped`);
         return;
       }
@@ -6845,7 +6902,6 @@ import {
       }
       ownedList.push(id);
       renderCustomizationStore();
-      haptic('success');
       showToast(`${item.name} redeemed`);
     } catch (err) {
       if (err.message === 'not-enough-points') showToast(`Not enough ${currencyLabel}`);
