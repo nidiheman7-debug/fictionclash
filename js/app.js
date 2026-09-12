@@ -588,8 +588,44 @@ import {
   const VOTED_STATE_KEY = 'fictionClashVotedState';
   const VOTE_DELTA_KEY = 'fictionClashVoteDeltas'; // extra votes this browser cast on built-in (non-Firestore) matchups
   const HIDDEN_MATCHUPS_KEY = 'fictionClashHiddenMatchups'; // matchups this browser chose to hide from its own feed
-  const votedState = JSON.parse(localStorage.getItem(VOTED_STATE_KEY) || '{}'); // matchupKey -> 'a' | 'b'
-  const voteDeltas = JSON.parse(localStorage.getItem(VOTE_DELTA_KEY) || '{}'); // matchupKey -> {a:n,b:n}
+  // ---------- per-account vote state ----------
+  // votedState/voteDeltas used to live under one flat localStorage key
+  // shared by the whole browser, with no account scoping — voting as one
+  // account permanently marked a matchup "voted" for every other account
+  // that ever signed into the same browser afterward, silently blocking
+  // their vote (castVote() below just returns early on an already-"voted"
+  // key). Scoped per uid now, same idea as how likes are already handled
+  // per-account elsewhere in this file.
+  function voteStorageUid(){ return (auth.currentUser && auth.currentUser.uid) || 'anon'; }
+  function votedStateStorageKey(){ return `${VOTED_STATE_KEY}:${voteStorageUid()}`; }
+  function voteDeltaStorageKey(){ return `${VOTE_DELTA_KEY}:${voteStorageUid()}`; }
+  let votedState = {}; // matchupKey -> 'a' | 'b', for whichever account is currently active
+  let voteDeltas = {}; // matchupKey -> {a:n,b:n}, for whichever account is currently active
+  // Reloads both from this account's own scoped storage, seeding from the
+  // old flat (pre-fix) key the first time a given scope is seen empty —
+  // so upgrading doesn't just wipe today's session's vote history outright.
+  // The old flat key is left in place rather than deleted, since it may
+  // still hold state relevant to other accounts on this browser that
+  // haven't been signed into (and thus migrated) yet.
+  function loadScopedVoteState(){
+    const votedKey = votedStateStorageKey();
+    let votedRaw = localStorage.getItem(votedKey);
+    if (votedRaw === null) {
+      const legacy = localStorage.getItem(VOTED_STATE_KEY);
+      if (legacy !== null) localStorage.setItem(votedKey, legacy);
+      votedRaw = legacy;
+    }
+    const deltaKey = voteDeltaStorageKey();
+    let deltaRaw = localStorage.getItem(deltaKey);
+    if (deltaRaw === null) {
+      const legacy = localStorage.getItem(VOTE_DELTA_KEY);
+      if (legacy !== null) localStorage.setItem(deltaKey, legacy);
+      deltaRaw = legacy;
+    }
+    votedState = JSON.parse(votedRaw || '{}');
+    voteDeltas = JSON.parse(deltaRaw || '{}');
+  }
+  loadScopedVoteState(); // initial (signed-out/"anon") scope — onAuthStateChanged reloads this once the real account is known
   const hiddenMatchupKeys = new Set(JSON.parse(localStorage.getItem(HIDDEN_MATCHUPS_KEY) || '[]'));
   function hideMatchupLocally(m){
     hiddenMatchupKeys.add(matchupPairKey(m));
@@ -1688,7 +1724,7 @@ import {
       // Lock the UI immediately so a double-tap can't fire two requests
       // while we wait on the network.
       votedState[key] = side;
-      localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+      localStorage.setItem(votedStateStorageKey(), JSON.stringify(votedState));
       voteRow.classList.add('voted');
       voteBtnA.classList.toggle('picked', side === 'a');
       voteBtnB.classList.toggle('picked', side === 'b');
@@ -1704,7 +1740,7 @@ import {
         if (!res.ok) {
           // Rejected (already voted, clash ended, etc.) — undo the local lock.
           delete votedState[key];
-          localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+          localStorage.setItem(votedStateStorageKey(), JSON.stringify(votedState));
           voteRow.classList.remove('voted');
           voteBtnA.classList.remove('picked');
           voteBtnB.classList.remove('picked');
@@ -1725,7 +1761,7 @@ import {
       } catch (err) {
         console.error('Vote sync failed', err);
         delete votedState[key];
-        localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+        localStorage.setItem(votedStateStorageKey(), JSON.stringify(votedState));
         voteRow.classList.remove('voted');
         voteBtnA.classList.remove('picked');
         voteBtnB.classList.remove('picked');
@@ -1737,11 +1773,11 @@ import {
       // in this browser's localStorage or it'd be lost on refresh.
       if (side === 'a') m.votesA++; else m.votesB++;
       votedState[key] = side;
-      localStorage.setItem(VOTED_STATE_KEY, JSON.stringify(votedState));
+      localStorage.setItem(votedStateStorageKey(), JSON.stringify(votedState));
       const delta = voteDeltas[key] || { a: 0, b: 0 };
       delta[side]++;
       voteDeltas[key] = delta;
-      localStorage.setItem(VOTE_DELTA_KEY, JSON.stringify(voteDeltas));
+      localStorage.setItem(voteDeltaStorageKey(), JSON.stringify(voteDeltas));
       voteRow.classList.add('voted');
       voteBtnA.classList.toggle('picked', side === 'a');
       voteBtnB.classList.toggle('picked', side === 'b');
@@ -7884,6 +7920,11 @@ import {
          equippedFont = null;
          equippedCardEffect = null;
          characterDecorations = {};
+         // This account's own vote history — see loadScopedVoteState()
+         // for why this can't just stay whatever the previous account
+         // (or guest) had loaded.
+         loadScopedVoteState();
+         renderHero(); // picks up this account's voted/not-voted state on the current matchup
       }
       lastSignedInUid = user.uid;
       renderMemberSince(user);
@@ -7923,6 +7964,8 @@ import {
       currentUserVerifiedUntil = null;
       currentUserXp = 0;
       currentUserWeeklyXp = 0;
+      loadScopedVoteState(); // back to the guest/"anon" scope — voteStorageUid() now has no signed-in uid to key off
+      renderHero();
       updateAccountHeader();
       updateCardEffectDisplay();
       syncTopbarAvatar();
