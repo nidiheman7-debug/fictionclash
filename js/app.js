@@ -4761,7 +4761,12 @@ import {
       AvatarEffect.lastTime = timestamp;
 
       for (const instance of AvatarEffect.instances) {
-        if (instance.active) {
+        // visible defaults true and is only set false by the shared
+        // canvasFxVisibilityObserver below while the canvas is scrolled
+        // off-screen — skipping update+draw here (not destroying the
+        // instance) so particles resume mid-animation instead of
+        // restarting once it scrolls back into view.
+        if (instance.active && instance.visible !== false) {
           instance._update(dt);
           instance._draw();
         }
@@ -4779,6 +4784,7 @@ import {
       this.ctx = canvas.getContext('2d');
       this.type = type;
       this.active = true;
+      this.visible = true;
 
       this.width = canvas.width || 80;
       this.height = canvas.height || 80;
@@ -5820,6 +5826,7 @@ import {
       const mp = Number(canvas.dataset.fxParticles);
       if (mp) opts.maxParticles = mp;
       canvas._avatarFx = new AvatarEffect(canvas, canvas.dataset.fxType, opts);
+      watchCanvasFxVisibility(canvas);
     });
   }
   // Stops and detaches any running AvatarEffect under root before its
@@ -5829,6 +5836,7 @@ import {
     if (!root) return;
     root.querySelectorAll('canvas.avatar-fx-canvas').forEach(canvas => {
       if (canvas._avatarFx) { canvas._avatarFx.destroy(); canvas._avatarFx = null; }
+      unwatchCanvasFxVisibility(canvas);
     });
   }
 
@@ -5868,7 +5876,9 @@ import {
     if (ts - cardFxLastFrameTime < cardFxFrameInterval) return;
     const dt = Math.min((ts - (cardFxLastFrameTime || ts)) / 1000, 0.1);
     cardFxLastFrameTime = ts;
-    cardFxRegistry.forEach(entry => entry.draw(entry.ctx, ts / 1000, dt));
+    cardFxRegistry.forEach(entry => {
+      if (entry.visible !== false) entry.draw(entry.ctx, ts / 1000, dt);
+    });
   }
   function ensureCardFxLoopRunning(){
     if (cardFxSharedRaf == null) cardFxSharedRaf = requestAnimationFrame(cardFxSharedTick);
@@ -5995,6 +6005,32 @@ import {
       if (decoFxObserver && !decoFxDisabled) decoFxObserver.observe(el); // safe to re-observe an already-observed element
     });
   };
+
+  // ---------- performance: pause canvas particle FX when scrolled offscreen ----------
+  // decoFxObserver above only covers the CSS-animated .profile-deco
+  // elements. AvatarEffect instances and card-fx entries are separate
+  // engines driven by their own shared rAF loops, and neither was
+  // checking on-screen visibility — a comment avatar's particle
+  // decoration, or an equipped card effect, kept doing a full
+  // update+draw every frame for as long as its canvas stayed mounted,
+  // even scrolled far out of view in a long comment thread or feed.
+  // One shared observer for both canvas types, toggling a `visible`
+  // flag consulted in each tick loop (see AvatarEffect._globalTick and
+  // cardFxSharedTick) rather than destroying anything, so effects
+  // resume mid-animation instead of restarting when scrolled back in.
+  const canvasFxVisibilityObserver = ('IntersectionObserver' in window) ? new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      const canvas = entry.target;
+      const fx = canvas._avatarFx || canvas._cardFx?.entry;
+      if (fx) fx.visible = entry.isIntersecting;
+    });
+  }, { rootMargin: '150px' }) : null;
+  function watchCanvasFxVisibility(canvas){
+    if (canvasFxVisibilityObserver) canvasFxVisibilityObserver.observe(canvas);
+  }
+  function unwatchCanvasFxVisibility(canvas){
+    if (canvasFxVisibilityObserver) canvasFxVisibilityObserver.unobserve(canvas);
+  }
 
   function makeMeteorCardFx(w, h){
     const dx = -0.62, dy = 0.78;
@@ -6561,16 +6597,18 @@ import {
       const ctx = canvas.getContext('2d');
       const draw = makeCardFxDraw(canvas.dataset.fxType, w, h, canvas);
       if (!draw) return;
-      const entry = { ctx, draw };
+      const entry = { ctx, draw, visible: true };
       cardFxRegistry.add(entry);
       ensureCardFxLoopRunning();
       canvas._cardFx = {
+        entry, // exposed so canvasFxVisibilityObserver can toggle entry.visible
         stop(){
           cardFxRegistry.delete(entry);
           ctx.clearRect(0, 0, w, h);
           stopCardFxLoopIfIdle();
         }
       };
+      watchCanvasFxVisibility(canvas);
     });
   }
   function deactivateCardFx(root){
@@ -6578,6 +6616,7 @@ import {
     root.querySelectorAll('canvas.card-fx-canvas').forEach(canvas => {
       if (canvas._cardFx) { canvas._cardFx.stop(); canvas._cardFx = null; }
       canvas.classList.remove('submerged');
+      unwatchCanvasFxVisibility(canvas);
     });
   }
 
