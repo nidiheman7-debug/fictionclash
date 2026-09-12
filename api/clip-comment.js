@@ -39,10 +39,12 @@ export default async function handler(req, res) {
   }
   // See comment.js for why this is trusted-but-sanitized rather than
   // re-fetched from the original comment — purely a decorative quoted
-  // preview, same treatment as Discord's own reply UI.
+  // preview, same treatment as Discord's own reply UI. replyToUid is the
+  // one exception, used only to address a notification (see comment.js).
   let replyToName = null;
   let replyToText = null;
   let replyToAvatarUrl = null;
+  let replyToUid = null;
   if (replyTo && typeof replyTo === 'object') {
     if (typeof replyTo.name === 'string' && replyTo.name.trim()) {
       replyToName = replyTo.name.trim().slice(0, 60);
@@ -52,6 +54,9 @@ export default async function handler(req, res) {
     }
     if (typeof replyTo.avatarUrl === 'string' && replyTo.avatarUrl.length < 500000) {
       replyToAvatarUrl = replyTo.avatarUrl;
+    }
+    if (typeof replyTo.uid === 'string' && replyTo.uid.trim()) {
+      replyToUid = replyTo.uid.trim();
     }
   }
   if (!idToken) {
@@ -98,6 +103,31 @@ export default async function handler(req, res) {
       uid,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    // Notify the person being replied to — see comment.js for the same
+    // pattern and reasoning (self-reply skipped, best-effort so a failure
+    // here never fails the comment post itself).
+    if (replyToUid && replyToUid !== uid) {
+      try {
+        await db
+          .collection('users')
+          .doc(replyToUid)
+          .collection('notifications')
+          .add({
+            type: 'reply',
+            fromUid: uid,
+            fromName: name,
+            fromAvatarUrl: avatarUrl,
+            text: text.trim().slice(0, 160),
+            clipId,
+            commentId: commentRef.id,
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+      } catch (notifyErr) {
+        console.error('Reply notification write failed (comment still posted):', notifyErr);
+      }
+    }
 
     // Comments no longer award XP — only backing the winning side of a
     // vote does (see vote.js / settle-matchup.js).

@@ -45,9 +45,16 @@ export default async function handler(req, res) {
   // trust the client's copy rather than re-fetching the original comment
   // server-side; it's sanitized and length-capped the same as any other
   // free-text field here, not treated as an authenticated fact.
+  //
+  // replyToUid is the one exception: it's used below purely to address a
+  // notification (whose inbox to write to), never displayed or trusted as
+  // an authenticated fact about the quoted comment — so a spoofed uid at
+  // worst misdirects a notification, it can't forge who a comment is
+  // "from" or touch anything XP/points-bearing.
   let replyToName = null;
   let replyToText = null;
   let replyToAvatarUrl = null;
+  let replyToUid = null;
   if (replyTo && typeof replyTo === 'object') {
     if (typeof replyTo.name === 'string' && replyTo.name.trim()) {
       replyToName = replyTo.name.trim().slice(0, 60);
@@ -61,6 +68,9 @@ export default async function handler(req, res) {
     // size class, just carrying the same value one comment further.
     if (typeof replyTo.avatarUrl === 'string' && replyTo.avatarUrl.length < 500000) {
       replyToAvatarUrl = replyTo.avatarUrl;
+    }
+    if (typeof replyTo.uid === 'string' && replyTo.uid.trim()) {
+      replyToUid = replyTo.uid.trim();
     }
   }
   if (!idToken) {
@@ -108,6 +118,33 @@ export default async function handler(req, res) {
       uid,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    // Notify the person being replied to — but never for replying to your
+    // own comment (self-reply, or a stale/self-targeted client payload),
+    // and only if we actually resolved a uid to address the notification
+    // to. Best-effort: a failure here should never fail the comment post
+    // itself, since the comment already landed successfully above.
+    if (replyToUid && replyToUid !== uid) {
+      try {
+        await db
+          .collection('users')
+          .doc(replyToUid)
+          .collection('notifications')
+          .add({
+            type: 'reply',
+            fromUid: uid,
+            fromName: name,
+            fromAvatarUrl: avatarUrl,
+            text: text.trim().slice(0, 160),
+            matchupId,
+            commentId: commentRef.id,
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+      } catch (notifyErr) {
+        console.error('Reply notification write failed (comment still posted):', notifyErr);
+      }
+    }
 
     // Comments no longer award XP — only backing the winning side of a
     // vote does (see vote.js / settle-matchup.js).
