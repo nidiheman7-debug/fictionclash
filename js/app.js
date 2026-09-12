@@ -4983,17 +4983,19 @@ import {
 
         switch (this.type) {
           case 'flame': {
-            const coolFade = 1 - Math.min(progress, 1);
+            // Colors here cool continuously with progress (white-hot to
+            // red), so unlike _softCircle this can't cache on alpha
+            // alone — instead the gradient is baked once per quantized
+            // progress step (32 steps: fine enough that the cooling
+            // looks continuous, coarse enough that a flame's ~1s
+            // lifetime only ever needs a handful of distinct sprites).
+            // Size, flicker, and position still vary per particle per
+            // frame via drawImage's placement/scale, same as before.
             const flicker = 0.7 + 0.3 * Math.sin(p.age * p.flickerFreq + p.flickerSeed);
             const size = Math.max(0.4, p.size * (1 - progress * 0.55) * flicker);
-            const g = Math.max(0, 200 - progress * 160);
-            const b = Math.max(0, 80 - progress * 80);
-            const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, size);
-            grad.addColorStop(0, `rgba(255,${250 - progress * 60},${200 - progress * 180},${coolFade * 0.95})`);
-            grad.addColorStop(0.45, `rgba(255,${g},${b},${coolFade * 0.75})`);
-            grad.addColorStop(1, 'rgba(200,20,40,0)');
-            ctx.fillStyle = grad;
-            ctx.beginPath(); ctx.arc(p.x, p.y, size, 0, Math.PI * 2); ctx.fill();
+            const bucket = Math.round(Math.min(progress, 1) * AvatarEffect.FLAME_SPRITE_STEPS);
+            const sprite = AvatarEffect._flameSprite(bucket);
+            ctx.drawImage(sprite, p.x - size, p.y - size, size * 2, size * 2);
             break;
           }
           case 'air': {
@@ -5033,7 +5035,81 @@ import {
 
     // ---------- draw helpers ----------
     _filledCircle(x, y, r, color) { const ctx = this.ctx; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2); ctx.fill(); }
-    _softCircle(x, y, r, color) { const ctx = this.ctx; const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, color); g.addColorStop(1, color.replace(/[\d.]+\)$/, '0)')); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+    // Cache of pre-rendered flame sprites, one per quantized progress
+    // step (see the 'flame' case in _draw for why this needs a bucketed
+    // cache rather than the single-sprite-plus-globalAlpha trick used
+    // by _softCircle below: the flame's color itself cools from white
+    // to red across a particle's lifetime, not just its opacity).
+    static FLAME_SPRITE_STEPS = 32;
+    static _flameSprites = new Map();
+    static _flameSprite(bucket) {
+      let sprite = AvatarEffect._flameSprites.get(bucket);
+      if (sprite) return sprite;
+      const progress = bucket / AvatarEffect.FLAME_SPRITE_STEPS;
+      const coolFade = 1 - Math.min(progress, 1);
+      const g = Math.max(0, 200 - progress * 160);
+      const b = Math.max(0, 80 - progress * 80);
+      const SIZE = 64;
+      const c = document.createElement('canvas');
+      c.width = c.height = SIZE;
+      const sctx = c.getContext('2d');
+      const grad = sctx.createRadialGradient(SIZE / 2, SIZE / 2, 0, SIZE / 2, SIZE / 2, SIZE / 2);
+      grad.addColorStop(0, `rgba(255,${250 - progress * 60},${200 - progress * 180},${coolFade * 0.95})`);
+      grad.addColorStop(0.45, `rgba(255,${g},${b},${coolFade * 0.75})`);
+      grad.addColorStop(1, 'rgba(200,20,40,0)');
+      sctx.fillStyle = grad;
+      sctx.beginPath(); sctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2); sctx.fill();
+      AvatarEffect._flameSprites.set(bucket, c);
+      return c;
+    }
+    // Cache of pre-rendered soft-circle sprites, one per base RGB color
+    // (shared across every AvatarEffect instance/type, since the same
+    // handful of hues — flame orange, energy yellow, toxic green, portal
+    // purple, star_struck white — get reused constantly). Each sprite is
+    // a radial gradient baked once from rgba(r,g,b,1) at center to
+    // rgba(r,g,b,0) at the edge; per-particle fade is applied afterward
+    // via ctx.globalAlpha rather than recomputing the gradient, which is
+    // visually identical (globalAlpha scales every stop's alpha
+    // uniformly, exactly what re-baking the gradient at a lower peak
+    // alpha would do) but replaces a createRadialGradient() call per
+    // particle per frame with one cheap drawImage().
+    static _softCircleSprites = new Map();
+    static _softCircleSprite(r, g, b) {
+      const key = `${r},${g},${b}`;
+      let sprite = AvatarEffect._softCircleSprites.get(key);
+      if (sprite) return sprite;
+      const SIZE = 64; // reference resolution; drawImage scales to actual particle size
+      const c = document.createElement('canvas');
+      c.width = c.height = SIZE;
+      const sctx = c.getContext('2d');
+      const grad = sctx.createRadialGradient(SIZE / 2, SIZE / 2, 0, SIZE / 2, SIZE / 2, SIZE / 2);
+      grad.addColorStop(0, `rgba(${r},${g},${b},1)`);
+      grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      sctx.fillStyle = grad;
+      sctx.beginPath(); sctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2); sctx.fill();
+      AvatarEffect._softCircleSprites.set(key, c);
+      return c;
+    }
+    _softCircle(x, y, r, color) {
+      const ctx = this.ctx;
+      const match = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\)/.exec(color);
+      if (!match) {
+        // Unexpected color format (shouldn't happen with current call
+        // sites) — fall back to the original per-frame gradient so
+        // nothing silently fails to render.
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, color); g.addColorStop(1, color.replace(/[\d.]+\)$/, '0)'));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+        return;
+      }
+      const [, rr, gg, bb, aa] = match;
+      const alpha = aa === undefined ? 1 : parseFloat(aa);
+      const sprite = AvatarEffect._softCircleSprite(rr, gg, bb);
+      const prevAlpha = ctx.globalAlpha;
+      ctx.globalAlpha = prevAlpha * alpha;
+      ctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
+      ctx.globalAlpha = prevAlpha;
+    }
     _ringCircle(x, y, r, color) { const ctx = this.ctx; ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.25, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); }
     _diamond(x, y, size, color) { const ctx = this.ctx; ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(x, y - size * 1.5); ctx.lineTo(x + size * 0.8, y); ctx.lineTo(x, y + size * 1.5); ctx.lineTo(x - size * 0.8, y); ctx.closePath(); ctx.fill(); }
 
@@ -5415,43 +5491,70 @@ import {
         ctx.restore();
       });
     }
-    _drawRealEye(blink) {
-      const ctx = this.ctx;
-      ctx.save();
-      ctx.scale(1, blink);
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 11, 6.5, 0, 0, Math.PI * 2);
-      const scleraG = ctx.createRadialGradient(0, 0, 1, 0, 0, 11);
+    // The eye artwork below (sclera, iris, pupil, highlight, lid shadow,
+    // lashes) never varies frame to frame — no color or shape here
+    // depends on time or particle state, only the blink squash (which
+    // is a transform the caller already applies). So unlike _softCircle
+    // or the flame sprites above, this needs exactly one cached sprite,
+    // ever, reused by every eye on every Watcher's Ring. 2x supersampled
+    // so it stays crisp when drawImage scales it back to the small size
+    // it renders at on an avatar.
+    static _realEyeSprite = null;
+    static _getRealEyeSprite() {
+      if (AvatarEffect._realEyeSprite) return AvatarEffect._realEyeSprite;
+      const SCALE = 2;
+      // Local coordinate bounds of the artwork below: x in [-11,11],
+      // y in [-7,6.5] (the lid ellipse reaches the highest point).
+      // Padded slightly to [-12,12] / [-7,7].
+      const W = 24, H = 14;
+      const c = document.createElement('canvas');
+      c.width = W * SCALE; c.height = H * SCALE;
+      const sctx = c.getContext('2d');
+      sctx.scale(SCALE, SCALE);
+      sctx.translate(W / 2, H / 2); // local (0,0) -> center of the sprite
+      sctx.beginPath();
+      sctx.ellipse(0, 0, 11, 6.5, 0, 0, Math.PI * 2);
+      const scleraG = sctx.createRadialGradient(0, 0, 1, 0, 0, 11);
       scleraG.addColorStop(0, '#efe7da');
       scleraG.addColorStop(1, '#cfc2b0');
-      ctx.fillStyle = scleraG;
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(150,30,30,0.35)';
-      ctx.lineWidth = 0.4;
-      ctx.beginPath(); ctx.moveTo(-9, 1); ctx.quadraticCurveTo(-5, 3, -2, 0.5); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(8, -1); ctx.quadraticCurveTo(4, 2, 1.5, 0.5); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(-6, -3); ctx.quadraticCurveTo(-3, -1, -0.5, -0.5); ctx.stroke();
-      const irisG = ctx.createRadialGradient(0, 0, 0.5, 0, 0, 4.4);
+      sctx.fillStyle = scleraG;
+      sctx.fill();
+      sctx.strokeStyle = 'rgba(150,30,30,0.35)';
+      sctx.lineWidth = 0.4;
+      sctx.beginPath(); sctx.moveTo(-9, 1); sctx.quadraticCurveTo(-5, 3, -2, 0.5); sctx.stroke();
+      sctx.beginPath(); sctx.moveTo(8, -1); sctx.quadraticCurveTo(4, 2, 1.5, 0.5); sctx.stroke();
+      sctx.beginPath(); sctx.moveTo(-6, -3); sctx.quadraticCurveTo(-3, -1, -0.5, -0.5); sctx.stroke();
+      const irisG = sctx.createRadialGradient(0, 0, 0.5, 0, 0, 4.4);
       irisG.addColorStop(0, '#ffb347');
       irisG.addColorStop(0.55, '#a8420f');
       irisG.addColorStop(1, '#3a1305');
-      ctx.fillStyle = irisG;
-      ctx.beginPath(); ctx.arc(0, 0, 4.4, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#050302';
-      ctx.beginPath(); ctx.arc(0, 0, 2, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.beginPath(); ctx.arc(-1.3, -1.3, 0.9, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(0, -3.4, 11.5, 3.6, 0, 0, Math.PI * 2);
-      const lidG = ctx.createLinearGradient(0, -7, 0, 0);
+      sctx.fillStyle = irisG;
+      sctx.beginPath(); sctx.arc(0, 0, 4.4, 0, Math.PI * 2); sctx.fill();
+      sctx.fillStyle = '#050302';
+      sctx.beginPath(); sctx.arc(0, 0, 2, 0, Math.PI * 2); sctx.fill();
+      sctx.fillStyle = 'rgba(255,255,255,0.85)';
+      sctx.beginPath(); sctx.arc(-1.3, -1.3, 0.9, 0, Math.PI * 2); sctx.fill();
+      sctx.beginPath();
+      sctx.ellipse(0, -3.4, 11.5, 3.6, 0, 0, Math.PI * 2);
+      const lidG = sctx.createLinearGradient(0, -7, 0, 0);
       lidG.addColorStop(0, 'rgba(0,0,0,0.55)');
       lidG.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = lidG;
-      ctx.fill();
-      ctx.beginPath(); ctx.ellipse(0, 0, 11, 6.5, 0, 0, Math.PI * 2);
-      ctx.lineWidth = 0.7; ctx.strokeStyle = 'rgba(10,8,6,0.7)'; ctx.stroke();
+      sctx.fillStyle = lidG;
+      sctx.fill();
+      sctx.beginPath(); sctx.ellipse(0, 0, 11, 6.5, 0, 0, Math.PI * 2);
+      sctx.lineWidth = 0.7; sctx.strokeStyle = 'rgba(10,8,6,0.7)'; sctx.stroke();
+      AvatarEffect._realEyeSprite = { canvas: c, w: W, h: H };
+      return AvatarEffect._realEyeSprite;
+    }
+    _drawRealEye(blink) {
+      const ctx = this.ctx;
+      const sprite = AvatarEffect._getRealEyeSprite();
+      ctx.save();
+      ctx.scale(1, blink);
+      ctx.drawImage(sprite.canvas, -sprite.w / 2, -sprite.h / 2, sprite.w, sprite.h);
       ctx.restore();
     }
+
 
     // ---- 4. Black Widow ----
     _drawBlackWidow(t) {
@@ -6032,8 +6135,48 @@ import {
     if (canvasFxVisibilityObserver) canvasFxVisibilityObserver.unobserve(canvas);
   }
 
+  // Meteor card effect: the trail and glow-halo gradients below never
+  // change color, and since the fall direction (dx/dy) is a single fixed
+  // constant shared by every rock — not something rolled per-rock — they
+  // never change orientation either. Only trail length and glow radius
+  // vary, and only once, at spawn. So both bake to a single reference
+  // sprite, shared by every meteor across every instance of this effect,
+  // instead of allocating a fresh gradient per rock per frame.
+  const METEOR_DX = -0.62, METEOR_DY = 0.78;
+  const METEOR_ANGLE = Math.atan2(METEOR_DY, METEOR_DX);
+  let meteorTrailSprite = null;
+  function getMeteorTrailSprite(){
+    if (meteorTrailSprite) return meteorTrailSprite;
+    const LEN = 64, THICK = 8; // reference size; drawImage stretches non-uniformly per rock (safe here since the gradient only varies along length, not thickness)
+    const c = document.createElement('canvas');
+    c.width = LEN; c.height = THICK;
+    const sctx = c.getContext('2d');
+    const grad = sctx.createLinearGradient(0, 0, LEN, 0);
+    grad.addColorStop(0, 'rgba(255,140,80,0)');
+    grad.addColorStop(1, 'rgba(255,225,180,.85)');
+    sctx.fillStyle = grad;
+    sctx.fillRect(0, 0, LEN, THICK);
+    meteorTrailSprite = { canvas: c };
+    return meteorTrailSprite;
+  }
+  let meteorGlowSprite = null;
+  function getMeteorGlowSprite(){
+    if (meteorGlowSprite) return meteorGlowSprite;
+    const SIZE = 64; // reference diameter (radius = SIZE/2)
+    const c = document.createElement('canvas');
+    c.width = c.height = SIZE;
+    const sctx = c.getContext('2d');
+    const grad = sctx.createRadialGradient(SIZE / 2, SIZE / 2, 0, SIZE / 2, SIZE / 2, SIZE / 2);
+    grad.addColorStop(0, 'rgba(255,190,120,.55)');
+    grad.addColorStop(1, 'rgba(255,190,120,0)');
+    sctx.fillStyle = grad;
+    sctx.beginPath(); sctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2); sctx.fill();
+    meteorGlowSprite = { canvas: c };
+    return meteorGlowSprite;
+  }
+
   function makeMeteorCardFx(w, h){
-    const dx = -0.62, dy = 0.78;
+    const dx = METEOR_DX, dy = METEOR_DY;
     function spawn(atRandomPoint){
       const speed = Math.random() * 2.4 + 2.6;
       return {
@@ -6044,36 +6187,34 @@ import {
       };
     }
     const rocks = Array.from({ length: FX_QUALITY_TIERS[fxQualityTier].meteorCount }, () => spawn(true));
+    const trailSprite = getMeteorTrailSprite();
+    const glowSprite = getMeteorGlowSprite();
     return function draw(ctx){
       ctx.clearRect(0, 0, w, h);
       rocks.forEach(m => {
         m.x += dx * m.speed; m.y += dy * m.speed; m.spin += m.spinSpeed;
         if (m.y > h + 30 || m.x < -30) Object.assign(m, spawn(false));
         const tx = m.x - dx * m.trail, ty = m.y - dy * m.trail;
-        const grad = ctx.createLinearGradient(m.x, m.y, tx, ty);
-        grad.addColorStop(0, 'rgba(255,225,180,.85)');
-        grad.addColorStop(1, 'rgba(255,140,80,0)');
-        ctx.strokeStyle = grad; ctx.lineWidth = m.size;
-        ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(tx, ty); ctx.stroke();
+        ctx.save();
+        ctx.translate(tx, ty);
+        ctx.rotate(METEOR_ANGLE);
+        ctx.drawImage(trailSprite.canvas, 0, -m.size / 2, m.trail, m.size);
+        ctx.restore();
         // A small radial-gradient halo stands in for the glow that
         // ctx.shadowBlur used to give the meteor head — shadowBlur is one
         // of the more expensive canvas ops (it's a real per-pixel blur,
         // recomputed every frame for every rock), where this is just one
-        // more filled circle using a gradient already the same cost as
-        // the trail's.
+        // more cached sprite drawn at the rock's current size/position.
         ctx.save();
         ctx.translate(m.x, m.y); ctx.rotate(m.spin);
-        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, m.size * 3);
-        glow.addColorStop(0, 'rgba(255,190,120,.55)');
-        glow.addColorStop(1, 'rgba(255,190,120,0)');
-        ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(0, 0, m.size * 3, 0, Math.PI * 2); ctx.fill();
+        ctx.drawImage(glowSprite.canvas, -m.size * 3, -m.size * 3, m.size * 6, m.size * 6);
         ctx.fillStyle = '#ffdca8';
         ctx.beginPath(); ctx.arc(0, 0, m.size * 1.6, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       });
     };
   }
+
 
   // Vines creep in from all four edges toward the middle, sprouting a
   // few leaves as they grow, then wilt/fade and re-sprout from a new
