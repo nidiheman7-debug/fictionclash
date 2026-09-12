@@ -3464,7 +3464,7 @@ import {
         // Truncated to keep the quoted snippet compact — matches how
         // Discord's own reply preview clips long messages.
         const snippet = (data.text || '').length > 80 ? data.text.slice(0, 80) + '…' : (data.text || '');
-        onReply(data.name || 'User', snippet, data.avatarUrl || null);
+        onReply(data.name || 'User', snippet, data.avatarUrl || null, data.uid || null);
       });
     }
     return el;
@@ -3527,10 +3527,10 @@ import {
     // making them show up inline here even though they belong in their own
     // tab — filter them out before slicing to the last two.
     const preview = docs.filter(data => !data.replyToName).slice(-COMMENTS_PREVIEW_LIMIT);
-    reconcileKeyedList(listEl, preview, commentKey, data => renderCommentEl(data, (name, text, avatarUrl) => {
+    reconcileKeyedList(listEl, preview, commentKey, data => renderCommentEl(data, (name, text, avatarUrl, uid) => {
       openCommentsModal(thread);
       switchCommentsTab('replies');
-      setReplyTarget(commentsModalForm, { name, text, avatarUrl }, false);
+      setReplyTarget(commentsModalForm, { name, text, avatarUrl, uid }, false);
     }));
     listEl.classList.remove('scrollable'); // capped at 2 — never tall enough to need its own scroll now
     let moreBtn = listEl.nextElementSibling;
@@ -3581,12 +3581,12 @@ import {
     // whatever they were reading, on top of previously re-rendering the
     // whole list every time.
     const wasNearBottom = commentsModalList.scrollHeight - commentsModalList.scrollTop - commentsModalList.clientHeight < 60;
-    reconcileKeyedList(commentsModalList, docs, commentKey, data => renderCommentEl(data, (name, text, avatarUrl) => {
+    reconcileKeyedList(commentsModalList, docs, commentKey, data => renderCommentEl(data, (name, text, avatarUrl, uid) => {
       // Replying jumps to the Replies tab — that's where the composed
       // reply will land once posted, and where the quote thread lives,
       // instead of nesting it back into the comments list it was opened from.
       switchCommentsTab('replies');
-      setReplyTarget(commentsModalForm, { name, text, avatarUrl });
+      setReplyTarget(commentsModalForm, { name, text, avatarUrl, uid });
     }));
     if (wasNearBottom) commentsModalList.scrollTop = commentsModalList.scrollHeight;
   }
@@ -7972,6 +7972,7 @@ import {
       renderSeasonAdminControls(); // season toggle card, if this is the admin account
       refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
       refreshAiStatsCreditsDisplay(); // same, for the hero "CHECK STATS" daily limit
+      wireUserNotifications(user.uid); // start listening for reply notifications addressed to this account
       handlePaymentReturn(); // no-op unless the URL has a Paystack reference (see definition below)
     } else {
       lastSignedInUid = null;
@@ -8010,6 +8011,7 @@ import {
       renderAllLikeButtons(); // signed out — nothing should show as "liked" now
       refreshAiFeatsCreditsDisplay(); // back to "sign in to use AI feat checks"
       refreshAiStatsCreditsDisplay(); // back to "sign in to use AI stats"
+      unwireUserNotifications(); // stop listening — no account to receive reply notifications for
       refreshModerationListeners(); // detaches the admin queue listeners (isAdmin() is now false)
       updateSeasonCardVisibility(); // hides the season toggle card (isAdmin() is now false)
     }
@@ -8249,23 +8251,67 @@ import {
   // notification visually matches where tapping it will take you.
   const NOTIF_TYPE_ICON = {
     matchup: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L20 4"/><path d="M2 18L6 22"/><path d="M20 20L4 4"/><path d="M18 22L22 18"/></svg>',
-    clip: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
+    clip: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+    reply: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
   };
 
   function renderNotifications(){
     const lastSeen = Number(localStorage.getItem(NOTIFS_SEEN_KEY) || 0);
-    const unreadCount = notifications.filter(n => n.at > lastSeen).length;
+    // Local (device-wide "new matchup"/"new clip") and server-delivered
+    // (this account's own replies) are two different sources with two
+    // different lifetimes — merged here just for display, sorted newest
+    // first, so the bell shows one unified feed.
+    const combined = [...notifications, ...serverNotifications].sort((a, b) => b.at - a.at);
+    const unreadCount = combined.filter(n => n.at > lastSeen).length;
     notifBadge.hidden = unreadCount === 0;
     notifBadge.textContent = unreadCount > 9 ? '9+' : String(unreadCount);
-    if (!notifications.length) {
+    if (!combined.length) {
       notifList.innerHTML = '<div class="notif-empty">You\'re all caught up</div>';
       return;
     }
-    notifList.innerHTML = notifications.map(n => `
-      <button type="button" class="notif-item ${n.at <= lastSeen ? 'read' : ''}" data-notif-type="${n.type}" data-notif-target="${escapeHtml(n.target || '')}">
+    notifList.innerHTML = combined.map(n => `
+      <button type="button" class="notif-item ${n.at <= lastSeen ? 'read' : ''}" data-notif-type="${n.type}" data-notif-subtype="${n.subtype || ''}" data-notif-target="${escapeHtml(n.target || '')}">
         <span class="notif-item-icon">${NOTIF_TYPE_ICON[n.type] || ''}<span class="notif-item-dot"></span></span>
         <span class="notif-item-body"><b>${escapeHtml(n.title)}</b><span>${escapeHtml(n.body)}</span><br><span class="notif-item-time">${notifTimeAgo(n.at)}</span></span>
       </button>`).join('');
+  }
+
+  // ---------- reply notifications (server-delivered, per account) ----------
+  // Everything above (`notifications`/pushNotification) is a local,
+  // per-device feed anyone gets for "new matchup"/"new clip" — it has no
+  // way to reach a specific OTHER person. A reply is different: it needs
+  // to reach the person being replied to specifically, on any device
+  // they're signed into, which only a server-authoritative delivery can
+  // do. /api/comment and /api/clip-comment (Admin SDK) write one doc per
+  // reply into the replied-to user's own users/{uid}/notifications
+  // subcollection (read: owner only, write: server-only — see
+  // firestore.rules). This listener is what turns those into entries in
+  // the same bell/dropdown, live, without needing a page reload.
+  let serverNotifications = [];
+  let unwireUserNotifications = () => {};
+  function wireUserNotifications(uid){
+    unwireUserNotifications(); // drop any previous account's listener first
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'users', uid, 'notifications'), orderBy('createdAt', 'desc'), limit(30)),
+      snapshot => {
+        serverNotifications = snapshot.docs.map(d => {
+          const data = d.data();
+          const target = data.matchupId || data.clipId || '';
+          return {
+            id: d.id,
+            type: 'reply',
+            subtype: data.matchupId ? 'matchup' : 'clip',
+            title: `${data.fromName || 'Someone'} replied to you`,
+            body: data.text || '',
+            target,
+            at: data.createdAt?.toMillis?.() || Date.now(),
+          };
+        });
+        renderNotifications();
+      },
+      err => console.error('Reply notifications listener failed', err)
+    );
+    unwireUserNotifications = () => { unsubscribe(); serverNotifications = []; unwireUserNotifications = () => {}; };
   }
 
   // ---------- real device push, via OneSignal ----------
@@ -8378,13 +8424,19 @@ import {
     const item = e.target.closest('.notif-item');
     if (!item) return;
     closeNotifDropdown();
-    if (item.dataset.notifType === 'clip') {
+    const type = item.dataset.notifType;
+    // A reply notification points at either a matchup or a clip — its
+    // subtype tells us which of the two existing nav flows below to
+    // reuse, so replies don't need their own third navigation branch.
+    const asClip = type === 'clip' || (type === 'reply' && item.dataset.notifSubtype === 'clip');
+    const asMatchup = type === 'matchup' || (type === 'reply' && item.dataset.notifSubtype === 'matchup');
+    if (asClip) {
       document.querySelector('.nav-item[data-nav="Movies"]')?.click();
       setTimeout(() => {
         clipFeed.querySelector(`.clip-card[data-clip-id="${item.dataset.notifTarget}"]`)
           ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 150);
-    } else if (item.dataset.notifType === 'matchup') {
+    } else if (asMatchup) {
       document.querySelector('.nav-item[data-nav="Matchups"]')?.click();
       // Jump straight to the matchup this notification is about, not just
       // whichever card happened to already be active.
