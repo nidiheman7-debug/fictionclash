@@ -1757,11 +1757,17 @@ import {
 
   // ---------- quick action: vote now ----------
   document.getElementById('qaVote').addEventListener('click', () => {
-    const heroCard = document.getElementById('heroCard');
-    heroCard.scrollIntoView({ behavior:'smooth', block:'center' });
-    heroCard.classList.remove('pulse');
-    void heroCard.offsetWidth; // restart animation if clicked again quickly
-    heroCard.classList.add('pulse');
+    const heroGroup = document.getElementById('heroCard');
+    heroGroup.scrollIntoView({ behavior:'smooth', block:'center' });
+    // #heroCard is now a plain layout wrapper around three stacked cards
+    // (matchup / stats / social+comments) rather than the visual card
+    // itself — the pulse ring's box-shadow needs a border-radius'd
+    // element to look right, so it targets the actual matchup card
+    // (the first .hero child) instead of the wrapper.
+    const pulseTarget = heroGroup.querySelector('.hero') || heroGroup;
+    pulseTarget.classList.remove('pulse');
+    void pulseTarget.offsetWidth; // restart animation if clicked again quickly
+    pulseTarget.classList.add('pulse');
   });
 
   // ---------- quick action: compare characters ----------
@@ -5834,6 +5840,71 @@ import {
     btn.classList.toggle('active', btn.dataset.fxTier === fxQualityTier);
     btn.addEventListener('click', () => applyFxQualityTier(btn.dataset.fxTier));
   });
+
+  // ---------- performance: pause animated profile-deco FX when offscreen ----------
+  // The SVG/border decorations (.profile-deco / .profile-deco-fx /
+  // .profile-deco-fx-web — hellflame, web-trap, voltage, frostbite,
+  // bloodfang, solar-orbit, web-slinger, kryptonian, dark-knight,
+  // thunderstrike, plus the plain glow borders) each run their own
+  // always-on CSS `animation`, several combined with `filter:
+  // blur()/drop-shadow()`. Unlike AvatarEffect's canvas particles, that
+  // combo isn't compositor-only — the browser repaints the element every
+  // animated frame — and unlike the canvas effects, nothing here was
+  // pausing them off-screen, scaling them with the FX-quality tier, or
+  // respecting prefers-reduced-motion. Since the same equipped decoration
+  // can render simultaneously anywhere it's shown (a comment avatar, the
+  // account header, a feed card), a busy comment thread could have several
+  // of these animating at once with nothing throttling them — this is
+  // likely the biggest single contributor to general (not scroll- or
+  // screen-specific) sluggishness. Mirrors the activate/deactivateCanvasFx
+  // pattern above, just pausing via animation-play-state instead of
+  // tearing a canvas down.
+  const DECO_FX_SELECTOR = '.profile-deco, .profile-deco-fx, .profile-deco-fx-web';
+  let decoFxDisabled = prefersReducedMotionCardFx || fxQualityTier === 'saver';
+  const decoFxObserver = ('IntersectionObserver' in window) ? new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      entry.target.style.animationPlayState = (entry.isIntersecting && !decoFxDisabled) ? 'running' : 'paused';
+    });
+  }, { rootMargin: '80px' }) : null;
+  // Marks an element as watched so repeated calls (e.g. the mutation
+  // observer firing on unrelated sibling inserts) don't re-observe it.
+  function watchDecoFxEl(el){
+    if (el._decoFxWatched) return;
+    el._decoFxWatched = true;
+    if (decoFxDisabled) { el.style.animationPlayState = 'paused'; return; }
+    if (decoFxObserver) decoFxObserver.observe(el);
+  }
+  // Finds every not-yet-watched decoration under (or including) root.
+  function watchDecoFx(root){
+    if (!root || root.nodeType !== 1) return;
+    if (root.matches?.(DECO_FX_SELECTOR)) watchDecoFxEl(root);
+    root.querySelectorAll?.(DECO_FX_SELECTOR).forEach(watchDecoFxEl);
+  }
+  // Decorations get inserted via innerHTML at many different call sites
+  // (comments streaming in live, the hero card, account header, store
+  // grid) — rather than adding a watchDecoFx() call at every one of them,
+  // a single mutation observer on the whole app catches every decoration
+  // the moment it's attached to the page, wherever that happens.
+  new MutationObserver(mutations => {
+    for (const mutation of mutations) {
+      mutation.addedNodes.forEach(node => watchDecoFx(node));
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+  watchDecoFx(document.body); // catch anything already on the page at load
+
+  // Re-applies immediately when the quality tier changes (a "Saver" pick
+  // should stop these right away, not just for decorations rendered from
+  // then on) — folds into the existing applyFxQualityTier() rather than a
+  // second tier-change hook.
+  const _applyFxQualityTierBase = applyFxQualityTier;
+  applyFxQualityTier = function(tier){
+    _applyFxQualityTierBase(tier);
+    decoFxDisabled = prefersReducedMotionCardFx || fxQualityTier === 'saver';
+    document.querySelectorAll(DECO_FX_SELECTOR).forEach(el => {
+      el.style.animationPlayState = decoFxDisabled ? 'paused' : (decoFxObserver ? '' : 'running');
+      if (decoFxObserver && !decoFxDisabled) decoFxObserver.observe(el); // safe to re-observe an already-observed element
+    });
+  };
 
   function makeMeteorCardFx(w, h){
     const dx = -0.62, dy = 0.78;
