@@ -670,6 +670,52 @@ import {
   const voteRevealState = document.getElementById('voteRevealState');
   const aiStatsButton = document.getElementById('aiStatsButton');
   const aiStatsResult = document.getElementById('aiStatsResult');
+  const aiStatsCreditsEl = document.getElementById('aiStatsCredits');
+
+  // Same real-Gemini-call concern as Team Builder's AI feat check (see
+  // AI_FEATS_CREDIT_LIMIT below), just for the hero "CHECK STATS" button —
+  // capped at 5 PER ACCOUNT PER DAY. Tracked in Firestore (not local JS
+  // state), so a refresh can't reset it: users/{uid}/statsCredits/{YYYY-MM-DD}
+  // (UTC date), one doc per day. Firestore rules enforce the +1-per-write,
+  // max-5 ceiling server-side — this client code is the UI, not the gate.
+  const AI_STATS_CREDIT_LIMIT = 5;
+  async function peekAiStatsCredits(){
+    if (!auth.currentUser) return AI_STATS_CREDIT_LIMIT;
+    try {
+      const snap = await getDoc(doc(db, 'users', auth.currentUser.uid, 'statsCredits', todayKey()));
+      const used = snap.exists() ? (snap.data().count || 0) : 0;
+      return Math.max(0, AI_STATS_CREDIT_LIMIT - used);
+    } catch (err) {
+      console.error('Could not read AI stats credits', err);
+      return AI_STATS_CREDIT_LIMIT; // fail open on read errors — the write-time check below is the real gate
+    }
+  }
+  async function spendAiStatsCredit(){
+    const ref = doc(db, 'users', auth.currentUser.uid, 'statsCredits', todayKey());
+    const snap = await getDoc(ref);
+    const used = snap.exists() ? (snap.data().count || 0) : 0;
+    if (used >= AI_STATS_CREDIT_LIMIT) return false;
+    if (snap.exists()) {
+      await updateDoc(ref, { count: used + 1 });
+    } else {
+      await setDoc(ref, { count: 1 });
+    }
+    return true;
+  }
+  async function refreshAiStatsCreditsDisplay(){
+    if (!aiStatsCreditsEl) return;
+    if (!auth.currentUser) {
+      aiStatsCreditsEl.textContent = `Sign in to use AI stats (${AI_STATS_CREDIT_LIMIT} per day)`;
+      aiStatsCreditsEl.classList.remove('exhausted');
+      if (aiStatsButton) aiStatsButton.disabled = false; // let the click handler prompt sign-in rather than blocking here
+      return;
+    }
+    const remaining = await peekAiStatsCredits();
+    aiStatsCreditsEl.textContent = remaining > 0
+      ? `${remaining} of ${AI_STATS_CREDIT_LIMIT} AI checks left today`
+      : `Daily AI stats limit reached — resets at midnight UTC`;
+    aiStatsCreditsEl.classList.toggle('exhausted', remaining <= 0);
+  }
   const aiStatsProfiles = {
     'Gojo Satoru':[96,98,94,91], 'Saitama':[100,100,100,76],
     'Goku':[98,97,95,94], 'Vegeta':[97,96,93,90],
@@ -1547,9 +1593,16 @@ import {
   });
 
   aiStatsButton.addEventListener('click', () => {
+    if (!auth.currentUser) { showToast('Sign in to use AI stats'); return; }
     heroAnalyzing = true; // pause auto-rotate for as long as they're looking at this breakdown
     scheduleHeroRotate(); // clears the pending rotation (no-ops the reschedule, since heroAnalyzing is now true)
     withSpinner(aiStatsButton, 'THINKING…', async () => {
+      const granted = await spendAiStatsCredit();
+      if (!granted) {
+        showToast('Daily AI stats limit reached — resets at midnight UTC');
+        refreshAiStatsCreditsDisplay();
+        return;
+      }
       const m = matchups[activeIdx];
       const labelA = charLabel(m.a);
       const labelB = charLabel(m.b);
@@ -1583,6 +1636,7 @@ import {
       const analysisB = entryB && entryB.analysis ? `<p><b>${escapeHtml(labelB)}:</b> ${escapeHtml(entryB.analysis)}</p>` : '';
       aiStatsResult.innerHTML = `<strong>${escapeHtml(labelA)} vs ${escapeHtml(labelB)}</strong>${verdict}<div class="ai-stat-bars">${bars}</div>${analysisA}${analysisB}`;
       showToast(data ? 'AI stats generated' : 'AI unavailable — showing saved ratings');
+      refreshAiStatsCreditsDisplay();
     });
   });
 
@@ -7917,6 +7971,7 @@ import {
       refreshModerationListeners(); // admin's pending queues, if this is the admin account
       renderSeasonAdminControls(); // season toggle card, if this is the admin account
       refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
+      refreshAiStatsCreditsDisplay(); // same, for the hero "CHECK STATS" daily limit
       handlePaymentReturn(); // no-op unless the URL has a Paystack reference (see definition below)
     } else {
       lastSignedInUid = null;
@@ -7954,6 +8009,7 @@ import {
       closeAccountDropdown();
       renderAllLikeButtons(); // signed out — nothing should show as "liked" now
       refreshAiFeatsCreditsDisplay(); // back to "sign in to use AI feat checks"
+      refreshAiStatsCreditsDisplay(); // back to "sign in to use AI stats"
       refreshModerationListeners(); // detaches the admin queue listeners (isAdmin() is now false)
       updateSeasonCardVisibility(); // hides the season toggle card (isAdmin() is now false)
     }
