@@ -200,77 +200,98 @@
     </div>
   </div>
 
-  <div class="hero" id="heroCard">
-    <div class="hero-vs">
-       <div class="live-tag"><span class="live-dot"></span>LIVE MATCHUP</div>
-      <button class="hero-decorate-btn" id="heroDecorateBtn" type="button" aria-label="Choose a decoration for each character" title="Choose a decoration for each character">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/></svg>
-      </button>
-      <button class="hero-delete-btn" id="heroDeleteBtn" type="button" aria-label="Hide this matchup from my feed" title="Hide this matchup from my feed">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.6 18.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
-      </button>
-      <div class="side">
-         <div class="char-avatar-wrap">
-           <div class="avatar hi" id="heroAvatarA">GJ</div>
-           <button class="avatar-edit-btn" id="heroAvatarEditA" type="button" aria-label="Upload a picture for this character" title="Upload a picture for this character">
-             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-           </button>
-           <button class="avatar-report-btn" id="heroAvatarReportA" type="button" aria-label="Report this picture" title="Report this picture" hidden>
-             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-           </button>
-         </div>
-         <div class="char-name" id="heroNameA">Gojo Satoru</div>
-         <div class="char-sub" id="heroSubA">Jujutsu Kaisen</div>
+  <!-- Was previously a single long card (avatars → vote → AI stats →
+       social → comments, one continuous scroll). Split into three
+       stacked cards along its natural content boundaries — matchup
+       essentials, AI stats, social+comments — same idea as splitting a
+       long feed post from its comment section. #heroCard stays on this
+       outer wrapper (pure layout, no card chrome of its own) so every
+       existing hide/show, pulse-highlight, and scrollIntoView call still
+       targets one element and moves/hides the whole group together;
+       each child below carries the actual "hero" card visuals. -->
+  <div class="hero-group" id="heroCard">
+    <div class="hero">
+      <div class="hero-vs">
+         <div class="live-tag"><span class="live-dot"></span>LIVE MATCHUP</div>
+        <button class="hero-decorate-btn" id="heroDecorateBtn" type="button" aria-label="Choose a decoration for each character" title="Choose a decoration for each character">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/></svg>
+        </button>
+        <button class="hero-delete-btn" id="heroDeleteBtn" type="button" aria-label="Hide this matchup from my feed" title="Hide this matchup from my feed">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.6 18.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+        </button>
+        <div class="side">
+           <div class="char-avatar-wrap">
+             <div class="avatar hi" id="heroAvatarA">GJ</div>
+             <button class="avatar-edit-btn" id="heroAvatarEditA" type="button" aria-label="Upload a picture for this character" title="Upload a picture for this character">
+               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+             </button>
+             <button class="avatar-report-btn" id="heroAvatarReportA" type="button" aria-label="Report this picture" title="Report this picture" hidden>
+               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+             </button>
+           </div>
+           <div class="char-name" id="heroNameA">Gojo Satoru</div>
+           <div class="char-sub" id="heroSubA">Jujutsu Kaisen</div>
+        </div>
+        <div class="side">
+           <div class="char-avatar-wrap">
+             <div class="avatar lo" id="heroAvatarB">SR</div>
+             <button class="avatar-edit-btn" id="heroAvatarEditB" type="button" aria-label="Upload a picture for this character" title="Upload a picture for this character">
+               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+             </button>
+             <button class="avatar-report-btn" id="heroAvatarReportB" type="button" aria-label="Report this picture" title="Report this picture" hidden>
+               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+             </button>
+           </div>
+           <div class="char-name" id="heroNameB">Saitama</div>
+           <div class="char-sub" id="heroSubB">One Punch Man</div>
+        </div>
+        <div class="vs-badge">VS</div>
       </div>
-      <div class="side">
-         <div class="char-avatar-wrap">
-           <div class="avatar lo" id="heroAvatarB">SR</div>
-           <button class="avatar-edit-btn" id="heroAvatarEditB" type="button" aria-label="Upload a picture for this character" title="Upload a picture for this character">
-             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-           </button>
-           <button class="avatar-report-btn" id="heroAvatarReportB" type="button" aria-label="Report this picture" title="Report this picture" hidden>
-             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-           </button>
-         </div>
-         <div class="char-name" id="heroNameB">Saitama</div>
-         <div class="char-sub" id="heroSubB">One Punch Man</div>
+      <input type="file" id="charAvatarFile" accept="image/png,image/jpeg,image/webp" hidden>
+      <div class="hero-body">
+         <div class="hero-title">Who actually wins this fight?</div>
+         <div class="hero-sub"><span id="heroVoteCount">12,403</span> votes so far. Cast yours and see the AI breakdown of how it really plays out.</div>
+        <div class="vote-row" id="voteRow">
+           <div class="vote-btn hi" id="voteBtnA" data-side="a">Gojo</div>
+           <div class="vote-btn lo" id="voteBtnB" data-side="b">Saitama</div>
+        </div>
+        <div class="vote-split"><div class="hi-bar" id="voteBar"></div></div>
+         <div class="vote-pct"><span id="votePctA">57% Gojo</span><span id="votePctB">43% Saitama</span></div>
+         <div class="vote-reveal-state" id="voteRevealState" hidden></div>
       </div>
-      <div class="vs-badge">VS</div>
     </div>
-    <input type="file" id="charAvatarFile" accept="image/png,image/jpeg,image/webp" hidden>
-    <div class="hero-body">
-       <div class="hero-title">Who actually wins this fight?</div>
-       <div class="hero-sub"><span id="heroVoteCount">12,403</span> votes so far. Cast yours and see the AI breakdown of how it really plays out.</div>
-      <div class="vote-row" id="voteRow">
-         <div class="vote-btn hi" id="voteBtnA" data-side="a">Gojo</div>
-         <div class="vote-btn lo" id="voteBtnB" data-side="b">Saitama</div>
+
+    <div class="hero hero-stats-card">
+      <div class="hero-body">
+        <div class="ai-stats-panel">
+          <div class="ai-stats-head">
+            <span class="ai-stats-label">AI STATS PROVIDER</span>
+            <button class="ai-stats-button" id="aiStatsButton" type="button">CHECK STATS</button>
+          </div>
+          <div class="ai-stats-result" id="aiStatsResult">Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.</div>
+        </div>
       </div>
-      <div class="vote-split"><div class="hi-bar" id="voteBar"></div></div>
-       <div class="vote-pct"><span id="votePctA">57% Gojo</span><span id="votePctB">43% Saitama</span></div>
-       <div class="vote-reveal-state" id="voteRevealState" hidden></div>
-       <div class="ai-stats-panel">
-         <div class="ai-stats-head">
-           <span class="ai-stats-label">AI STATS PROVIDER</span>
-           <button class="ai-stats-button" id="aiStatsButton" type="button">CHECK STATS</button>
+    </div>
+
+    <div class="hero hero-social-card">
+      <div class="hero-body">
+         <div class="social-row">
+           <button class="social-btn like-btn" id="heroLikeBtn" type="button" aria-label="Like this matchup">
+             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+             <span id="heroLikeCount">0</span>
+           </button>
+           <button class="social-btn share-btn" id="heroShareBtn" type="button" aria-label="Share this matchup">
+             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+             <span>Share</span>
+           </button>
          </div>
-         <div class="ai-stats-result" id="aiStatsResult">Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.</div>
-       </div>
-       <div class="social-row">
-         <button class="social-btn like-btn" id="heroLikeBtn" type="button" aria-label="Like this matchup">
-           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
-           <span id="heroLikeCount">0</span>
-         </button>
-         <button class="social-btn share-btn" id="heroShareBtn" type="button" aria-label="Share this matchup">
-           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-           <span>Share</span>
-         </button>
-       </div>
-       <div class="comments-title">Conversation</div>
-       <div class="hero-comments-list" id="heroCommentsList"></div>
-       <form class="comment-form" id="heroCommentForm">
-         <input class="clip-field" type="text" id="heroCommentInput" placeholder="Add your comment..." aria-label="Add your comment">
-         <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
-       </form>
+         <div class="comments-title">Conversation</div>
+         <div class="hero-comments-list" id="heroCommentsList"></div>
+         <form class="comment-form" id="heroCommentForm">
+           <input class="clip-field" type="text" id="heroCommentInput" placeholder="Add your comment..." aria-label="Add your comment">
+           <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
+         </form>
+      </div>
     </div>
   </div>
 

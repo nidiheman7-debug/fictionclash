@@ -473,13 +473,27 @@
   .qa-dot.active{ background:var(--accent); width:16px; border-radius:3px; }
 
   /* hero */
+  /* Pure layout wrapper for the three stacked hero-* cards below (matchup
+     / stats / social+comments) — carries the outer margin that the single
+     .hero card used to have, but no visual chrome of its own, so the
+     group reads as separate cards rather than one long one. #heroCard
+     lives on this element (see index.html) so every existing hide/show,
+     pulse-highlight and scrollIntoView call still targets one node and
+     affects the whole group together. */
+  .hero-group{ margin:24px 12px 0; display:flex; flex-direction:column; gap:14px; }
+  #heroSkeleton{ margin:24px 12px 0; } /* standalone loading state — not part of .hero-group */
   .hero{
-     margin:24px 12px 0;
     border-radius:22px;
     overflow:hidden;
      background-image:linear-gradient(180deg,rgba(43,44,51,.95) 0%,rgba(28,29,35,.95) 100%), url('/icons/intro-collage.webp');
      background-size:cover; background-position:center; background-repeat:no-repeat;
      border:1px solid var(--line);
+  }
+  /* Stats/social cards don't need the banner-height background photo the
+     matchup card's .hero-vs provides — a flatter surface reads better for
+     a shorter, text/button-driven card. */
+  .hero-stats-card, .hero-social-card{
+    background-image:none; background-color:var(--surface);
   }
   .hero-vs{
     position:relative;
@@ -686,6 +700,12 @@
    .ai-stats-panel{
      margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:12px;
      background:linear-gradient(145deg,var(--surface),rgba(207,67,46,.08));
+   }
+   /* Now the sole content of its own .hero-stats-card (see index.html) —
+      drop the panel's own nested border/background so it isn't a boxed
+      panel inside a boxed card; the outer card already provides that. */
+   .hero-stats-card .ai-stats-panel{
+     margin-top:0;padding:0;border:0;border-radius:0;background:none;
    }
    .ai-stats-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
    .ai-stats-label{color:var(--accent);font:700 9px 'Martian Mono',monospace;letter-spacing:1.5px;}
@@ -2178,7 +2198,7 @@
       .qa{width:109px;}
       .qa-pos-center{left:70px;}
       .qa-pos-right{left:141px;}
-      .hero{margin-left:10px;margin-right:10px;}
+      .hero-group, #heroSkeleton{margin-left:10px;margin-right:10px;}
       .section-head{padding-left:14px;padding-right:14px;}
       .trend-scroll{padding-left:14px;padding-right:14px;}
        .movies-section{padding-left:14px;padding-right:14px;}
