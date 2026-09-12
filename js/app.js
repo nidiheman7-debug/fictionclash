@@ -6580,25 +6580,7 @@ import {
     { id:'watcher-ring', name:"Watcher's Ring", category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'watcher-ring', season:'horror' },
     { id:'black-widow', name:'Black Widow', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'black-widow', season:'horror' },
     { id:'styx-spirits', name:'Styx Spirits', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'styx-spirits', season:'horror' },
-    { id:'creeping-roots', name:'Creeping Roots', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'creeping-roots', season:'horror' },
-    // Crossverse Season exclusives — reused canvas types under new
-    // premiere-themed names, same pattern Horror Season launched with
-    // (phantom-mist/wraith-veil/grim-reaper/cursed-flame above) before its
-    // bespoke Final Six landed. A good next step once these are live.
-    { id:'spotlight-flare', name:'Spotlight Flare', category:'Cosmic', rarity:'Rare', cost:80, fx:'canvas', canvasType:'energy', season:'crossverse' },
-    { id:'speedster-blur', name:'Speedster Blur', category:'Heroes', rarity:'Epic', cost:90, fx:'canvas', canvasType:'air', season:'crossverse' },
-    { id:'multiverse-rift', name:'Multiverse Rift', category:'Cosmic', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', season:'crossverse' },
-    { id:'red-carpet-blaze', name:'Red Carpet Blaze', category:'Heroes', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', season:'crossverse' },
-    // Bespoke Crossverse badges — same idea as Horror's Final Six (custom
-    // hand-authored animations instead of a reused canvasType), but
-    // "almost static" on purpose: plain generic hero iconography (a
-    // star-shield, a bolt, a cape, a crown, a "VS" burst) that mostly
-    // just sits there with a slow glint/sway/twinkle. See CUSTOM_TYPES.
-    { id:'legend-shield', name:'Legend Shield', category:'Heroes', rarity:'Epic', cost:90, fx:'canvas', canvasType:'legend-shield', season:'crossverse' },
-    { id:'vs-impact', name:'Vs. Impact', category:'Heroes', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'vs-impact', season:'crossverse' },
-    { id:'hero-cape', name:'Hero Cape', category:'Heroes', rarity:'Rare', cost:85, fx:'canvas', canvasType:'hero-cape', season:'crossverse' },
-    { id:'voltage-bolt', name:'Voltage Bolt', category:'Heroes', rarity:'Epic', cost:90, fx:'canvas', canvasType:'voltage-bolt', season:'crossverse' },
-    { id:'champions-crown', name:"Champion's Crown", category:'Heroes', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'champions-crown', season:'crossverse' }
+    { id:'creeping-roots', name:'Creeping Roots', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'creeping-roots', season:'horror' }
   ];
   // Profile CARD effects — full-card particle overlays that sit over the
   // banner + body (see card-fx-canvas / activateCardFx below), as opposed
