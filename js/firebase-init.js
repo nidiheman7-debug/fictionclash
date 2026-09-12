@@ -2,7 +2,11 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics.js";
   import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  import {
+    initializeFirestore,
+    persistentLocalCache,
+    persistentMultipleTabManager
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   // Your web app's Firebase configuration
   // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -20,7 +24,18 @@
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
   const auth = getAuth(app);
-  const db = getFirestore(app);
+
+  // IndexedDB-backed offline persistence: repeat views of matchups/comments/
+  // leaderboard load instantly from cache (even offline), and any writes
+  // made while offline (votes, comments) queue and flush automatically
+  // when the connection returns. persistentMultipleTabManager keeps this
+  // working correctly if the user ever has the app open in two tabs/windows
+  // at once — without it, a second tab silently loses persistence.
+  const db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  });
 
   // Payment endpoints (create-payment, verify-payment, and the Paystack
   // webhook) moved off Vercel to Render — firebase-admin's dependency
