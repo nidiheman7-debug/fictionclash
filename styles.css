@@ -1148,7 +1148,7 @@
    .ai-feats h3{font-family:'Rajdhani',sans-serif; font-weight:700;font-size:16px;margin:7px 0 5px;}
    .ai-feats p{color:var(--muted);font-size:11px;line-height:1.4;margin-bottom:11px;}
    .ai-feats-form{display:flex;gap:7px;}
-   .ai-feats-credits{color:var(--muted);font-size:10.5px;margin-top:7px;}
+   .ai-feats-credits{color:var(--muted);font-size:10.5px;margin-top:7px;margin-bottom:8px;}
    .ai-feats-credits.exhausted{color:#c0392b;}
    .ai-feats-form input{
      flex:1;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--line);
