@@ -89,7 +89,23 @@ self.addEventListener('fetch', event => {
           }
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => {
+          // caches.match(event.request) matches the exact URL by default,
+          // query string included. This app's precached shell is only
+          // stored under the bare '/' and '/index.html' — so a real-world
+          // URL like '/?ref=share' or '/?matchup=123' would miss that
+          // exact-match lookup, resolve to nothing, and hand the browser
+          // its own generic offline interstitial instead of this app's
+          // shell (that generic "You're offline" screen using the
+          // manifest icon IS what a failed navigate with no fallback
+          // response looks like). Since this is a single-page app, any
+          // navigation offline should resolve to the same cached shell
+          // regardless of path or query string.
+          if (event.request.mode === 'navigate') {
+            return caches.match('/index.html').then(r => r || caches.match('/'));
+          }
+          return caches.match(event.request, { ignoreSearch: true });
+        })
     );
     return;
   }
