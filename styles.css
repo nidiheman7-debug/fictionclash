@@ -1411,11 +1411,14 @@
    .profile-share-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:10px;background:var(--accent-bg);color:#0A0806;padding:11px;font:700 11px 'Rajdhani',sans-serif;cursor:pointer;transition:transform .1s ease;}
    .profile-share-btn:active{transform:scale(.98);}
    .profile-share-meta{display:flex;justify-content:space-between;color:var(--muted);font:9px 'Martian Mono',monospace;margin-top:8px;padding-bottom:16px;border-bottom:1px solid var(--line);}
-   .profile-store-tabs{display:flex;gap:7px;margin:16px 0 12px;}
-   .profile-store-tab{flex:1;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--muted);padding:9px 5px;font:800 10px 'Instrument Sans',sans-serif;cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease;}
+   .profile-store-tabs{display:flex;gap:6px;margin:16px 0 12px;}
+   .profile-store-tab{flex:1;min-width:0;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--muted);padding:9px 4px;font:800 9.5px 'Instrument Sans',sans-serif;cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease;}
    .profile-store-tab.active{border-color:var(--accent);color:var(--accent);background:rgba(228,169,41,.1);}
    .profile-store-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
    .profile-store-grid[hidden]{display:none;}
+   .profile-owned-section-heading{grid-column:1/-1;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:13px;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;margin:14px 0 2px;}
+   .profile-owned-section-heading:first-child{margin-top:0;}
+   .profile-store-empty-hint{grid-column:1/-1;font-size:12px;color:var(--muted);text-align:center;padding:24px 8px;}
    /* Season section: a distinct, bannered block above the evergreen grid,
       shown only while its season is active (see renderCustomizationStore).
       Deliberately visually louder than the plain grid below it — it's the
