@@ -692,15 +692,27 @@ import {
   }
   async function spendAiStatsCredit(){
     const ref = doc(db, 'users', auth.currentUser.uid, 'statsCredits', todayKey());
-    const snap = await getDoc(ref);
-    const used = snap.exists() ? (snap.data().count || 0) : 0;
-    if (used >= AI_STATS_CREDIT_LIMIT) return false;
-    if (snap.exists()) {
-      await updateDoc(ref, { count: used + 1 });
-    } else {
-      await setDoc(ref, { count: 1 });
+    try {
+      const snap = await getDoc(ref);
+      const used = snap.exists() ? (snap.data().count || 0) : 0;
+      if (used >= AI_STATS_CREDIT_LIMIT) return false;
+      if (snap.exists()) {
+        await updateDoc(ref, { count: used + 1 });
+      } else {
+        await setDoc(ref, { count: 1 });
+      }
+      return true;
+    } catch (err) {
+      // Previously uncaught — a rules gap or any other write failure here
+      // threw all the way up through the aiStatsButton click handler with
+      // no toast and no console message from our own code, which is
+      // exactly what made the credit-limit feature look like it broke
+      // the whole "CHECK STATS" button. Surfacing this explicitly so a
+      // future permissions issue is visible instead of a silent dead end.
+      console.error('Could not spend AI stats credit', err);
+      showToast('Could not verify AI stats usage — try again in a moment');
+      return null; // distinct from false (limit reached) — caller shouldn't also show the "limit reached" toast on top of this one
     }
-    return true;
   }
   async function refreshAiStatsCreditsDisplay(){
     if (!aiStatsCreditsEl) return;
@@ -1598,6 +1610,7 @@ import {
     scheduleHeroRotate(); // clears the pending rotation (no-ops the reschedule, since heroAnalyzing is now true)
     withSpinner(aiStatsButton, 'THINKING…', async () => {
       const granted = await spendAiStatsCredit();
+      if (granted === null) return; // error toast already shown by spendAiStatsCredit
       if (!granted) {
         showToast('Daily AI stats limit reached — resets at midnight UTC');
         refreshAiStatsCreditsDisplay();
@@ -6772,7 +6785,7 @@ import {
   // figure is NOT fixed here because FX moves over time. `cash.ngnRef` is
   // only kept as a reference for what the item was priced at when set.
   const PROFILE_DECORATIONS = [
-    { id:'hellflame', name:'Hellflame', category:'Anime', rarity:'Legendary', cost:100, fx:true },
+    { id:'hellflame', name:'Hellflame', category:'Anime', rarity:'Legendary', cost:100, fx:true, season:'anime' },
     { id:'web-trap', name:'Web Trap', category:'Gothic', rarity:'Epic', cost:90, fx:true, premium:true, cash:{ usd:0.43, ngnRef:600 } },
     { id:'voltage', name:'Voltage', category:'Mecha', rarity:'Epic', cost:90, fx:true, premium:true, cash:{ usd:0.51, ngnRef:700 } },
     { id:'frostbite', name:'Frostbite', category:'Elemental', rarity:'Epic', cost:90, fx:true },
@@ -6804,7 +6817,7 @@ import {
     { id:'phantom-mist', name:'Phantom Mist', category:'Dark', rarity:'Rare', cost:80, fx:'canvas', canvasType:'toxic' },
     { id:'wraith-veil', name:'Wraith Veil', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal' },
     { id:'grim-reaper', name:'Grim Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6 },
-    { id:'cursed-flame', name:'Cursed Flame', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame' },
+    { id:'cursed-flame', name:'Cursed Flame', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', retired:true },
     // Final Six — bespoke non-particle canvas renderers (see AvatarEffect
     // custom-type branch below), redeemed with Skulls. These are now the
     // only items tagged season:'horror', so the Horror Season shelf shows
@@ -6841,10 +6854,10 @@ import {
     { id:'luckiest', name:'Luckiest Guy', category:'Comic', cls:'profile-font-luckiest' },
     { id:'marker', name:'Permanent Marker', category:'Artistic', cls:'profile-font-marker' },
     { id:'creepster', name:'Creepster', category:'Comic', cls:'profile-font-creepster' },
-    { id:'russo', name:'Russo One', category:'Anime', cls:'profile-font-russo' },
+    { id:'russo', name:'Russo One', category:'Anime', cls:'profile-font-russo', season:'anime', cost:60 },
     { id:'cinzel', name:'Cinzel Decorative', category:'Artistic', cls:'profile-font-cinzel' },
     { id:'bungee', name:'Bungee', category:'Comic', cls:'profile-font-bungee' },
-    { id:'orbitron', name:'Orbitron Edge', category:'Anime', cls:'profile-font-orbitron' },
+    { id:'orbitron', name:'Orbitron Edge', category:'Anime', cls:'profile-font-orbitron', season:'anime', cost:60 },
     // Horror Season exclusives — same season-gating pattern as the Final Six
     // decorations above (see PROFILE_DECORATIONS): only shown/purchasable
     // while season:'horror' is the live season, priced in Skulls instead
@@ -7157,7 +7170,7 @@ import {
     // (equip/render), this just controls what's purchasable right now.
     const activeSeason = activeSeasonId ? SEASONS[activeSeasonId] : null;
     const seasonItems = activeSeason ? PROFILE_DECORATIONS.filter(item => item.season === activeSeasonId) : [];
-    const evergreenItems = PROFILE_DECORATIONS.filter(item => !item.season);
+    const evergreenItems = PROFILE_DECORATIONS.filter(item => !item.season && !item.retired);
 
     // Each season's own currency icon (the anime Shards' glowing sakura
     // petal, the Horror Skulls' skull mark, etc.) — shown wherever that
