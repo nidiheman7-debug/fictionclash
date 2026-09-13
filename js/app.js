@@ -7156,13 +7156,17 @@ import {
 
     const decorationGrid = document.getElementById('decorationStoreGrid');
     const seasonSection = document.getElementById('decorationSeasonSection');
+    const fontSeasonSection = document.getElementById('fontSeasonSection');
     const fontGrid = document.getElementById('fontStoreGrid');
     const cardEffectGrid = document.getElementById('cardEffectStoreGrid');
+    const ownedGrid = document.getElementById('ownedStoreGrid');
     if (!decorationGrid || !fontGrid || !seasonSection) return;
 
     deactivateCanvasFx(decorationGrid);
     deactivateCanvasFx(seasonSection);
+    if (fontSeasonSection) deactivateCanvasFx(fontSeasonSection);
     if (cardEffectGrid) deactivateCardFx(cardEffectGrid);
+    if (ownedGrid) { deactivateCanvasFx(ownedGrid); deactivateCardFx(ownedGrid); }
 
     // Season items only ever show while their own season is the active
     // one — that's the "one active season at a time" behavior. Anything
@@ -7214,35 +7218,55 @@ import {
         </div>
       </div>` : '';
 
-    // While a season is live, the store shows only that season's own themed
-    // items — the evergreen catalogue (Hellflame, Dragon Balls, etc.) steps
-    // aside so the whole "Avatar decorations" tab reads as the season, not
-    // just the section up top. It comes back the moment no season is active.
-    decorationGrid.innerHTML = activeSeason ? '' : evergreenItems.map(item => decorationCardHtml(item, 'pts', clashPoints)).join('');
+    // The evergreen (Clash Points) catalogue always stays visible in its
+    // own section, season or no season — items priced in pts/XP live only
+    // in this non-season store and never move into (or get replaced by)
+    // the season shelf above. Previously this grid was cleared entirely
+    // whenever a season was live, which made every evergreen decoration
+    // unpurchasable for the duration of the season — that's fixed here.
+    decorationGrid.innerHTML = evergreenItems.map(item => decorationCardHtml(item, 'pts', clashPoints)).join('');
 
-    // Same season-gating as the decorations above: season-tagged fonts
-    // (Nosifer & co.) only show while their own season is live and are
-    // priced in that season's currency; evergreen fonts show the rest of
-    // the time, priced in Clash Points as before.
-    const fontItems = activeSeason ? PROFILE_FONTS.filter(item => item.season === activeSeasonId) : PROFILE_FONTS.filter(item => !item.season);
-    fontGrid.innerHTML = fontItems.map(item => {
+    // Same split as the decorations above: season-tagged fonts (Nosifer &
+    // co.) only ever show in their own season's shelf, exclusive to it —
+    // never in another season, never in the default store. Evergreen
+    // fonts (Bangers, Luckiest, ...) live in their own grid and — like the
+    // evergreen decorations above — stay visible and purchasable the whole
+    // time, season or no season, instead of disappearing while one is live.
+    const seasonFontItems = activeSeason ? PROFILE_FONTS.filter(item => item.season === activeSeasonId) : [];
+    const evergreenFontItems = PROFILE_FONTS.filter(item => !item.season);
+
+    function fontCardHtml(item, forOwnedTab){
       const owned = unlockedFonts.includes(item.id);
       const equipped = equippedFont === item.id;
       const usesShards = !!item.season;
       const cost = item.cost || 70;
       const balance = usesShards ? seasonShards : clashPoints;
-      const currency = usesShards ? activeSeason.currencyLabel.toLowerCase() : 'pts';
+      const currency = usesShards ? (SEASONS[item.season]?.currencyLabel || 'Shards').toLowerCase() : 'pts';
       const buttonLabel = equipped ? 'Equipped' : owned ? 'Equip' : 'Redeem';
-      const costHtml = owned ? '' : `${usesShards ? seasonCurrencyIconHtml(activeSeason) : ''}${cost} ${currency}`;
+      const costHtml = owned ? '' : `${usesShards ? seasonCurrencyIconHtml(SEASONS[item.season]) : ''}${cost} ${currency}`;
       return `<div class="profile-store-item${owned ? ' owned' : ''}">
         ${owned ? '<span class="profile-owned-tag">OWNED</span>' : ''}
         <div class="profile-store-preview ${item.cls}">Aa</div>
         <h4>${item.name}</h4>
         <p class="profile-store-cat">${item.category}</p>
         <div class="profile-store-cost">${costHtml}</div>
-        <button class="profile-store-action${equipped ? ' equipped' : ''}" type="button" data-font-action="${item.id}" ${!owned && balance < cost ? 'disabled' : ''}>${buttonLabel}</button>
+        <button class="profile-store-action${equipped ? ' equipped' : ''}" type="button" data-font-action="${item.id}" ${!forOwnedTab && !owned && balance < cost ? 'disabled' : ''}>${buttonLabel}</button>
       </div>`;
-    }).join('');
+    }
+
+    if (fontSeasonSection) {
+      fontSeasonSection.innerHTML = (activeSeason && seasonFontItems.length) ? `
+        <div class="profile-store-season">
+          <div class="profile-store-season-banner" style="--season-banner-img:url('${activeSeason.bannerAsset}')">
+            <span class="profile-store-season-label">${activeSeason.label}</span>
+            <div class="profile-store-season-sub">Exclusive while the season's live — spend your ${activeSeason.currencyLabel} (${seasonCurrencyIconHtml(activeSeason)}${seasonShards} available)</div>
+          </div>
+          <div class="profile-store-season-grid">
+            ${seasonFontItems.map(item => fontCardHtml(item, false)).join('')}
+          </div>
+        </div>` : '';
+    }
+    fontGrid.innerHTML = evergreenFontItems.map(item => fontCardHtml(item, false)).join('');
 
     activateCanvasFx(decorationGrid);
     activateCanvasFx(seasonSection);
@@ -7251,37 +7275,69 @@ import {
         button.addEventListener('click', () => handleCustomizationAction('decoration', button.dataset.decorationAction));
       });
     });
-    fontGrid.querySelectorAll('[data-font-action]').forEach(button => {
-      button.addEventListener('click', () => handleCustomizationAction('font', button.dataset.fontAction));
+    [fontGrid, fontSeasonSection].filter(Boolean).forEach(grid => {
+      grid.querySelectorAll('[data-font-action]').forEach(button => {
+        button.addEventListener('click', () => handleCustomizationAction('font', button.dataset.fontAction));
+      });
     });
 
+    function cardEffectCardHtml(item){
+      const owned = unlockedCardEffects.includes(item.id);
+      const equipped = equippedCardEffect === item.id;
+      const isPremium = !!item.premium;
+      const xpLocked = !!item.requiresXp && currentUserXp < item.requiresXp && !owned;
+      const buttonLabel = equipped ? 'Equipped'
+        : owned ? 'Equip'
+        : isPremium ? 'Buy'
+        : xpLocked ? 'Locked' : 'Equip';
+      const costHtml = owned ? '' : isPremium
+        ? `$${item.cash.usd.toFixed(2)}`
+        : item.requiresXp ? `${Math.min(currentUserXp, item.requiresXp)}/${item.requiresXp} XP` : '';
+      return `<div class="profile-store-item card-effect-card${owned ? ' owned' : ''}${isPremium ? ' premium' : ''}${xpLocked ? ' locked' : ''}">
+        ${owned ? '<span class="profile-owned-tag">OWNED</span>' : ''}
+        ${!owned && isPremium ? '<span class="profile-premium-tag">PREMIUM</span>' : ''}
+        ${xpLocked ? '<span class="profile-locked-tag">LOCKED</span>' : ''}
+        <div class="profile-store-preview"><canvas class="card-fx-canvas mini" width="150" height="120" data-fx-type="${item.canvasType}"></canvas></div>
+        <h4>${item.name}</h4>
+        <p class="profile-store-cat">${item.category}</p>
+        <span class="profile-store-rarity ${item.rarity.toLowerCase()}">${item.rarity}</span>
+        <div class="profile-store-cost">${costHtml}</div>
+        <button class="profile-store-action${equipped ? ' equipped' : ''}${isPremium && !owned ? ' premium' : ''}" type="button" data-card-effect-action="${item.id}" ${xpLocked ? 'disabled' : ''}>${buttonLabel}</button>
+      </div>`;
+    }
+
     if (cardEffectGrid) {
-      cardEffectGrid.innerHTML = PROFILE_CARD_EFFECTS.map(item => {
-        const owned = unlockedCardEffects.includes(item.id);
-        const equipped = equippedCardEffect === item.id;
-        const isPremium = !!item.premium;
-        const xpLocked = !!item.requiresXp && currentUserXp < item.requiresXp && !owned;
-        const buttonLabel = equipped ? 'Equipped'
-          : owned ? 'Equip'
-          : isPremium ? 'Buy'
-          : xpLocked ? 'Locked' : 'Equip';
-        const costHtml = owned ? '' : isPremium
-          ? `$${item.cash.usd.toFixed(2)}`
-          : item.requiresXp ? `${Math.min(currentUserXp, item.requiresXp)}/${item.requiresXp} XP` : '';
-        return `<div class="profile-store-item card-effect-card${owned ? ' owned' : ''}${isPremium ? ' premium' : ''}${xpLocked ? ' locked' : ''}">
-          ${owned ? '<span class="profile-owned-tag">OWNED</span>' : ''}
-          ${!owned && isPremium ? '<span class="profile-premium-tag">PREMIUM</span>' : ''}
-          ${xpLocked ? '<span class="profile-locked-tag">LOCKED</span>' : ''}
-          <div class="profile-store-preview"><canvas class="card-fx-canvas mini" width="150" height="120" data-fx-type="${item.canvasType}"></canvas></div>
-          <h4>${item.name}</h4>
-          <p class="profile-store-cat">${item.category}</p>
-          <span class="profile-store-rarity ${item.rarity.toLowerCase()}">${item.rarity}</span>
-          <div class="profile-store-cost">${costHtml}</div>
-          <button class="profile-store-action${equipped ? ' equipped' : ''}${isPremium && !owned ? ' premium' : ''}" type="button" data-card-effect-action="${item.id}" ${xpLocked ? 'disabled' : ''}>${buttonLabel}</button>
-        </div>`;
-      }).join('');
+      cardEffectGrid.innerHTML = PROFILE_CARD_EFFECTS.map(cardEffectCardHtml).join('');
       activateCardFx(cardEffectGrid);
       cardEffectGrid.querySelectorAll('[data-card-effect-action]').forEach(button => {
+        button.addEventListener('click', () => handleCardEffectAction(button.dataset.cardEffectAction));
+      });
+    }
+
+    // Owned tab — every decoration, font, and card effect already
+    // purchased or redeemed, in one place, regardless of which season (if
+    // any) they came from or whether that season is still live. Read-only
+    // display of ownership plus the same equip/unequip actions as the
+    // regular shelves — nothing here is ever purchasable again.
+    if (ownedGrid) {
+      const ownedDecorations = PROFILE_DECORATIONS.filter(item => unlockedDecorations.includes(item.id));
+      const ownedFonts = PROFILE_FONTS.filter(item => unlockedFonts.includes(item.id));
+      const ownedCardEffects = PROFILE_CARD_EFFECTS.filter(item => unlockedCardEffects.includes(item.id));
+      const hasOwnedItems = ownedDecorations.length || ownedFonts.length || ownedCardEffects.length;
+      ownedGrid.innerHTML = hasOwnedItems ? [
+        ownedDecorations.length ? `<div class="profile-owned-section-heading">Decorations</div>${ownedDecorations.map(item => decorationCardHtml(item, 'pts', clashPoints)).join('')}` : '',
+        ownedFonts.length ? `<div class="profile-owned-section-heading">Name fonts</div>${ownedFonts.map(item => fontCardHtml(item, true)).join('')}` : '',
+        ownedCardEffects.length ? `<div class="profile-owned-section-heading">Card effects</div>${ownedCardEffects.map(cardEffectCardHtml).join('')}` : ''
+      ].join('') : `<div class="profile-store-empty-hint">Nothing purchased or redeemed yet — items you unlock show up here.</div>`;
+      activateCanvasFx(ownedGrid);
+      activateCardFx(ownedGrid);
+      ownedGrid.querySelectorAll('[data-decoration-action]').forEach(button => {
+        button.addEventListener('click', () => handleCustomizationAction('decoration', button.dataset.decorationAction));
+      });
+      ownedGrid.querySelectorAll('[data-font-action]').forEach(button => {
+        button.addEventListener('click', () => handleCustomizationAction('font', button.dataset.fontAction));
+      });
+      ownedGrid.querySelectorAll('[data-card-effect-action]').forEach(button => {
         button.addEventListener('click', () => handleCardEffectAction(button.dataset.cardEffectAction));
       });
     }
@@ -7525,10 +7581,22 @@ import {
     tab.addEventListener('click', () => {
       const activeTab = tab.dataset.storeTab;
       document.querySelectorAll('[data-store-tab]').forEach(item => item.classList.toggle('active', item === tab));
+      // Every section is scoped to its own tab now — previously
+      // decorationSeasonSection had no hidden toggle at all, so the active
+      // season's avatar effects stayed on screen (stacked above whatever
+      // grid was showing) no matter which tab was selected, e.g. fonts or
+      // card effects both showed the season decorations ahead of their
+      // own items. Each grid/section below now hides unless it's the
+      // active tab's own.
+      document.getElementById('decorationSeasonSection').hidden = activeTab !== 'decorations';
       document.getElementById('decorationStoreGrid').hidden = activeTab !== 'decorations';
+      const fontSeasonSection = document.getElementById('fontSeasonSection');
+      if (fontSeasonSection) fontSeasonSection.hidden = activeTab !== 'fonts';
       document.getElementById('fontStoreGrid').hidden = activeTab !== 'fonts';
       const cardEffectGrid = document.getElementById('cardEffectStoreGrid');
       if (cardEffectGrid) cardEffectGrid.hidden = activeTab !== 'cardEffects';
+      const ownedGrid = document.getElementById('ownedStoreGrid');
+      if (ownedGrid) ownedGrid.hidden = activeTab !== 'owned';
     });
   });
 
