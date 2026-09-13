@@ -6814,8 +6814,8 @@ import {
     // Anime season items (toxic/portal/reaper/flame), so they read as
     // "anime effects" sitting in the horror shelf. Kept as evergreen
     // (Clash Points) decorations instead of deleting them outright.
-    { id:'phantom-mist', name:'Phantom Mist', category:'Dark', rarity:'Rare', cost:80, fx:'canvas', canvasType:'toxic' },
-    { id:'wraith-veil', name:'Wraith Veil', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal' },
+    { id:'phantom-mist', name:'Phantom Mist', category:'Dark', rarity:'Rare', cost:80, fx:'canvas', canvasType:'toxic', retired:true },
+    { id:'wraith-veil', name:'Wraith Veil', category:'Dark', rarity:'Epic', cost:90, fx:'canvas', canvasType:'portal', retired:true },
     { id:'grim-reaper', name:'Grim Reaper', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'reaper', fxParticles:6 },
     { id:'cursed-flame', name:'Cursed Flame', category:'Dark', rarity:'Legendary', cost:100, fx:'canvas', canvasType:'flame', retired:true },
     // Final Six — bespoke non-particle canvas renderers (see AvatarEffect
