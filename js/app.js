@@ -7465,11 +7465,18 @@ import {
     // with the evergreen currency (see awardXp in api/lib/xp.js for where
     // shards come from).
     const usesShards = !!item.season;
-    // Dotted key (e.g. 'seasonShards.horror') — both updateDoc and
-    // set(...,{merge:true}) treat a top-level key containing a dot as a
-    // nested field path, so this writes into that one season's slot in
-    // the map without touching any other season's balance. See
-    // api/lib/xp.js for why seasonShards is a map keyed by season id.
+    // Dotted key (e.g. 'seasonShards.horror') — used as the nested-field
+    // path for reading the local balance below. IMPORTANT: this only
+    // resolves to the nested field seasonShards.horror when written via
+    // transaction.update()/updateDoc(). transaction.set(ref, data,
+    // {merge:true}) does NOT reliably expand a dotted object key into a
+    // nested path — it can send it as one literal field literally named
+    // "seasonShards.horror" (dot included in the name), which is exactly
+    // what the security rules' affectedKeys() check correctly rejected,
+    // since that literal field never matches 'seasonShards' in hasOnly().
+    // That was the real cause behind every season-shard purchase silently
+    // failing with permission-denied — see the transaction below, which
+    // now uses update() instead of set()+merge for this reason.
     const currencyField = usesShards ? `seasonShards.${item.season}` : 'clashPoints';
     const currencyLabel = usesShards ? (SEASONS[item.season]?.currencyLabel || 'Shards') : 'Clash Points';
     const userRef = doc(db, 'users', user.uid);
@@ -7498,7 +7505,8 @@ import {
       }
       await runTransaction(db, async transaction => {
         const snap = await transaction.get(userRef);
-        const data = snap.exists() ? snap.data() : {};
+        const exists = snap.exists();
+        const data = exists ? snap.data() : {};
         // data is the real nested doc — a dotted key won't resolve here
         // the way it does in the query/update side, so read it manually.
         const remoteBalance = Number(fieldPath(data, currencyField) || 0);
@@ -7507,11 +7515,27 @@ import {
           : (Array.isArray(data.unlockedFonts) ? data.unlockedFonts : []);
         if (remoteOwned.includes(id)) throw new Error('already-owned');
         if (remoteBalance < cost) throw new Error('not-enough-points');
-        transaction.set(userRef, {
-          [currencyField]: remoteBalance - cost,
-          [type === 'decoration' ? 'unlockedDecorations' : 'unlockedFonts']: arrayUnion(id),
-          [type === 'decoration' ? 'lastRedeemedDecoration' : 'lastRedeemedFont']: id
-        }, { merge: true });
+        const unlockedField = type === 'decoration' ? 'unlockedDecorations' : 'unlockedFonts';
+        const lastRedeemedField = type === 'decoration' ? 'lastRedeemedDecoration' : 'lastRedeemedFont';
+        if (exists) {
+          // update() (unlike set()+merge — see the note on currencyField
+          // above) reliably expands a dotted string key into the nested
+          // field path, which is what actually gets this write past the
+          // security rules' affectedKeys() check.
+          transaction.update(userRef, {
+            [currencyField]: remoteBalance - cost,
+            [unlockedField]: arrayUnion(id),
+            [lastRedeemedField]: id
+          });
+        } else {
+          // No doc yet to update — build the nested object by hand
+          // instead of leaning on a dotted key, since that's the exact
+          // shape set()+merge fails to expand correctly.
+          const payload = { [unlockedField]: arrayUnion(id), [lastRedeemedField]: id };
+          if (usesShards) payload.seasonShards = { [item.season]: remoteBalance - cost };
+          else payload.clashPoints = remoteBalance - cost;
+          transaction.set(userRef, payload, { merge: true });
+        }
       });
       if (usesShards) {
         seasonShardsRaw[item.season] = (seasonShardsRaw[item.season] || 0) - cost;
