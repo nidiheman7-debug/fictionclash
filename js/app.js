@@ -39,6 +39,13 @@ import {
   function isAdmin(){
     return !!(auth.currentUser && auth.currentUser.uid === ADMIN_UID);
   }
+
+  // Shared "add sticker" icon markup for every comment composer's toggle
+  // button (hero card, full comments sheet, and each dynamically-built
+  // clip card) — defined once up top since the clip card template below
+  // needs it long before the sticker catalog itself is declared further
+  // down this file.
+  const STICKER_TOGGLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12.5V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h5.5"/><path d="M20 12.5 13.5 19H13a1.5 1.5 0 0 1-1.5-1.5v-.5A6 6 0 0 1 17.5 11h.5a2 2 0 0 1 2 1.5Z"/></svg>`;
   const db = window.firebaseDb;
   const googleProvider = new GoogleAuthProvider();
 
@@ -49,8 +56,11 @@ import {
     return String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
   }
 
-  // ---------- theme toggle ----------
-  const themeToggle = document.getElementById('themeToggle');
+  // ---------- theme mode (Dark / Light / Device) ----------
+  // Chosen from Settings ▸ Appearance ▸ Theme (#themeModeTabs) — the
+  // header icon this used to be is gone; see index.html's inline boot
+  // script for the pre-paint version of this same logic (it can't call
+  // into this file since it runs before app.js loads).
   const themeColorMeta = document.querySelector('meta[name="theme-color"]');
   // Keeps the status bar (the strip behind the clock/battery icons, both in
   // the browser tab and the installed PWA) matching the current theme
@@ -60,65 +70,59 @@ import {
     const isLight = document.body.classList.contains('light');
     themeColorMeta.setAttribute('content', isLight ? '#f1f1ef' : '#1c1d23');
   }
-  themeToggle.addEventListener('click', () => {
-    // Anime/Horror season: light mode is off, full stop — the button sits
-    // disabled (see applySeasonLightLock) but bail out here too in case
-    // something still dispatches a click at it.
-    if (themeToggle.classList.contains('season-locked')) {
-      showToast('Light mode is off during ' + (activeSeasonId ? (SEASONS[activeSeasonId]?.label || 'this season') : 'this season'));
-      return;
+  const THEME_MODES = ['dark', 'light', 'device'];
+  let themeMode = THEME_MODES.includes(localStorage.getItem('fictionClashThemeMode'))
+    ? localStorage.getItem('fictionClashThemeMode')
+    : 'dark'; // Dark is the app's default — see the boot script's migration note.
+  const deviceThemeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  function resolveIsLight(mode){
+    if (mode === 'light') return true;
+    if (mode === 'device') return !!(deviceThemeQuery && deviceThemeQuery.matches);
+    return false; // 'dark'
+  }
+  // Called on a tab click, and also whenever the season changes (since a
+  // season can force dark regardless of the chosen mode — see below).
+  function applyThemeMode(mode){
+    if (!THEME_MODES.includes(mode)) return;
+    themeMode = mode;
+    if (nonEssentialStorageAllowed()) localStorage.setItem('fictionClashThemeMode', mode);
+    document.querySelectorAll('#themeModeTabs [data-theme-mode]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.themeMode === mode);
+    });
+    const seasonLocks = !!SEASONS_LOCK_LIGHT[activeSeasonId];
+    if (seasonLocks && mode !== 'dark') {
+      showToast('Saved — but light mode stays off during ' + (SEASONS[activeSeasonId]?.label || 'this season'));
     }
-    const isLight = document.body.classList.toggle('light');
-    themeToggle.setAttribute('aria-label', isLight ? 'Switch to dark theme' : 'Switch to light theme');
-    themeToggle.title = isLight ? 'Switch to dark theme' : 'Switch to light theme';
-    if (nonEssentialStorageAllowed()) localStorage.setItem('fictionClashLight', isLight ? '1' : '0');
-    // Re-apply the accent theme so light-sensitive accents (like mono) stay visible.
-    applyTheme(currentThemeName);
+    const isLight = seasonLocks ? false : resolveIsLight(mode);
+    if (isLight !== document.body.classList.contains('light')) {
+      document.body.classList.toggle('light', isLight);
+      applyTheme(currentThemeName);
+    }
     syncStatusBarColor();
+  }
+  document.querySelectorAll('#themeModeTabs [data-theme-mode]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.themeMode === themeMode);
+    btn.addEventListener('click', () => applyThemeMode(btn.dataset.themeMode));
   });
+  // "Device" mode stays live — if the phone's own light/dark setting
+  // changes while the app is open, follow it immediately.
+  if (deviceThemeQuery && deviceThemeQuery.addEventListener) {
+    deviceThemeQuery.addEventListener('change', () => {
+      if (themeMode === 'device') applyThemeMode('device');
+    });
+  }
   // Called whenever the active season changes (including on first load).
-  // Anime/Horror season forces dark mode and locks the toggle for its
-  // duration; leaving the season restores whatever light/dark the user
-  // actually had saved (or the light default, if they never chose).
+  // Anime/Horror season forces dark mode for its duration; leaving the
+  // season restores whatever mode the user actually has chosen (or the
+  // dark default, if they never touched it).
   function applySeasonLightLock(seasonId){
     const locksLight = !!SEASONS_LOCK_LIGHT[seasonId];
-    if (locksLight) {
-      if (document.body.classList.contains('light')) {
-        document.body.classList.remove('light');
-        applyTheme(currentThemeName);
-      }
-      themeToggle.classList.add('season-locked');
-      const label = 'Light mode is off during ' + (SEASONS[seasonId]?.label || 'this season');
-      themeToggle.setAttribute('aria-label', label);
-      themeToggle.title = label;
-    } else {
-      themeToggle.classList.remove('season-locked');
-      const savedLight = localStorage.getItem('fictionClashLight');
-      const isLight = savedLight === null ? true : savedLight === '1';
-      if (isLight !== document.body.classList.contains('light')) {
-        document.body.classList.toggle('light', isLight);
-        applyTheme(currentThemeName);
-      }
-      const label = isLight ? 'Switch to dark theme' : 'Switch to light theme';
-      themeToggle.setAttribute('aria-label', label);
-      themeToggle.title = label;
+    const isLight = locksLight ? false : resolveIsLight(themeMode);
+    if (isLight !== document.body.classList.contains('light')) {
+      document.body.classList.toggle('light', isLight);
+      applyTheme(currentThemeName);
     }
     syncStatusBarColor();
-  }
-  // The inline boot script in index.html already guessed at a season lock
-  // from the cached fictionClashLastSeason key before first paint (adding
-  // the matching season-* body class) — bring the toggle's own state in
-  // line with that guess immediately, rather than waiting for the
-  // Firestore listener's first real callback further down.
-  if (document.body.classList.contains('season-anime') || document.body.classList.contains('season-horror')) {
-    themeToggle.classList.add('season-locked');
-  }
-  // The inline script at the top of <body> already decided light vs dark
-  // (saved choice, or the device's own setting) before first paint — just
-  // bring this button's label/icon in line with whatever it picked.
-  if (document.body.classList.contains('light')) {
-    themeToggle.setAttribute('aria-label', 'Switch to dark theme');
-    themeToggle.title = 'Switch to dark theme';
   }
   syncStatusBarColor(); // set it correctly for whatever theme loads by default
 
@@ -1058,6 +1062,7 @@ import {
   const heroCommentForm = document.getElementById('heroCommentForm');
   const heroCommentInput = document.getElementById('heroCommentInput');
   let heroCommentsUnsubscribe = null;
+  let heroReactionsUnsubscribe = null;
   let heroCommentsMatchupId = '';
   // Only the last 2 comments render inline on the hero card — this object
   // is the "thread" handed to the shared see-all sheet (see
@@ -1068,8 +1073,10 @@ import {
   function wireHeroComments(matchupId){
     if (matchupId === heroCommentsMatchupId) return; // already watching this matchup — avoid re-subscribing
     if (heroCommentsUnsubscribe) { heroCommentsUnsubscribe(); heroCommentsUnsubscribe = null; }
+    if (heroReactionsUnsubscribe) { heroReactionsUnsubscribe(); heroReactionsUnsubscribe = null; }
     heroCommentsMatchupId = matchupId;
     heroCommentsThread.commentsFor = matchupId;
+    heroCommentsThread._reactions = null;
     // Genuinely a different thread (new matchup) — a full teardown is
     // correct here, unlike the snapshot-driven re-renders further down
     // (see reconcileKeyedList), but still needs to stop any running
@@ -1102,6 +1109,7 @@ import {
         showToast('Could not load comments — try again');
       }
     );
+    heroReactionsUnsubscribe = watchReactionsFor(matchupId, heroCommentsThread, heroCommentsList);
   }
 
   // Shared by the hero card's own form and the "see all" sheet when it's
@@ -1117,16 +1125,18 @@ import {
     haptic('tap');
     const matchupId = heroCommentsMatchupId;
     const replyTarget = sourceForm?._replyTarget || null;
+    const stickerId = sourceForm?._attachedSticker || null;
     try {
       const idToken = await user.getIdToken();
       const res = await fetch('/api/comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-        body: JSON.stringify({ matchupId, text, replyTo: replyTarget }),
+        body: JSON.stringify({ matchupId, text, replyTo: replyTarget, stickerId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
       setReplyTarget(sourceForm, null);
+      if (sourceForm) clearAttachedSticker(sourceForm);
       // Comments no longer award XP server-side — only bump locally if
       // the server actually sent xpAwarded (kept for forward-compat).
       if (data.xpAwarded) {
@@ -1145,7 +1155,7 @@ import {
   heroCommentForm.addEventListener('submit', async event => {
     event.preventDefault();
     const text = heroCommentInput.value.trim();
-    if (!text) return;
+    if (!text && !heroCommentForm._attachedSticker) return;
     heroCommentInput.value = '';
     postHeroComment(text, heroCommentForm).catch(() => { heroCommentInput.value = text; });
   });
@@ -3461,13 +3471,24 @@ import {
     });
   }
 
-  function renderCommentEl(data, onReply){
+  function renderCommentEl(data, thread, onReply){
     const el = document.createElement('div');
     el.className = 'comment';
+    el.dataset.commentId = data.id || '';
+    el.dataset.parentType = thread?.type === 'clip' ? 'clip' : 'matchup';
+    el.dataset.parentId = thread?.commentsFor || '';
     const replyQuote = data.replyToName
       ? `<div class="comment-reply-quote"><span class="reply-connector"></span><span class="reply-quote-avatar">${commentAvatarHtml(data.replyToName, data.replyToAvatarUrl)}</span><span>Replying to <b>${escapeHtml(data.replyToName)}</b>: ${escapeHtml(data.replyToText || '')}</span></div>`
       : '';
-    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span><button type="button" class="comment-reply-btn">Reply</button></div>`;
+    const stickerMarkup = data.stickerId
+      ? `<span class="comment-sticker">${stickerHtml(data.stickerId)}</span>`
+      : '';
+    // Reaction pills are filled in and kept live by refreshReactionPills()
+    // (see the reactions listener below) rather than rendered here — this
+    // element just needs to exist so that pass has somewhere to write to,
+    // and the "React" button itself never needs to be re-rendered on a
+    // reaction update the way the pills next to it do.
+    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span>${stickerMarkup}<div class="comment-actions-row"><button type="button" class="comment-reply-btn">Reply</button><button type="button" class="comment-react-btn" aria-label="React with a sticker">${STICKER_TOGGLE_ICON}</button><span class="comment-reactions"></span></div></div>`;
     attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
     attachDecoration(el.querySelector('.comment-avatar'), data.uid);
     attachFont(el.querySelector('.comment-body b'), data.uid);
@@ -3540,7 +3561,7 @@ import {
     // making them show up inline here even though they belong in their own
     // tab — filter them out before slicing to the last two.
     const preview = docs.filter(data => !data.replyToName).slice(-COMMENTS_PREVIEW_LIMIT);
-    reconcileKeyedList(listEl, preview, commentKey, data => renderCommentEl(data, (name, text, avatarUrl, uid) => {
+    reconcileKeyedList(listEl, preview, commentKey, data => renderCommentEl(data, thread, (name, text, avatarUrl, uid) => {
       openCommentsModal(thread);
       switchCommentsTab('replies');
       setReplyTarget(commentsModalForm, { name, text, avatarUrl, uid }, false);
@@ -3594,7 +3615,7 @@ import {
     // whatever they were reading, on top of previously re-rendering the
     // whole list every time.
     const wasNearBottom = commentsModalList.scrollHeight - commentsModalList.scrollTop - commentsModalList.clientHeight < 60;
-    reconcileKeyedList(commentsModalList, docs, commentKey, data => renderCommentEl(data, (name, text, avatarUrl, uid) => {
+    reconcileKeyedList(commentsModalList, docs, commentKey, data => renderCommentEl(data, openCommentsThread, (name, text, avatarUrl, uid) => {
       // Replying jumps to the Replies tab — that's where the composed
       // reply will land once posted, and where the quote thread lives,
       // instead of nesting it back into the comments list it was opened from.
@@ -3771,7 +3792,7 @@ import {
     event.preventDefault();
     if (commentsModalForm.dataset.commentsType === 'hero') {
       const text = commentsModalInput.value.trim();
-      if (!text) return;
+      if (!text && !commentsModalForm._attachedSticker) return;
       commentsModalInput.value = '';
       postHeroComment(text, commentsModalForm).catch(() => { commentsModalInput.value = text; });
     } else {
@@ -3787,6 +3808,7 @@ import {
   // than once for the same clipId/form pair (guarded by a flag on the form).
   const wiredCommentForms = new WeakSet();
   const commentUnsubscribes = new Map(); // clipId -> unsubscribe fn, closed on delete so it stops costing reads
+  const reactionUnsubscribes = new Map(); // clipId -> reactions unsubscribe fn, same lifecycle as commentUnsubscribes
   function wireClipComments(clipId, form){
     if (!clipId || wiredCommentForms.has(form)) return;
     wiredCommentForms.add(form);
@@ -3809,13 +3831,15 @@ import {
       err => console.error('Comments listener failed', err)
     );
     commentUnsubscribes.set(clipId, unsubscribe);
+    reactionUnsubscribes.set(clipId, watchReactionsFor(clipId, thread, list));
   }
 
   async function addComment(form){
     const clipId = form.dataset.commentsFor;
     const input = form.querySelector('input');
     const text = input.value.trim();
-    if (!text) return;
+    const stickerId = form._attachedSticker || null;
+    if (!text && !stickerId) return;
     const user = auth.currentUser;
     if (!user) { requireSignIn('Sign in to comment'); return; }
     const replyTarget = form._replyTarget || null;
@@ -3833,11 +3857,12 @@ import {
       const res = await fetch('/api/clip-comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-        body: JSON.stringify({ clipId, text, replyTo: replyTarget }),
+        body: JSON.stringify({ clipId, text, replyTo: replyTarget, stickerId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Comment failed');
       setReplyTarget(form, null);
+      clearAttachedSticker(form);
       // Only bump locally if the server actually sent xpAwarded.
       if (data.xpAwarded) {
         currentUserXp += data.xpAwarded;
@@ -3973,6 +3998,8 @@ import {
         if (card) { deactivateCanvasFx(card); card.remove(); } // stop any comment avatar's particle-effect canvas before the card goes
         const unsubscribe = commentUnsubscribes.get(id);
         if (unsubscribe) { unsubscribe(); commentUnsubscribes.delete(id); }
+        const reactionUnsub = reactionUnsubscribes.get(id);
+        if (reactionUnsub) { reactionUnsub(); reactionUnsubscribes.delete(id); }
       });
       // The query is already newest-first, but clipFeed.prepend() puts
       // each new card at the very top as it's processed — so looping
@@ -4027,6 +4054,7 @@ import {
             <div class="comments-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span>Conversation</span></div>
             <div class="hero-comments-list"></div>
             <form class="comment-form" data-comments-for="${id}">
+              <button type="button" class="sticker-toggle-btn" aria-label="Add sticker">${STICKER_TOGGLE_ICON}</button>
               <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
               <button type="submit" aria-label="Post comment"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
             </form>`;
@@ -6877,6 +6905,223 @@ import {
   const decorationById = id => PROFILE_DECORATIONS.find(item => item.id === id);
   const fontById = id => PROFILE_FONTS.find(item => item.id === id);
 
+  // Fiction Clash's own sticker set — used both attached to a comment (like
+  // a Discord sticker message) and as a reaction on someone else's comment.
+  // Free, unlocked purely by XP milestone (every 500 XP), same "gated, not
+  // spent" mechanic as PROFILE_CARD_EFFECTS' requiresXp items above — so
+  // using a sticker never costs XP or touches leaderboard rank.
+  const APP_STICKERS = [
+    { id:'ko', label:'KO!', requiresXp:500 },
+    { id:'gg', label:'GG', requiresXp:1000 },
+    { id:'clash', label:'CLASH', requiresXp:1500 },
+    { id:'win', label:'W', requiresXp:2000 },
+    { id:'savage', label:'SAVAGE', requiresXp:2500 },
+    { id:'facts', label:'FACTS', requiresXp:3000 },
+    { id:'lit', label:'LIT', requiresXp:3500 },
+    { id:'goat', label:'GOAT', requiresXp:4000 },
+  ];
+  const stickerById = id => APP_STICKERS.find(item => item.id === id);
+  const isStickerUnlocked = (id, xp) => {
+    const s = stickerById(id);
+    return !!s && (xp || 0) >= s.requiresXp;
+  };
+  // One shared badge template (circle + bold stamped label) so the whole
+  // set reads as one consistent sticker family rather than 8 unrelated
+  // designs — only the label and its font-size (for longer words) differ.
+  function stickerSvg(label){
+    const size = label.length > 4 ? 10 : 13;
+    return `<svg viewBox="0 0 64 64" width="100%" height="100%" aria-hidden="true">
+      <circle cx="32" cy="32" r="29" fill="currentColor"/>
+      <circle cx="32" cy="32" r="29" fill="none" stroke="#fff" stroke-width="2.5"/>
+      <text x="32" y="37" text-anchor="middle" font-family="'Rajdhani',sans-serif" font-weight="800" font-size="${size}" fill="#0A0806">${escapeHtml(label)}</text>
+    </svg>`;
+  }
+  function stickerHtml(id){
+    const s = stickerById(id);
+    if (!s) return '';
+    return `<span class="sticker-badge" style="color:var(--accent)" title="${escapeHtml(s.label)}">${stickerSvg(s.label)}</span>`;
+  }
+
+  // ---------- sticker picker popover (shared across composers AND reactions) ----------
+  // One floating popover, repositioned and repopulated next to whichever
+  // button opened it — generalized around a callback rather than always
+  // writing to a form, so the same popover serves both "attach to what
+  // I'm typing" (composer toggle) and "react to this comment" (react
+  // button) without duplicating the picker itself.
+  const stickerPickerPopover = document.getElementById('stickerPickerPopover');
+  let stickerPickerOnPick = null;
+  let stickerPickerOpenerEl = null;
+
+  function closeStickerPicker(){
+    stickerPickerPopover.hidden = true;
+    stickerPickerOnPick = null;
+    stickerPickerOpenerEl = null;
+  }
+
+  function openStickerPickerFor(openerEl, onPick){
+    const unlocked = APP_STICKERS.filter(s => isStickerUnlocked(s.id, currentUserXp));
+    if (!unlocked.length) {
+      const next = APP_STICKERS.find(s => !isStickerUnlocked(s.id, currentUserXp));
+      showToast(next ? `Unlock stickers at ${next.requiresXp} XP (you're at ${currentUserXp})` : 'No stickers available');
+      return;
+    }
+    stickerPickerOpenerEl = openerEl;
+    stickerPickerOnPick = onPick;
+    stickerPickerPopover.innerHTML = unlocked.map(s =>
+      `<button type="button" class="sticker-picker-item" data-sticker-id="${s.id}">${stickerHtml(s.id)}</button>`
+    ).join('');
+    const rect = openerEl.getBoundingClientRect();
+    stickerPickerPopover.style.left = `${Math.max(8, Math.min(window.innerWidth - 208, rect.left - 80))}px`;
+    stickerPickerPopover.style.top = `${Math.max(8, rect.top - 10)}px`;
+    stickerPickerPopover.style.transform = 'translateY(-100%)';
+    stickerPickerPopover.hidden = false;
+  }
+
+  // Records the chosen sticker on the form itself (read by postHeroComment/
+  // addComment at send time) and swaps the toggle button's icon to a
+  // preview of the attached sticker so it's obvious one's queued up.
+  function attachStickerToForm(form, stickerId){
+    form._attachedSticker = stickerId;
+    const toggle = form.querySelector('.sticker-toggle-btn');
+    if (toggle) {
+      toggle.classList.add('has-sticker');
+      toggle.innerHTML = stickerHtml(stickerId);
+    }
+  }
+  function clearAttachedSticker(form){
+    form._attachedSticker = null;
+    const toggle = form.querySelector('.sticker-toggle-btn');
+    if (toggle) {
+      toggle.classList.remove('has-sticker');
+      toggle.innerHTML = STICKER_TOGGLE_ICON;
+    }
+  }
+
+  document.addEventListener('click', event => {
+    const toggle = event.target.closest('.sticker-toggle-btn');
+    if (toggle) {
+      event.preventDefault();
+      const form = toggle.closest('form');
+      if (!form) return;
+      if (!auth.currentUser) { requireSignIn('Sign in to use stickers'); return; }
+      if (!stickerPickerPopover.hidden && stickerPickerOpenerEl === toggle) { closeStickerPicker(); return; }
+      openStickerPickerFor(toggle, stickerId => attachStickerToForm(form, stickerId));
+      return;
+    }
+    const reactBtn = event.target.closest('.comment-react-btn');
+    if (reactBtn) {
+      event.preventDefault();
+      if (!auth.currentUser) { requireSignIn('Sign in to react'); return; }
+      const commentEl = reactBtn.closest('.comment');
+      if (!commentEl) return;
+      if (!stickerPickerPopover.hidden && stickerPickerOpenerEl === reactBtn) { closeStickerPicker(); return; }
+      openStickerPickerFor(reactBtn, stickerId => sendReaction(
+        commentEl.dataset.parentType,
+        commentEl.dataset.parentId,
+        commentEl.dataset.commentId,
+        stickerId
+      ));
+      return;
+    }
+    // Tapping an existing pill directly toggles that same sticker for you
+    // (adds your reaction if you hadn't, removes it if you're the one who
+    // tapped it before) — no need to reopen the picker just to react with
+    // a sticker someone else already started.
+    const pill = event.target.closest('.comment-reaction-pill');
+    if (pill) {
+      event.preventDefault();
+      if (!auth.currentUser) { requireSignIn('Sign in to react'); return; }
+      const commentEl = pill.closest('.comment');
+      if (!commentEl) return;
+      sendReaction(commentEl.dataset.parentType, commentEl.dataset.parentId, commentEl.dataset.commentId, pill.dataset.stickerId);
+      return;
+    }
+    if (event.target.closest('.sticker-picker-popover')) return; // handled below, not a close-tap
+    if (!stickerPickerPopover.hidden) closeStickerPicker();
+  });
+
+  stickerPickerPopover.addEventListener('click', event => {
+    const item = event.target.closest('[data-sticker-id]');
+    if (!item || !stickerPickerOnPick) return;
+    const onPick = stickerPickerOnPick;
+    closeStickerPicker();
+    onPick(item.dataset.stickerId);
+  });
+
+  // ---------- comment reactions (server-authoritative, Render backend) ----------
+  // One doc per (comment, uid) in the flat `commentReactions` collection —
+  // upserting/toggling it is what /api/react-comment does. This is a
+  // fire-and-forget POST; the actual pill counts update via the live
+  // listeners wired in watchReactionsFor below, not from this response.
+  async function sendReaction(parentType, parentId, commentId, stickerId){
+    const user = auth.currentUser;
+    if (!user || !commentId || !parentId) return;
+    haptic('tap');
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(`${PAYMENT_API_BASE}/api/react-comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+        body: JSON.stringify({ parentType, parentId, commentId, stickerId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Reaction failed');
+    } catch (err) {
+      console.error('Reaction failed', err);
+      showToast('Could not react — try again');
+    }
+  }
+
+  // Repaints just the `.comment-reactions` pill row for every comment
+  // currently in `listEl`, from an already-fetched reactions map — never
+  // touches the rest of the comment (avatar/decoration/text), so it can
+  // run on every reactions snapshot without fighting reconcileKeyedList's
+  // own diffing of the surrounding comment elements.
+  function refreshReactionPills(listEl, reactionsByComment){
+    if (!listEl) return;
+    listEl.querySelectorAll('.comment[data-comment-id]').forEach(commentEl => {
+      const pillsEl = commentEl.querySelector('.comment-reactions');
+      if (!pillsEl) return;
+      const id = commentEl.dataset.commentId;
+      const counts = reactionsByComment.get(id);
+      if (!counts || !counts.size) { pillsEl.innerHTML = ''; return; }
+      const myUid = auth.currentUser?.uid;
+      pillsEl.innerHTML = Array.from(counts.entries()).map(([stickerId, info]) => {
+        const mine = myUid && info.uids.has(myUid);
+        return `<button type="button" class="comment-reaction-pill${mine ? ' mine' : ''}" data-sticker-id="${stickerId}" title="${info.uids.size} reacted">${stickerHtml(stickerId)}<span>${info.uids.size}</span></button>`;
+      }).join('');
+    });
+  }
+
+  // Watches every reaction on a single thread (matchupId or clipId) and
+  // keeps `reactionsByComment` (commentId -> Map<stickerId, {uids:Set}>)
+  // current, repainting pills on every change. Caches the map onto
+  // `thread._reactions` too, so a fresh render (new comment arriving, the
+  // modal sheet opening, a tab switch) can repaint immediately from the
+  // last known snapshot instead of waiting for the next Firestore event.
+  // Returns an unsubscribe fn. Same "filter by field, group in memory"
+  // approach comments already use, rather than one listener per comment.
+  function watchReactionsFor(parentId, thread, listEl){
+    return onSnapshot(
+      query(collection(db, 'commentReactions'), where('parentId', '==', parentId)),
+      snapshot => {
+        const reactionsByComment = new Map();
+        snapshot.docs.forEach(d => {
+          const r = d.data();
+          if (!r.commentId || !r.stickerId || !r.uid) return;
+          if (!reactionsByComment.has(r.commentId)) reactionsByComment.set(r.commentId, new Map());
+          const perSticker = reactionsByComment.get(r.commentId);
+          if (!perSticker.has(r.stickerId)) perSticker.set(r.stickerId, { uids: new Set() });
+          perSticker.get(r.stickerId).uids.add(r.uid);
+        });
+        thread._reactions = reactionsByComment;
+        refreshReactionPills(listEl, reactionsByComment);
+        if (openCommentsThread === thread) refreshReactionPills(commentsModalList, reactionsByComment);
+      },
+      err => console.error('Reactions listener failed', err)
+    );
+  }
+
   // Each fx decoration can appear more than once at a time on the page
   // (e.g. the same equipped decoration on a comment avatar AND the account
   // header), so any internal SVG ids (gradients/filters/<use> targets) get
@@ -7314,6 +7559,25 @@ import {
       });
     }
 
+    // Stickers tab — informational only (no equip/buy action): each one
+    // just flips from locked to unlocked the moment currentUserXp crosses
+    // its requiresXp line, same live-gated mechanic as Meteor Fall/Thunder
+    // Strike above. The actual sticker picker (comment composer + reaction
+    // bar) filters APP_STICKERS by isStickerUnlocked() independently of
+    // this grid ever being opened.
+    function stickerCardHtml(item){
+      const unlocked = isStickerUnlocked(item.id, currentUserXp);
+      return `<div class="profile-store-item sticker-card${unlocked ? ' owned' : ' locked'}">
+        ${unlocked ? '<span class="profile-owned-tag">UNLOCKED</span>' : '<span class="profile-locked-tag">LOCKED</span>'}
+        <div class="profile-store-preview sticker-preview">${stickerHtml(item.id)}</div>
+        <div class="profile-store-cost">${unlocked ? '' : `${Math.min(currentUserXp, item.requiresXp)}/${item.requiresXp} XP`}</div>
+      </div>`;
+    }
+    const stickerGrid = document.getElementById('stickerStoreGrid');
+    if (stickerGrid) {
+      stickerGrid.innerHTML = APP_STICKERS.map(stickerCardHtml).join('');
+    }
+
     // Owned tab — every decoration, font, and card effect already
     // purchased or redeemed, in one place, regardless of which season (if
     // any) they came from or whether that season is still live. Read-only
@@ -7621,6 +7885,8 @@ import {
       if (cardEffectGrid) cardEffectGrid.hidden = activeTab !== 'cardEffects';
       const ownedGrid = document.getElementById('ownedStoreGrid');
       if (ownedGrid) ownedGrid.hidden = activeTab !== 'owned';
+      const stickerGrid = document.getElementById('stickerStoreGrid');
+      if (stickerGrid) stickerGrid.hidden = activeTab !== 'stickers';
     });
   });
 
@@ -8219,6 +8485,13 @@ import {
   onAuthStateChanged(auth, (user) => {
     hideAppLoadingScreen();
     if (user) {
+      // Signed in via ANY route (header button, a previous session being
+      // restored, this overlay's own buttons, whatever) — the first-visit
+      // intro has no reason to exist for a signed-in person, so dismiss it
+      // and mark it seen the same as if they'd closed it themselves. This
+      // is what actually fixes it reappearing for someone who signed in
+      // through the header instead of through this specific overlay.
+      if (typeof dismissIntro === 'function') dismissIntro();
       signedOutView.hidden = true;
       signedInView.hidden = false;
       signedInEmail.textContent = user.email || user.displayName || 'Signed in';
@@ -8434,7 +8707,16 @@ import {
     introOverlay.classList.remove('show');
     if (nonEssentialStorageAllowed()) localStorage.setItem(INTRO_SEEN_KEY, '1');
   }
-  if (!localStorage.getItem(INTRO_SEEN_KEY)) {
+  if (!localStorage.getItem(INTRO_SEEN_KEY) && !auth.currentUser) {
+    // The !auth.currentUser check covers the (uncommon but possible) case
+    // where Firebase has already restored a session synchronously by this
+    // point. The far more common case — session restored a moment later,
+    // asynchronously — is handled in onAuthStateChanged above, which calls
+    // dismissIntro() the instant a user is found; that's what actually
+    // stops this from reappearing for someone who signed in through the
+    // header button (or a previous visit) rather than through this
+    // overlay's own Google/email buttons, since INTRO_SEEN_KEY was never
+    // getting set for them before.
     introOverlay.classList.add('show');
   }
   introContinueBtn.addEventListener('click', dismissIntro);
