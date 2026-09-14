@@ -1807,26 +1807,8 @@
   .nav-item svg{ stroke:var(--muted); }
    .nav-item.active svg{ stroke:var(--accent); }
    .nav-item.active:before{content:'';position:absolute;top:-10px;left:50%;transform:translateX(-50%);width:26px;height:4px;border-radius:6px;background:var(--accent-bg);opacity:.85;}
-   .theme-toggle{
-     width:30px;height:30px;border:1px solid var(--line);border-radius:50%;
-     background:var(--surface);color:var(--accent);display:flex;align-items:center;
-     justify-content:center;cursor:pointer;transition:.2s ease;
-   }
-   .theme-toggle svg{ display:block; stroke:var(--accent); }
-   .theme-toggle:hover{transform:rotate(12deg);border-color:var(--accent);}
-   .theme-toggle .moon{display:none;}
-   /* .theme-toggle sets display:flex, which — being an author style —
-      beats the browser's default [hidden]{display:none} UA rule. That's
-      why installBtn.hidden = true wasn't actually hiding the button after
-      install: the attribute was set correctly, CSS just ignored it. This
-      rule restores [hidden]'s priority for anything using this class. */
-   .theme-toggle[hidden]{ display:none; }
-   /* Anime/Horror season: light mode is switched off entirely for the
-      duration, so the toggle goes inert instead of just disappearing —
-      a dimmed, non-interactive icon communicates "unavailable right now"
-      rather than looking like a missing feature. Re-enabled the moment
-      the season ends (see applySeason()'s toggle handling in app.js). */
-   .theme-toggle.season-locked{ opacity:.4; cursor:not-allowed; pointer-events:none; }
+   /* .theme-toggle (header icon) removed — theme is now chosen from
+      Settings ▸ Appearance ▸ Theme (#themeModeTabs), see app.js. */
    .signin-btn{
      width:30px;height:30px;border:1px solid var(--line);border-radius:50%;
      background:var(--surface);color:var(--text);display:flex;align-items:center;
@@ -1914,9 +1896,6 @@
      body.light .logo-badge{border-color:var(--accent);}
      body.light .logo-badge .logo-hilt{fill:var(--accent);}
      body.light .brand-small{color:var(--accent);}
-   body.light .theme-toggle{background:var(--surface2);border-color:var(--line);}
-   body.light .theme-toggle .sun{display:none;}
-   body.light .theme-toggle .moon{display:block;}
     body.light .hero{border-color:var(--line);background-image:linear-gradient(180deg,rgba(226,229,229,.93) 0%,rgba(210,214,214,.93) 100%), url('/icons/intro-collage.webp');background-size:cover;background-position:center;background-repeat:no-repeat;}
     body.light .hero-vs{background-image:radial-gradient(circle at 50% 0%,rgba(226,229,229,.93) 0%,rgba(210,214,214,.93) 68%), url('/icons/intro-collage.webp');background-size:cover;background-position:center;background-repeat:no-repeat;}
    body.light .avatar.hi{border-color:#ffffff;}
