@@ -900,6 +900,23 @@
      display:block;margin-top:3px;background:none;border:0;padding:0;
      color:var(--accent);font:700 10px 'Instrument Sans',sans-serif;cursor:pointer;
    }
+   .comment-actions-row{ display:flex; align-items:center; gap:12px; margin-top:5px; flex-wrap:wrap; }
+   .comment-actions-row .comment-reply-btn{ margin-top:0; }
+   .comment-react-btn{
+     display:flex; align-items:center; justify-content:center; width:20px; height:20px;
+     background:none; border:0; padding:0; color:var(--muted); cursor:pointer;
+   }
+   .comment-react-btn svg{ width:15px; height:15px; }
+   .comment-react-btn:active{ transform:scale(.88); }
+   .comment-reactions{ display:inline-flex; gap:5px; flex-wrap:wrap; }
+   .comment-reaction-pill{
+     display:inline-flex; align-items:center; gap:4px; border:1px solid var(--line);
+     background:var(--surface2); border-radius:999px; padding:2px 7px 2px 3px; cursor:pointer;
+   }
+   .comment-reaction-pill .sticker-badge{ width:16px; height:16px; }
+   .comment-reaction-pill span{ font:700 10px 'Martian Mono',monospace; color:var(--muted); }
+   .comment-reaction-pill.mine{ border-color:var(--accent); background:rgba(228,169,41,.12); }
+   .comment-reaction-pill.mine span{ color:var(--accent); }
    .reply-target-bar{
      display:flex;align-items:center;justify-content:space-between;gap:8px;
      background:var(--surface2);border-left:3px solid var(--accent);border-radius:6px;
@@ -991,6 +1008,23 @@
    }
    .comment-form button svg{ width:17px; height:17px; margin-left:1px; } /* nudge to visually center the plane */
    .comment-form button:active{ transform:scale(.88); }
+   .sticker-toggle-btn.has-sticker{ background:rgba(228,169,41,.15); }
+   .sticker-toggle-btn.has-sticker svg{ width:100%; height:100%; margin:0; padding:4px; }
+   .sticker-picker-popover{
+     position:fixed; z-index:600; display:flex; flex-wrap:wrap; gap:6px; width:200px;
+     background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:9px;
+     box-shadow:0 10px 30px rgba(0,0,0,.45);
+   }
+   .sticker-picker-popover[hidden]{ display:none; }
+   .sticker-picker-item{
+     width:40px; height:40px; padding:0; border:0; background:transparent; cursor:pointer; border-radius:50%;
+   }
+   .sticker-picker-item:active{ transform:scale(.9); }
+   .sticker-badge{display:inline-flex;width:100%;height:100%;}
+   .sticker-badge svg{width:100%;height:100%;}
+   /* A sticker attached to (or standing in for) comment text — sized to
+      sit comfortably inline next to a name/handle. */
+   .comment-sticker{display:inline-block;width:34px;height:34px;vertical-align:middle;}
    /* Facebook-style docked composer: while a comment field (hero card,
       clip card, or the full comments page) is focused, its form detaches
       from wherever it sits in the layout and pins to the very bottom of
@@ -1509,6 +1543,10 @@
      width:100%;height:56px;border-radius:9px;
      background:linear-gradient(160deg,#2c2140,#1c1d23);
    }
+   /* Sticker badges already draw their own circular outline+fill in the
+      SVG itself, so the generic gray preview background would just double
+      up behind it — dropped for this card only. */
+   .sticker-card .profile-store-preview{background:none;border:0;}
    .card-effect-card .profile-store-preview canvas.card-fx-canvas.mini{
      position:absolute;inset:0;width:100%;height:100%;pointer-events:none;mix-blend-mode:screen;
    }
