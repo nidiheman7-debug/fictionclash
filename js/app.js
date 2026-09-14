@@ -1146,6 +1146,7 @@ import {
       // the server actually sent xpAwarded (kept for forward-compat).
       if (data.xpAwarded) {
         currentUserXp += data.xpAwarded;
+        try { localStorage.setItem('fictionClashXpCache', String(currentUserXp)); } catch (err) {}
         currentUserWeeklyXp += data.xpAwarded;
         renderVerifiedProgress();
       }
@@ -1836,6 +1837,7 @@ import {
         // Only bump locally if the server actually sent xpAwarded.
         if (data.xpAwarded) {
           currentUserXp += data.xpAwarded;
+        try { localStorage.setItem('fictionClashXpCache', String(currentUserXp)); } catch (err) {}
           currentUserWeeklyXp += data.xpAwarded;
           renderVerifiedProgress();
         }
@@ -2714,6 +2716,7 @@ import {
       // for an unlike or a re-like that was already credited once).
       if (data.xpAwarded) {
         currentUserXp += data.xpAwarded;
+        try { localStorage.setItem('fictionClashXpCache', String(currentUserXp)); } catch (err) {}
         currentUserWeeklyXp += data.xpAwarded;
         renderVerifiedProgress();
         showXpToast(data.xpAwarded, data.rank);
@@ -3136,6 +3139,7 @@ import {
       if (!res.ok) throw new Error(data.error || 'Share XP failed');
       if (data.xpAwarded) {
         currentUserXp += data.xpAwarded;
+        try { localStorage.setItem('fictionClashXpCache', String(currentUserXp)); } catch (err) {}
         currentUserWeeklyXp += data.xpAwarded;
         renderVerifiedProgress();
         showXpToast(data.xpAwarded, data.rank);
@@ -3897,6 +3901,7 @@ import {
       // Only bump locally if the server actually sent xpAwarded.
       if (data.xpAwarded) {
         currentUserXp += data.xpAwarded;
+        try { localStorage.setItem('fictionClashXpCache', String(currentUserXp)); } catch (err) {}
         currentUserWeeklyXp += data.xpAwarded;
         renderVerifiedProgress();
       }
@@ -6984,7 +6989,15 @@ import {
   function stickerHtml(id){
     const s = stickerById(id);
     if (!s) return '';
-    return `<span class="sticker-badge" title="${escapeHtml(s.label)}"><img class="sticker-img" src="${s.img}" alt="${escapeHtml(s.label)}" draggable="false"></span>`;
+    // width/height give the browser the sticker's real pixel size up front
+    // (CSS still scales it down via max-width/max-height) so it can
+    // reserve the right amount of space before the image has decoded,
+    // instead of reflowing the comment list once each one finishes —
+    // decoding="async" additionally keeps that decode off the main
+    // thread so it doesn't compete with a scroll in progress. Comments
+    // routinely render several of these at once (attached + reactions),
+    // so this is what was making scrolling feel heavy.
+    return `<span class="sticker-badge" title="${escapeHtml(s.label)}"><img class="sticker-img" src="${s.img}" alt="${escapeHtml(s.label)}" draggable="false" width="200" height="200" decoding="async" loading="lazy"></span>`;
   }
 
   // ---------- sticker picker popover (shared across composers AND reactions) ----------
@@ -7984,7 +7997,13 @@ import {
   const VERIFIED_XP_THRESHOLD = 1000;
   const VERIFIED_BADGE_DAYS = 3;
   let currentUserVerifiedUntil = null; // Firestore Timestamp or null
-  let currentUserXp = 0; // progress toward the next badge
+  // Seeded from a local cache rather than hardcoded 0 — loadCloudProfile()
+  // below is a ONE-TIME getDoc(), not a live listener, so on a slow
+  // connection there's a real window right after opening the app where
+  // the real value hasn't arrived yet. Without this, every sticker reads
+  // as locked and the picker looks broken during exactly that window —
+  // which is what made it feel like it "randomly" failed to open.
+  let currentUserXp = Number(localStorage.getItem('fictionClashXpCache') || 0);
   let currentUserWeeklyXp = 0; // resets to 0 every Monday — see /api/reset-weekly-xp
 
   // Same seal shape used everywhere the badge shows up.
@@ -8323,6 +8342,7 @@ import {
       characterDecorations = (data.characterDecorations && typeof data.characterDecorations === 'object') ? { ...data.characterDecorations } : {};
       currentUserVerifiedUntil = data.verifiedUntil || null;
       currentUserXp = Number(data.xp || 0);
+      try { localStorage.setItem('fictionClashXpCache', String(currentUserXp)); } catch (err) {}
       currentUserWeeklyXp = Number(data.weeklyXp || 0);
       verifiedUntilCache[uid] = currentUserVerifiedUntil ? currentUserVerifiedUntil.toMillis() : null;
       updateAccountHeader();
