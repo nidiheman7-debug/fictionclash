@@ -880,6 +880,17 @@
      display:flex; gap:11px; padding:13px 0; border-bottom:1px solid rgba(255,255,255,.07);
      contain:content;
    }
+   /* Briefly flashed on the specific reply a notification points at, so
+      landing in a long thread doesn't leave the person hunting for which
+      comment they were actually sent here for. */
+   .comment.comment-highlight{
+     animation:commentHighlightFlash 2.2s ease-out;
+     border-radius:8px;
+   }
+   @keyframes commentHighlightFlash{
+     0%{ background:rgba(228,169,41,.28); }
+     100%{ background:rgba(228,169,41,0); }
+   }
    .comment-reply-quote{
      display:flex;align-items:center;gap:6px;position:relative;
      font-size:10.5px;color:var(--muted);margin-bottom:3px;padding-left:14px;opacity:.9;
@@ -1009,19 +1020,22 @@
    .comment-form button svg{ width:17px; height:17px; margin-left:1px; } /* nudge to visually center the plane */
    .comment-form button:active{ transform:scale(.88); }
    .sticker-toggle-btn.has-sticker{ background:rgba(228,169,41,.15); }
-   .sticker-toggle-btn.has-sticker svg{ width:100%; height:100%; margin:0; padding:4px; }
+   .sticker-toggle-btn.has-sticker img.sticker-img{ width:100%; height:100%; margin:0; padding:4px; object-fit:contain; }
    .sticker-picker-popover{
      position:fixed; z-index:600; display:flex; flex-wrap:wrap; gap:6px; width:200px;
      background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:9px;
      box-shadow:0 10px 30px rgba(0,0,0,.45);
    }
    .sticker-picker-popover[hidden]{ display:none; }
+   /* No forced border-radius here — the sticker art is an irregular cutout
+      (comic burst, lightning bolt, banner...) with its own white outline
+      baked in, so clipping it to a circle would slice pieces off. */
    .sticker-picker-item{
-     width:40px; height:40px; padding:0; border:0; background:transparent; cursor:pointer; border-radius:50%;
+     width:40px; height:40px; padding:2px; border:0; background:transparent; cursor:pointer; border-radius:8px;
    }
    .sticker-picker-item:active{ transform:scale(.9); }
-   .sticker-badge{display:inline-flex;width:100%;height:100%;}
-   .sticker-badge svg{width:100%;height:100%;}
+   .sticker-badge{display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;}
+   .sticker-badge img.sticker-img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;pointer-events:none;display:block;}
    /* A sticker attached to (or standing in for) comment text — sized to
       sit comfortably inline next to a name/handle. */
    .comment-sticker{display:inline-block;width:34px;height:34px;vertical-align:middle;}
@@ -1544,10 +1558,17 @@
      width:100%;height:56px;border-radius:9px;
      background:linear-gradient(160deg,#2c2140,#1c1d23);
    }
-   /* Sticker badges already draw their own circular outline+fill in the
-      SVG itself, so the generic gray preview background would just double
-      up behind it — dropped for this card only. */
-   .sticker-card .profile-store-preview{background:none;border:0;}
+   /* Stickers are real artwork (not a live canvas effect), but reuse the
+      same rectangular store-preview treatment as card effects above —
+      same size, same dark gradient plate — so the two shelves read as one
+      consistent store design instead of two different tile shapes. */
+   .sticker-card .profile-store-preview{
+     width:100%;height:56px;border-radius:9px;
+     background:linear-gradient(160deg,#2c2140,#1c1d23);
+   }
+   .sticker-card .profile-store-preview img.sticker-img{
+     max-width:76%;max-height:76%;width:auto;height:auto;object-fit:contain;
+   }
    .card-effect-card .profile-store-preview canvas.card-fx-canvas.mini{
      position:absolute;inset:0;width:100%;height:100%;pointer-events:none;mix-blend-mode:screen;
    }
