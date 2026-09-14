@@ -20,21 +20,41 @@ const db = admin.firestore();
 
 const MAX_COMMENT_LENGTH = 500;
 
+// Mirrors APP_STICKERS in app.js — kept in sync manually since this file
+// can't import from the client bundle. Free stickers, unlocked purely by
+// an XP milestone (never spent), so validation here is just "does this
+// id exist, and has this uid's current xp crossed its line" — no
+// currency/ledger bookkeeping needed, unlike decoration/font purchases.
+const APP_STICKERS = [
+  { id: 'ko', requiresXp: 500 },
+  { id: 'gg', requiresXp: 1000 },
+  { id: 'clash', requiresXp: 1500 },
+  { id: 'win', requiresXp: 2000 },
+  { id: 'savage', requiresXp: 2500 },
+  { id: 'facts', requiresXp: 3000 },
+  { id: 'lit', requiresXp: 3500 },
+  { id: 'goat', requiresXp: 4000 },
+];
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { matchupId, text, replyTo } = req.body || {};
+  const { matchupId, text, replyTo, stickerId } = req.body || {};
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ')
     ? authHeader.slice(7)
     : null;
 
-  if (!matchupId || typeof text !== 'string' || !text.trim()) {
-    return res.status(400).json({ error: 'matchupId and text are required' });
+  // A comment can be sticker-only now (Discord-style sticker message), so
+  // text is only required when no sticker is attached.
+  const trimmedText = typeof text === 'string' ? text.trim() : '';
+  const requestedStickerId = typeof stickerId === 'string' && stickerId.trim() ? stickerId.trim() : null;
+  if (!matchupId || (!trimmedText && !requestedStickerId)) {
+    return res.status(400).json({ error: 'matchupId and text or stickerId are required' });
   }
-  if (text.trim().length > MAX_COMMENT_LENGTH) {
+  if (trimmedText.length > MAX_COMMENT_LENGTH) {
     return res.status(400).json({ error: `Comment too long (max ${MAX_COMMENT_LENGTH} chars)` });
   }
   // replyTo is a lightweight, denormalized snapshot of the comment being
@@ -97,18 +117,37 @@ export default async function handler(req, res) {
     let name = 'User';
     let avatarUrl = null;
     let decorationId = null;
+    let xp = 0;
     const userSnap = await db.collection('users').doc(uid).get();
     if (userSnap.exists) {
       const u = userSnap.data();
       name = u.name || name;
       avatarUrl = u.avatarUrl || null;
       decorationId = u.equippedDecoration || null;
+      xp = u.xp || 0;
+    }
+
+    // Validate the sticker server-side against the uid's actual current
+    // xp — the client-side picker already only shows unlocked stickers,
+    // but this is the enforcement point that stops a spoofed request from
+    // attaching a still-locked sticker.
+    let stickerId = null;
+    if (requestedStickerId) {
+      const stickerDef = APP_STICKERS.find(s => s.id === requestedStickerId);
+      if (!stickerDef) {
+        return res.status(400).json({ error: 'Unknown sticker' });
+      }
+      if (xp < stickerDef.requiresXp) {
+        return res.status(403).json({ error: `Sticker locked — reach ${stickerDef.requiresXp} XP to unlock it` });
+      }
+      stickerId = stickerDef.id;
     }
 
     const commentRef = db.collection('matchupComments').doc();
     await commentRef.set({
       matchupId,
-      text: text.trim(),
+      text: trimmedText,
+      stickerId,
       name,
       avatarUrl,
       decorationId,
@@ -135,7 +174,7 @@ export default async function handler(req, res) {
             fromUid: uid,
             fromName: name,
             fromAvatarUrl: avatarUrl,
-            text: text.trim().slice(0, 160),
+            text: trimmedText ? trimmedText.slice(0, 160) : (stickerId ? '[sticker]' : ''),
             matchupId,
             commentId: commentRef.id,
             read: false,
