@@ -1452,7 +1452,8 @@
    .profile-share-btn:active{transform:scale(.98);}
    .profile-share-meta{display:flex;justify-content:space-between;color:var(--muted);font:9px 'Martian Mono',monospace;margin-top:8px;padding-bottom:16px;border-bottom:1px solid var(--line);}
    .profile-store-tabs{display:flex;gap:6px;margin:16px 0 12px;}
-   .profile-store-tab{flex:1;min-width:0;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--muted);padding:9px 4px;font:800 9.5px 'Instrument Sans',sans-serif;cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease;}
+   .profile-store-tab{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--muted);padding:11px 4px;cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease;}
+   .profile-store-tab svg{width:19px;height:19px;flex-shrink:0;}
    .profile-store-tab.active{border-color:var(--accent);color:var(--accent);background:rgba(228,169,41,.1);}
    .profile-store-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
    .profile-store-grid[hidden]{display:none;}
