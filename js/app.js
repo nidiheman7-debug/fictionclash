@@ -717,15 +717,15 @@ import {
   async function refreshAiStatsCreditsDisplay(){
     if (!aiStatsCreditsEl) return;
     if (!auth.currentUser) {
-      aiStatsCreditsEl.textContent = `Sign in to use AI stats (${AI_STATS_CREDIT_LIMIT} per day)`;
+      aiStatsCreditsEl.textContent = `Sign in for AI stats`;
       aiStatsCreditsEl.classList.remove('exhausted');
       if (aiStatsButton) aiStatsButton.disabled = false; // let the click handler prompt sign-in rather than blocking here
       return;
     }
     const remaining = await peekAiStatsCredits();
     aiStatsCreditsEl.textContent = remaining > 0
-      ? `${remaining} of ${AI_STATS_CREDIT_LIMIT} AI checks left today`
-      : `Daily AI stats limit reached — resets at midnight UTC`;
+      ? `${remaining}/${AI_STATS_CREDIT_LIMIT} today`
+      : `Resets midnight UTC`;
     aiStatsCreditsEl.classList.toggle('exhausted', remaining <= 0);
   }
   const aiStatsProfiles = {
@@ -963,7 +963,7 @@ import {
     const sameBase = m.a.name.toLowerCase() === m.b.name.toLowerCase();
     voteBtnA.textContent = (sameBase && m.a.version) ? `${m.a.name.split(' ')[0]} (${m.a.version})` : m.a.name.split(' ')[0];
     voteBtnB.textContent = (sameBase && m.b.version) ? `${m.b.name.split(' ')[0]} (${m.b.version})` : m.b.name.split(' ')[0];
-    aiStatsResult.innerHTML = 'Get an AI-powered snapshot of strength, speed, durability, and battle IQ for this matchup.';
+    aiStatsResult.innerHTML = 'AI-powered strength, speed, durability &amp; battle IQ snapshot.';
     updatePercentages();
     const voted = votedState[votedStateKey(m)];
     voteRow.classList.toggle('voted', !!voted);
@@ -2526,7 +2526,7 @@ import {
           <div class="mini-avatar lo">${escapeHtml(m.b.initials)}</div>
         </div>
         <div class="trend-label">${escapeHtml(labelA)} vs ${escapeHtml(labelB)}</div>
-        <div class="trend-votes">${(m.votesA + m.votesB).toLocaleString()} votes${m.community ? ' · Community' : ''}</div>
+        <div class="trend-votes">${(m.votesA + m.votesB).toLocaleString()} votes${m.community ? ' · Community' : m.botGenerated ? ' · Bot Pick' : ''}</div>
       </div>`;
     }).join('');
   }
@@ -4024,7 +4024,7 @@ import {
                 <span>Share</span>
               </button>
             </div>
-            <div class="comments-title">Conversation</div>
+            <div class="comments-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span>Conversation</span></div>
             <div class="hero-comments-list"></div>
             <form class="comment-form" data-comments-for="${id}">
               <input class="clip-field" type="text" placeholder="Add your comment..." aria-label="Add your comment">
@@ -4358,15 +4358,15 @@ import {
     if (!aiFeatsCreditsEl) return;
     const submitBtn = aiFeatsForm?.querySelector('button[type="submit"]');
     if (!auth.currentUser) {
-      aiFeatsCreditsEl.textContent = `Sign in to use AI feat checks (${AI_FEATS_CREDIT_LIMIT} per day)`;
+      aiFeatsCreditsEl.textContent = `Sign in for AI checks`;
       aiFeatsCreditsEl.classList.remove('exhausted');
       if (submitBtn) submitBtn.disabled = false; // let the submit handler prompt sign-in rather than blocking here
       return;
     }
     const remaining = await peekAiFeatsCredits();
     aiFeatsCreditsEl.textContent = remaining > 0
-      ? `${remaining} of ${AI_FEATS_CREDIT_LIMIT} AI checks left today`
-      : `No AI checks left today — resets at midnight UTC`;
+      ? `${remaining}/${AI_FEATS_CREDIT_LIMIT} today`
+      : `Resets midnight UTC`;
     aiFeatsCreditsEl.classList.toggle('exhausted', remaining === 0);
     if (submitBtn) submitBtn.disabled = remaining === 0;
   }
