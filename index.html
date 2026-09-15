@@ -340,40 +340,29 @@
     <div class="feed-loading-more" id="clipFeedLoadingMore"><span class="btn-spinner" style="border-color:var(--line);border-top-color:var(--accent);"></span>Loading more clips…</div>
   </section>
 
-  <section class="news-section hidden" id="newsSection" aria-label="News">
+  <section class="news-section hidden" id="chatSection" aria-label="Chat">
     <div class="news-header">
       <div>
-        <div class="movies-kicker">THE DAILY CLASH</div>
-        <h1 class="news-title">What's<br>moving now.</h1>
+        <div class="movies-kicker">TALK FICTION</div>
+        <h1 class="news-title">Clash<br>chat rooms.</h1>
       </div>
-      <div class="news-date" id="newsDate">WED<br>AUG 19</div>
+      <div class="news-date" id="chatDate">WED<br>AUG 19</div>
     </div>
 
     <nav class="news-tabs" id="newsTabs">
-      <div class="news-tab selected" data-news-category="Music"><span class="news-icon">♫</span>Music</div>
-      <div class="news-tab" data-news-category="Latest Movies"><span class="news-icon">▣</span>Latest Movies</div>
+      <div class="news-tab selected" data-news-category="General"><span class="news-icon">✦</span>General</div>
+      <div class="news-tab" data-news-category="Battles"><span class="news-icon">⚔</span>Battles</div>
+      <div class="news-tab" data-news-category="Movies"><span class="news-icon">▣</span>Movies</div>
       <div class="news-tab" data-news-category="Football"><span class="news-icon">◉</span>Football</div>
-      <div class="news-tab" data-news-category="Discovery"><span class="news-icon">✦</span>Discovery</div>
     </nav>
 
     <div class="news-feed-block">
-      <div class="news-feed-title"><span id="newsFeedHeading">Music</span><span>CURATED FOR YOU</span></div>
-      <div id="newsFeed">
-        <article class="news-story">
-          <div style="flex:1;min-width:0;">
-            <div class="story-tag">MUSIC · NEW RELEASE</div>
-            <h4>The albums bringing a little more colour to this week's playlist</h4>
-          </div>
-          <div class="story-time">2H</div>
-        </article>
-        <article class="news-story">
-          <div style="flex:1;min-width:0;">
-            <div class="story-tag">MUSIC · CULTURE</div>
-            <h4>Why intimate live sessions are having a moment again</h4>
-          </div>
-          <div class="story-time">5H</div>
-        </article>
-      </div>
+      <div class="news-feed-title"><span id="chatFeedHeading">General</span><span>LIVE</span></div>
+      <div id="chatFeed" class="chat-feed"></div>
+      <form id="chatForm" class="chat-input-row">
+        <input type="text" id="chatInput" class="chat-input" placeholder="Message General…" maxlength="500" autocomplete="off">
+        <button type="submit" class="chat-send-btn" aria-label="Send">➤</button>
+      </form>
     </div>
   </section>
 
@@ -552,7 +541,7 @@
           <div class="settings-group-title">Appearance</div>
           <div class="account-card theme-store-teaser" id="themeStoreTeaserCard">
             <h3>Theme Store</h3>
-            <p>Pick an accent colour for buttons, highlights, and the news feed.</p>
+            <p>Pick an accent colour for buttons, highlights, and chat.</p>
             <button class="save-profile" id="themeStoreTeaserBtn" type="button">Browse Themes</button>
           </div>
           <div class="account-card">
@@ -712,9 +701,9 @@
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
       Movies Hub
     </div>
-    <div class="nav-item" data-nav="News">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h13a3 3 0 013 3v13H7a3 3 0 01-3-3V4z"/><path d="M4 4v13a3 3 0 003 3"/><path d="M9 8h7M9 12h7M9 16h4"/></svg>
-      News
+    <div class="nav-item" data-nav="Chat">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Chat
     </div>
     <div class="nav-item" data-nav="Team">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z"/></svg>
@@ -1047,7 +1036,7 @@ Contact: fictionclash.app@gmail.com</div>
         <button class="theme-store-close" id="themeStoreClose" type="button" aria-label="Close theme store">×</button>
       </div>
       <div id="themeStoreModalBody">
-        <p class="profile-store-copy">Pick an accent colour for buttons, highlights, and the news feed.</p>
+        <p class="profile-store-copy">Pick an accent colour for buttons, highlights, and chat.</p>
         <div class="theme-swatch-row" id="themeSwatchRow">
           <button class="theme-swatch" data-theme="gold" style="--sw:#E4A929" aria-label="Gold theme" title="Gold"></button>
           <button class="theme-swatch" data-theme="blue" style="--sw:#1E4FE0" aria-label="Blue theme" title="Blue"></button>
