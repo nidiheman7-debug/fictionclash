@@ -3497,11 +3497,16 @@ import {
     // element just needs to exist so that pass has somewhere to write to,
     // and the "React" button itself never needs to be re-rendered on a
     // reaction update the way the pills next to it do.
-    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b>${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span>${stickerMarkup}<div class="comment-actions-row"><button type="button" class="comment-reply-btn">Reply</button><button type="button" class="comment-react-btn" aria-label="React with a sticker">${STICKER_TOGGLE_ICON}</button><span class="comment-reactions"></span></div></div>`;
+    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b class="comment-author-name">${escapeHtml(data.name || 'You')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span>${stickerMarkup}<div class="comment-actions-row"><button type="button" class="comment-reply-btn">Reply</button><button type="button" class="comment-react-btn" aria-label="React with a sticker">${STICKER_TOGGLE_ICON}</button><span class="comment-reactions"></span></div></div>`;
     attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
     attachDecoration(el.querySelector('.comment-avatar'), data.uid);
-    attachFont(el.querySelector('.comment-body b'), data.uid);
-    attachLiveIdentity(data.uid, el.querySelector('.comment-body b'), el.querySelector('.comment-avatar'));
+    attachFont(el.querySelector('.comment-body b.comment-author-name'), data.uid);
+    // Must target the author's own <b> specifically (not the reply-quote's
+    // <b>{replyToName}</b>, which sits earlier in this same markup) — a
+    // bare 'b' selector here previously grabbed the quote's name first and
+    // silently overwrote "Replying to X" with the current comment author's
+    // own live name.
+    attachLiveIdentity(data.uid, el.querySelector('.comment-body b.comment-author-name'), el.querySelector('.comment-avatar'));
     if (onReply) {
       el.querySelector('.comment-reply-btn').addEventListener('click', () => {
         // Truncated to keep the quoted snippet compact — matches how
@@ -4173,89 +4178,80 @@ import {
   });
 
 
-  // ---------- news hub ----------
-  const newsSection = document.getElementById('newsSection');
-  const newsDateEl = document.getElementById('newsDate');
-  if (newsDateEl) {
+  // ---------- chat rooms ----------
+  // Replaces the old news hub. Pure Firestore client reads/writes — no
+  // serverless function needed for the chat itself (matches the pattern
+  // reactions/notifications already use elsewhere in this file). Each
+  // themed room is its own subcollection under chatRooms/{roomId}/messages
+  // so switching rooms is just swapping which query a listener watches,
+  // not a different code path.
+  const chatSection = document.getElementById('chatSection');
+  const chatDateEl = document.getElementById('chatDate');
+  if (chatDateEl) {
     const today = new Date();
     const weekday = today.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
     const month = today.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
-    newsDateEl.innerHTML = `${weekday}<br>${month} ${today.getDate()}`;
+    chatDateEl.innerHTML = `${weekday}<br>${month} ${today.getDate()}`;
   }
-  const newsFeed = document.getElementById('newsFeed');
-  const newsFeedHeading = document.getElementById('newsFeedHeading');
+  const chatFeed = document.getElementById('chatFeed');
+  const chatFeedHeading = document.getElementById('chatFeedHeading');
+  const chatForm = document.getElementById('chatForm');
+  const chatInput = document.getElementById('chatInput');
 
-  // Used as: (1) an offline/error fallback if /api/news fails, and
-  // (2) what's shown instantly while the real fetch is in flight, so the
-  // tab never looks empty. Real stories, once loaded, replace these.
-  const fallbackNewsStories = {
-    'Music': [
-      { tag: 'MUSIC · NEW RELEASE', title: "The albums bringing a little more colour to this week's playlist", time: '2H', url: null },
-      { tag: 'MUSIC · CULTURE', title: 'Why intimate live sessions are having a moment again', time: '5H', url: null }
-    ],
-    'Latest Movies': [
-      { tag: 'LATEST MOVIES · TRAILERS', title: 'The new trailers turning heads this week', time: '1H', url: null },
-      { tag: 'LATEST MOVIES · WATCHLIST', title: 'Five new releases to add to your weekend watchlist', time: '4H', url: null }
-    ],
-    'Football': [
-      { tag: 'FOOTBALL · TRANSFERS', title: 'The moves reshaping the season before kickoff', time: '38M', url: null },
-      { tag: 'FOOTBALL · MATCHDAY', title: 'Three fixtures that could define the weekend', time: '3H', url: null }
-    ],
-    'Discovery': [
-      { tag: 'DISCOVERY · PEOPLE', title: 'The creators turning curiosity into a daily practice', time: '2H', url: null },
-      { tag: 'DISCOVERY · PLACES', title: 'A different way to explore the city this weekend', time: '6H', url: null }
-    ]
-  };
+  const CHAT_MAX_LENGTH = 500;
+  const CHAT_MESSAGE_LIMIT = 100; // most recent N messages kept live per room
 
-  const newsCache = {}; // category -> stories array, so switching tabs back and forth doesn't re-fetch
+  let currentChatRoom = 'General';
+  let chatUnsubscribe = null;
 
-  function timeAgo(isoLike){
-    if (!isoLike) return '';
-    // NewsData.io returns "YYYY-MM-DD HH:MM:SS" (UTC, no "Z") — make it parseable.
-    const date = new Date(isoLike.includes('T') ? isoLike : `${isoLike.replace(' ', 'T')}Z`);
-    if (Number.isNaN(date.getTime())) return '';
-    const minutes = Math.max(1, Math.round((Date.now() - date.getTime()) / 60000));
-    if (minutes < 60) return `${minutes}M`;
-    const hours = Math.round(minutes / 60);
-    if (hours < 24) return `${hours}H`;
-    return `${Math.round(hours / 24)}D`;
+  function chatMessageKey(data){
+    return data.id || `${data.uid || ''}:${data.createdAt?.toMillis?.() || ''}:${data.text || ''}`;
   }
 
-  function renderNewsStories(stories){
-    newsFeed.innerHTML = stories.map(story => {
-      const inner = `
-        <div style="flex:1;min-width:0;">
-          <div class="story-tag">${escapeHtml(story.tag)}</div>
-          <h4>${escapeHtml(story.title)}</h4>
-        </div>
-        <div class="story-time">${escapeHtml(story.time)}</div>`;
-      return story.url
-        ? `<a class="news-story" href="${escapeHtml(story.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`
-        : `<article class="news-story">${inner}</article>`;
-    }).join('');
+  function renderChatMessageEl(data){
+    const el = document.createElement('div');
+    el.className = 'chat-message';
+    el.dataset.messageId = data.id || '';
+    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b class="comment-author-name">${escapeHtml(data.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span></div>`;
+    attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
+    attachDecoration(el.querySelector('.comment-avatar'), data.uid);
+    attachFont(el.querySelector('.comment-body b.comment-author-name'), data.uid);
+    attachLiveIdentity(data.uid, el.querySelector('.comment-body b.comment-author-name'), el.querySelector('.comment-avatar'));
+    return el;
   }
 
-  async function loadNewsCategory(name){
-    if (newsCache[name]) {
-      renderNewsStories(newsCache[name]);
-      return;
-    }
-    // Show fallback immediately so the tab isn't blank while the real fetch runs.
-    renderNewsStories(fallbackNewsStories[name] || []);
-    try {
-      const res = await fetch(`/api/news?category=${encodeURIComponent(name)}`);
-      if (!res.ok) throw new Error('News request failed: ' + res.status);
-      const data = await res.json();
-      const stories = Array.isArray(data.stories) ? data.stories : [];
-      if (stories.length === 0) throw new Error('No stories returned');
-      const formatted = stories.map(s => ({ tag: s.tag, title: s.title, url: s.url, time: timeAgo(s.publishedAt) || '' }));
-      newsCache[name] = formatted;
-      // Only swap in the real stories if the user hasn't since switched tabs.
-      if (newsFeedHeading.textContent === name) renderNewsStories(formatted);
-    } catch (err) {
-      console.warn(`News unavailable for "${name}", showing offline stories:`, err);
-      // Fallback is already rendered above — nothing further to do.
-    }
+  function watchChatRoom(roomId){
+    if (chatUnsubscribe) { chatUnsubscribe(); chatUnsubscribe = null; }
+    chatFeed.innerHTML = '<div class="comments-modal-loading">Loading…</div>';
+    const q = query(
+      collection(db, 'chatRooms', roomId, 'messages'),
+      orderBy('createdAt', 'desc'),
+      limit(CHAT_MESSAGE_LIMIT)
+    );
+    chatUnsubscribe = onSnapshot(
+      q,
+      snapshot => {
+        // Query is newest-first (so `limit` keeps the most recent N, not
+        // the oldest N), then reversed here for normal oldest-to-newest
+        // reading order in the feed.
+        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).reverse();
+        if (chatFeed.querySelector('.comments-modal-loading')) chatFeed.innerHTML = '';
+        if (!docs.length) {
+          chatFeed.innerHTML = '<div class="comments-modal-empty">No messages yet — say hi.</div>';
+          return;
+        }
+        const wasNearBottom = chatFeed.scrollHeight - chatFeed.scrollTop - chatFeed.clientHeight < 80;
+        reconcileKeyedList(chatFeed, docs, chatMessageKey, renderChatMessageEl);
+        if (wasNearBottom) chatFeed.scrollTop = chatFeed.scrollHeight;
+      },
+      err => {
+        console.error('Chat room listener failed', err);
+        showToast('Could not load chat — try again');
+      }
+    );
+    // First open of a room: jump straight to the bottom rather than
+    // wherever an empty feed happens to leave the scroll position.
+    requestAnimationFrame(() => { chatFeed.scrollTop = chatFeed.scrollHeight; });
   }
 
   document.querySelectorAll('.news-tab').forEach(tab => {
@@ -4263,11 +4259,40 @@ import {
       const name = tab.dataset.newsCategory;
       document.querySelectorAll('.news-tab').forEach(item => item.classList.remove('selected'));
       tab.classList.add('selected');
-      newsFeedHeading.textContent = name;
-      loadNewsCategory(name);
+      chatFeedHeading.textContent = name;
+      currentChatRoom = name;
+      if (chatInput) chatInput.placeholder = `Message ${name}…`;
+      watchChatRoom(name);
     });
   });
-  loadNewsCategory('Music'); // matches the tab marked "selected" by default in the HTML
+  watchChatRoom(currentChatRoom); // matches the tab marked "selected" by default in the HTML
+
+  if (chatForm) {
+    chatForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const identity = currentUserIdentity();
+      if (!identity) { requireSignIn('Sign in to chat'); return; }
+      const text = chatInput.value.trim();
+      if (!text) return;
+      if (text.length > CHAT_MAX_LENGTH) { showToast(`Message too long (max ${CHAT_MAX_LENGTH} chars)`); return; }
+      haptic('tap');
+      chatInput.value = '';
+      try {
+        await addDoc(collection(db, 'chatRooms', currentChatRoom, 'messages'), {
+          text,
+          name: identity.name,
+          avatarUrl: identity.avatarUrl,
+          decorationId: identity.decorationId,
+          uid: identity.uid,
+          createdAt: serverTimestamp(),
+        });
+      } catch (err) {
+        console.error('Chat send failed', err);
+        showToast('Message failed to send — try again');
+        chatInput.value = text; // hand it back so nothing typed is lost
+      }
+    });
+  }
 
   // ---------- team builder ----------
   const teamSection = document.getElementById('teamSection');
@@ -8708,9 +8733,9 @@ import {
       icon: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
       wordmark: '<b>Movies Hub</b><small class="brand-small">SCENES &amp; BREAKDOWNS</small>'
     },
-    News: {
-      icon: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h13a3 3 0 013 3v13H7a3 3 0 01-3-3V4z"/><path d="M4 4v13a3 3 0 003 3"/><path d="M9 8h7M9 12h7M9 16h4"/></svg>',
-      wordmark: '<b>News</b><small class="brand-small">LATEST DROPS</small>'
+    Chat: {
+      icon: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+      wordmark: '<b>Chat</b><small class="brand-small">TALK FICTION</small>'
     },
     Team: {
       icon: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z"/></svg>',
@@ -8735,16 +8760,16 @@ import {
       applyTopbarForSection(section);
       const matchupSections = document.querySelectorAll('.quick-actions, .hero, .section-head, .trend-scroll');
       const isMovies = section === 'Movies';
-      const isNews = section === 'News';
+      const isChat = section === 'Chat';
       const isTeam = section === 'Team';
       const isAccount = section === 'Account';
-      matchupSections.forEach(element => element.style.display = (isMovies || isNews || isTeam || isAccount) ? 'none' : '');
+      matchupSections.forEach(element => element.style.display = (isMovies || isChat || isTeam || isAccount) ? 'none' : '');
       moviesSection.classList.toggle('hidden', !isMovies);
-      newsSection.classList.toggle('hidden', !isNews);
+      chatSection.classList.toggle('hidden', !isChat);
       teamSection.classList.toggle('hidden', !isTeam);
       accountSection.classList.toggle('hidden', !isAccount);
       document.querySelector('.phone-scroll').scrollTo({ top: 0, behavior: 'instant' });
-      if (section !== 'Matchups' && !isMovies && !isNews && !isTeam && !isAccount) showToast(`${section} — coming soon`);
+      if (section !== 'Matchups' && !isMovies && !isChat && !isTeam && !isAccount) showToast(`${section} — coming soon`);
     });
   });
 
