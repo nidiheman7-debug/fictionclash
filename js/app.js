@@ -4208,15 +4208,27 @@ import {
     return data.id || `${data.uid || ''}:${data.createdAt?.toMillis?.() || ''}:${data.text || ''}`;
   }
 
-  function renderChatMessageEl(data){
+  // `onReply` mirrors renderCommentEl's callback signature exactly
+  // (name, text, avatarUrl, uid) so setReplyTarget/the reply-target bar
+  // can be shared as-is between comments and chat.
+  function renderChatMessageEl(data, onReply){
     const el = document.createElement('div');
     el.className = 'chat-message';
     el.dataset.messageId = data.id || '';
-    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body"><b class="comment-author-name">${escapeHtml(data.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span></div>`;
+    const replyQuote = data.replyToName
+      ? `<div class="comment-reply-quote"><span class="reply-connector"></span><span class="reply-quote-avatar">${commentAvatarHtml(data.replyToName, data.replyToAvatarUrl)}</span><span>Replying to <b>${escapeHtml(data.replyToName)}</b>: ${escapeHtml(data.replyToText || '')}</span></div>`
+      : '';
+    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b class="comment-author-name">${escapeHtml(data.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span><div class="comment-actions-row"><button type="button" class="comment-reply-btn">Reply</button></div></div>`;
     attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
     attachDecoration(el.querySelector('.comment-avatar'), data.uid);
     attachFont(el.querySelector('.comment-body b.comment-author-name'), data.uid);
     attachLiveIdentity(data.uid, el.querySelector('.comment-body b.comment-author-name'), el.querySelector('.comment-avatar'));
+    if (onReply) {
+      el.querySelector('.comment-reply-btn').addEventListener('click', () => {
+        const snippet = (data.text || '').length > 80 ? data.text.slice(0, 80) + '…' : (data.text || '');
+        onReply(data.name || 'User', snippet, data.avatarUrl || null, data.uid || null);
+      });
+    }
     return el;
   }
 
@@ -4241,7 +4253,9 @@ import {
           return;
         }
         const wasNearBottom = chatFeed.scrollHeight - chatFeed.scrollTop - chatFeed.clientHeight < 80;
-        reconcileKeyedList(chatFeed, docs, chatMessageKey, renderChatMessageEl);
+        reconcileKeyedList(chatFeed, docs, chatMessageKey, data => renderChatMessageEl(data, (name, text, avatarUrl, uid) => {
+          setReplyTarget(chatForm, { name, text, avatarUrl, uid });
+        }));
         if (wasNearBottom) chatFeed.scrollTop = chatFeed.scrollHeight;
       },
       err => {
@@ -4254,6 +4268,28 @@ import {
     requestAnimationFrame(() => { chatFeed.scrollTop = chatFeed.scrollHeight; });
   }
 
+  // Scrolls a specific chat message into view and gives it a brief
+  // highlight — same pattern as highlightModalComment, used when someone
+  // taps a "X replied to you in Chat" notification. Polls briefly since
+  // the room's listener may not have rendered the message yet if this is
+  // the first time this room's feed has been opened.
+  function highlightChatMessage(messageId){
+    if (!messageId) return;
+    let attempts = 0;
+    const tryFind = () => {
+      const el = chatFeed.querySelector(`.chat-message[data-message-id="${CSS.escape(messageId)}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('comment-highlight');
+        setTimeout(() => el.classList.remove('comment-highlight'), 2200);
+      } else if (attempts < 12) {
+        attempts++;
+        setTimeout(tryFind, 200);
+      }
+    };
+    tryFind();
+  }
+
   document.querySelectorAll('.news-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       const name = tab.dataset.newsCategory;
@@ -4262,6 +4298,7 @@ import {
       chatFeedHeading.textContent = name;
       currentChatRoom = name;
       if (chatInput) chatInput.placeholder = `Message ${name}…`;
+      setReplyTarget(chatForm, null); // switching rooms cancels any in-progress reply
       watchChatRoom(name);
     });
   });
@@ -4275,9 +4312,53 @@ import {
       const text = chatInput.value.trim();
       if (!text) return;
       if (text.length > CHAT_MAX_LENGTH) { showToast(`Message too long (max ${CHAT_MAX_LENGTH} chars)`); return; }
+      const replyTarget = chatForm._replyTarget || null;
       haptic('tap');
       chatInput.value = '';
+      setReplyTarget(chatForm, null);
       try {
+        const messageRef = await addDoc(collection(db, 'chatRooms', currentChatRoom, 'messages'), {
+          text,
+          name: identity.name,
+          avatarUrl: identity.avatarUrl,
+          decorationId: identity.decorationId,
+          uid: identity.uid,
+          replyToName: replyTarget?.name || null,
+          replyToText: replyTarget?.text || null,
+          replyToAvatarUrl: replyTarget?.avatarUrl || null,
+          replyToUid: replyTarget?.uid || null,
+          createdAt: serverTimestamp(),
+        });
+        // Notify whoever was replied to — same idea as the server-side
+        // reply notifications comments use, just written directly from the
+        // client since chat has no serverless function of its own. Never
+        // for replying to yourself, and best-effort: a failure here should
+        // never surface as a failed send, since the message already landed.
+        if (replyTarget?.uid && replyTarget.uid !== identity.uid) {
+          try {
+            await addDoc(collection(db, 'users', replyTarget.uid, 'notifications'), {
+              type: 'reply',
+              subtype: 'chat',
+              fromUid: identity.uid,
+              fromName: identity.name,
+              fromAvatarUrl: identity.avatarUrl,
+              text: text.slice(0, 160),
+              roomId: currentChatRoom,
+              messageId: messageRef.id,
+              read: false,
+              createdAt: serverTimestamp(),
+            });
+          } catch (notifyErr) {
+            console.error('Chat reply notification failed (message still sent):', notifyErr);
+          }
+        }
+      } catch (err) {
+        console.error('Chat send failed', err);
+        showToast('Message failed to send — try again');
+        chatInput.value = text; // hand it back so nothing typed is lost
+      }
+    });
+  }
         await addDoc(collection(db, 'chatRooms', currentChatRoom, 'messages'), {
           text,
           name: identity.name,
@@ -8955,12 +9036,18 @@ import {
       snapshot => {
         serverNotifications = snapshot.docs.map(d => {
           const data = d.data();
-          const target = data.matchupId || data.clipId || '';
+          // Chat reply docs (written client-side, see the chat send
+          // handler above) carry roomId/messageId instead of
+          // matchupId/clipId + commentId — same 'reply' type, distinguished
+          // by subtype so the click handler below knows which of the three
+          // places to navigate to.
+          const isChat = data.subtype === 'chat';
+          const target = isChat ? (data.roomId || '') : (data.matchupId || data.clipId || '');
           return {
             id: d.id,
             type: 'reply',
-            subtype: data.matchupId ? 'matchup' : 'clip',
-            title: `${data.fromName || 'Someone'} replied to you`,
+            subtype: isChat ? 'chat' : (data.matchupId ? 'matchup' : 'clip'),
+            title: isChat ? `${data.fromName || 'Someone'} replied to you in Chat` : `${data.fromName || 'Someone'} replied to you`,
             body: data.text || '',
             target,
             // The specific reply comment's own Firestore doc id, so the
@@ -8969,8 +9056,9 @@ import {
             // backend (/api/comment, /api/clip-comment) to include this
             // field when it writes the notification doc — falls back to
             // '' (whole-thread navigation only) for any older docs, or
-            // if that backend field is ever missing.
-            commentId: data.commentId || '',
+            // if that backend field is ever missing. Chat replies use
+            // messageId instead, since they have no server-side writer.
+            commentId: data.commentId || data.messageId || '',
             at: data.createdAt?.toMillis?.() || Date.now(),
           };
         });
@@ -9105,7 +9193,16 @@ import {
     // reuse, so replies don't need their own third navigation branch.
     const asClip = type === 'clip' || (type === 'reply' && item.dataset.notifSubtype === 'clip');
     const asMatchup = type === 'matchup' || (type === 'reply' && item.dataset.notifSubtype === 'matchup');
-    if (asClip) {
+    const asChat = type === 'reply' && item.dataset.notifSubtype === 'chat';
+    if (asChat) {
+      document.querySelector('.nav-item[data-nav="Chat"]')?.click();
+      setTimeout(() => {
+        const roomId = item.dataset.notifTarget;
+        const tab = roomId && document.querySelector(`.news-tab[data-news-category="${CSS.escape(roomId)}"]`);
+        if (tab && !tab.classList.contains('selected')) tab.click();
+        setTimeout(() => highlightChatMessage(commentId), tab ? 450 : 150);
+      }, 150);
+    } else if (asClip) {
       document.querySelector('.nav-item[data-nav="Movies"]')?.click();
       setTimeout(() => {
         clipFeed.querySelector(`.clip-card[data-clip-id="${item.dataset.notifTarget}"]`)
