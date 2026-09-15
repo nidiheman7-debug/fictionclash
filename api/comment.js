@@ -26,14 +26,17 @@ const MAX_COMMENT_LENGTH = 500;
 // id exist, and has this uid's current xp crossed its line" — no
 // currency/ledger bookkeeping needed, unlike decoration/font purchases.
 const APP_STICKERS = [
-  { id: 'ko', requiresXp: 500 },
-  { id: 'gg', requiresXp: 1000 },
-  { id: 'clash', requiresXp: 1500 },
-  { id: 'win', requiresXp: 2000 },
-  { id: 'savage', requiresXp: 2500 },
-  { id: 'facts', requiresXp: 3000 },
-  { id: 'lit', requiresXp: 3500 },
-  { id: 'goat', requiresXp: 4000 },
+  { id: 'pow', requiresXp: 100 },
+  { id: 'ko', requiresXp: 200 },
+  { id: 'level-up', requiresXp: 300 },
+  { id: 'skill-issue', requiresXp: 400 },
+  { id: 'votes-in', requiresXp: 500 },
+  { id: 'shattered', requiresXp: 600 },
+  { id: 'clash', requiresXp: 700 },
+  { id: 'lit', requiresXp: 800 },
+  { id: 'hero', requiresXp: 900 },
+  { id: 'underrated', requiresXp: 1000 },
+  { id: 'vs', requiresXp: 1100 },
 ];
 
 export default async function handler(req, res) {
