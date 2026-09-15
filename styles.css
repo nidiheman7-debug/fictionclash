@@ -2313,7 +2313,7 @@
 .chat-message:last-child{ border-bottom:0; }
 .chat-input-row{
   display:flex;
-  flex-wrap:nowrap;
+  flex-wrap:wrap;
   align-items:center;
   gap:7px;
   margin-top:11px;
