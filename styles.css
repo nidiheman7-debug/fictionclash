@@ -2311,6 +2311,18 @@
   border-bottom:1px solid var(--line);
 }
 .chat-message:last-child{ border-bottom:0; }
+/* Discord-style compact reply reference: connector + tiny avatar +
+   @username, all inline, followed by the original message muted — no
+   "Replying to" label, unlike the fuller comment-reply-quote this was
+   forked from. */
+.chat-reply-ref{
+  display:flex;align-items:center;gap:5px;position:relative;
+  font-size:10.5px;color:var(--muted);margin-bottom:3px;padding-left:14px;opacity:.9;
+}
+.chat-reply-ref b{color:var(--accent);font-weight:700;flex-shrink:0;}
+.chat-reply-ref-text{
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
 .chat-input-row{
   display:flex;
   flex-wrap:wrap;
