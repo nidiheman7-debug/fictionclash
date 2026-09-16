@@ -4219,6 +4219,13 @@ import {
     return data.id || `${data.uid || ''}:${data.createdAt?.toMillis?.() || ''}:${data.text || ''}`;
   }
 
+  // "12:24 AM" — no fixed locale, so this reads correctly in whatever
+  // 12h/24h convention the viewer's own device is already set to, same
+  // as every other timestamp already in the app.
+  function formatChatTime(date){
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
   // `onReply` mirrors renderCommentEl's callback signature exactly
   // (name, text, avatarUrl, uid) so setReplyTarget/the reply-target bar
   // can be shared as-is between comments and chat.
@@ -4237,7 +4244,17 @@ import {
       ? `<img class="chat-message-media" src="${escapeHtml(data.imageUrl)}" alt="" loading="lazy">`
       : '';
     const textMarkup = data.text ? `<span>${escapeHtml(data.text)}</span>` : '';
-    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b class="comment-author-name">${escapeHtml(data.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b>${textMarkup}${mediaMarkup}<div class="comment-actions-row"><button type="button" class="comment-reply-btn">Reply</button>${isAdmin() ? '<button type="button" class="chat-msg-delete-btn" aria-label="Delete message">&times;</button>' : ''}</div></div>`;
+    // createdAt is a Firestore serverTimestamp() — null for the brief
+    // instant between a message landing in the local cache and the
+    // server round-trip filling it in, so this renders blank rather than
+    // a wrong/fallback time for that one frame; the listener's next
+    // snapshot re-renders this same message with the real value moments
+    // later (chatMessageKey doesn't include createdAt, so this is a
+    // normal reconcileKeyedList update, not flagged as a new message).
+    const timeMarkup = data.createdAt?.toDate
+      ? `<span class="chat-msg-time">${formatChatTime(data.createdAt.toDate())}</span>`
+      : '';
+    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b class="comment-author-name">${escapeHtml(data.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b>${timeMarkup}${textMarkup}${mediaMarkup}<div class="comment-actions-row"><button type="button" class="comment-reply-btn">Reply</button>${isAdmin() ? '<button type="button" class="chat-msg-delete-btn" aria-label="Delete message">&times;</button>' : ''}</div></div>`;
     attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
     attachDecoration(el.querySelector('.comment-avatar'), data.uid);
     attachFont(el.querySelector('.comment-body b.comment-author-name'), data.uid);
