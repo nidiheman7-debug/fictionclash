@@ -4365,19 +4365,78 @@ import {
     tryFind();
   }
 
-  document.querySelectorAll('.news-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const name = tab.dataset.newsCategory;
-      document.querySelectorAll('.news-tab').forEach(item => item.classList.remove('selected'));
-      tab.classList.add('selected');
-      chatFeedHeading.textContent = name;
-      currentChatRoom = name;
-      if (chatInput) chatInput.dataset.placeholder = `Message ${name}…`;
-      setReplyTarget(chatForm, null); // switching rooms cancels any in-progress reply
-      watchChatRoom(name);
+  const CHAT_ROOMS = [
+    { id: 'General', icon: '✦' },
+    { id: 'Battles', icon: '⚔' },
+    { id: 'Movies', icon: '▣' },
+    { id: 'Football', icon: '◉' },
+  ];
+  const chatListView = document.getElementById('chatListView');
+  const chatDetailView = document.getElementById('chatDetailView');
+  const chatRoomList = document.getElementById('chatRoomList');
+  const chatDetailAvatar = document.getElementById('chatDetailAvatar');
+  const chatBackBtn = document.getElementById('chatBackBtn');
+  const chatRoomPreviews = {}; // roomId -> latest message data, or null
+
+  function chatPreviewLine(data){
+    if (!data) return 'No messages yet — say hi.';
+    if (data.text) return data.text;
+    if (data.imageUrl) return '📷 Photo';
+    return '';
+  }
+
+  // WhatsApp-style room list: avatar, name, and a live one-line preview
+  // of whatever's most recent in that room. Re-rendered wholesale on
+  // every preview update — only 4 rows, so this is cheap and far simpler
+  // than reconciling individual rows.
+  function renderChatRoomList(){
+    chatRoomList.innerHTML = CHAT_ROOMS.map(room => {
+      const data = chatRoomPreviews[room.id];
+      const time = data?.createdAt?.toDate ? formatChatTime(data.createdAt.toDate()) : '';
+      const who = data?.name ? `<b>${escapeHtml(data.name)}:</b> ` : '';
+      return `<div class="chat-room-row" data-room="${room.id}">
+        <div class="chat-room-avatar">${room.icon}</div>
+        <div class="chat-room-row-body">
+          <div class="chat-room-row-top"><span class="chat-room-row-name">${room.id}</span><span class="chat-room-row-time">${time}</span></div>
+          <div class="chat-room-row-preview">${who}${escapeHtml(chatPreviewLine(data))}</div>
+        </div>
+      </div>`;
+    }).join('');
+    chatRoomList.querySelectorAll('.chat-room-row').forEach(row => {
+      row.addEventListener('click', () => openChatRoom(row.dataset.room));
     });
+  }
+  renderChatRoomList();
+
+  // Separate from watchChatRoom below (which only ever tracks whichever
+  // ONE room is currently open full-screen) — these four stay subscribed
+  // for the life of the app once Chat's first rendered, each a
+  // 1-document query, so the ongoing read cost is negligible.
+  CHAT_ROOMS.forEach(room => {
+    const q = query(collection(db, 'chatRooms', room.id, 'messages'), orderBy('createdAt', 'desc'), limit(1));
+    onSnapshot(q, snapshot => {
+      chatRoomPreviews[room.id] = snapshot.docs[0]?.data() || null;
+      renderChatRoomList();
+    }, err => console.error('Chat room preview listener failed', err));
   });
-  watchChatRoom(currentChatRoom); // matches the tab marked "selected" by default in the HTML
+
+  function openChatRoom(roomId){
+    const room = CHAT_ROOMS.find(r => r.id === roomId);
+    if (!room) return;
+    currentChatRoom = roomId;
+    chatFeedHeading.textContent = roomId;
+    chatDetailAvatar.textContent = room.icon;
+    if (chatInput) chatInput.dataset.placeholder = `Message ${roomId}…`;
+    setReplyTarget(chatForm, null); // switching rooms cancels any in-progress reply
+    chatListView.classList.add('hidden');
+    chatDetailView.classList.remove('hidden');
+    watchChatRoom(roomId);
+  }
+  function closeChatRoom(){
+    chatDetailView.classList.add('hidden');
+    chatListView.classList.remove('hidden');
+  }
+  chatBackBtn.addEventListener('click', closeChatRoom);
 
   // Shared by the text-submit flow below and the GIF/sticker paste handler
   // — a message is either { text } or { imageUrl } (or both, though the
@@ -9022,6 +9081,7 @@ import {
       matchupSections.forEach(element => element.style.display = (isMovies || isChat || isTeam || isAccount) ? 'none' : '');
       moviesSection.classList.toggle('hidden', !isMovies);
       chatSection.classList.toggle('hidden', !isChat);
+      if (isChat) closeChatRoom(); // always land on the room list, never a previously-open room
       teamSection.classList.toggle('hidden', !isTeam);
       accountSection.classList.toggle('hidden', !isAccount);
       document.querySelector('.phone-scroll').scrollTo({ top: 0, behavior: 'instant' });
@@ -9373,9 +9433,8 @@ import {
       document.querySelector('.nav-item[data-nav="Chat"]')?.click();
       setTimeout(() => {
         const roomId = item.dataset.notifTarget;
-        const tab = roomId && document.querySelector(`.news-tab[data-news-category="${CSS.escape(roomId)}"]`);
-        if (tab && !tab.classList.contains('selected')) tab.click();
-        setTimeout(() => highlightChatMessage(commentId), tab ? 450 : 150);
+        if (roomId) openChatRoom(roomId);
+        setTimeout(() => highlightChatMessage(commentId), roomId ? 450 : 150);
       }, 150);
     } else if (asClip) {
       document.querySelector('.nav-item[data-nav="Movies"]')?.click();
