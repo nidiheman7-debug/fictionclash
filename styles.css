@@ -2323,6 +2323,18 @@
 .chat-reply-ref-text{
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
 }
+.chat-header-right{ display:flex; align-items:center; gap:8px; }
+.chat-clear-btn{
+  background:none; border:0; padding:0; font-size:14px; line-height:1;
+  color:var(--muted); cursor:pointer; opacity:.85;
+}
+.chat-clear-btn:active{ transform:scale(.9); }
+.chat-clear-btn.hidden{ display:none; }
+.chat-msg-delete-btn{
+  background:none; border:0; padding:0; margin-left:auto;
+  color:var(--muted); font-size:16px; line-height:1; cursor:pointer;
+}
+.chat-msg-delete-btn:active{ transform:scale(.88); }
 .chat-input-row{
   display:flex;
   flex-wrap:wrap;
