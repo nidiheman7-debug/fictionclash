@@ -26,8 +26,7 @@
     // a non-us-central1 location when creating it, the URL instead looks
     // like "https://fictionclash-c1557-default-rtdb.<region>.firebasedatabase.app",
     // and you should swap in that exact string here.
-    databaseURL: "https://fictionclash-c1557-default-rtdb.firebaseio.com"
-  };
+    databaseURL: "https://console.firebase.google.com/u/0/project/fictionclash-c1557/database/fictionclash-c1557-default-rtdb/data/~2F"
 
   // Initialize Firebase
   const app = initializeApp(firebaseConfig);
