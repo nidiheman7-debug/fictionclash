@@ -399,6 +399,19 @@
      vertical padding) plus the device's safe-area inset so nothing sits
      behind it, on any tab. */
   .phone-main{ flex:1 0 auto; display:flex; flex-direction:column; padding-bottom:calc(100px + env(safe-area-inset-bottom, 0px)); }
+  /* Every other section wants .phone-main to grow with its content and
+     let .phone-scroll scroll the whole page — that's flex-shrink:0
+     above, on purpose. Chat is the one exception: its own internal
+     "#chatSection → .news-feed-block → .chat-feed" flex/scroll chain
+     (see the big comment on #chatSection below) only works if .phone-main
+     is actually clamped to the viewport's real height instead of
+     growing to fit a long message list. Without this, a chat room with
+     enough messages just makes .phone-main (and the whole page) taller,
+     which is exactly the "composer sinks below the screen" bug — the
+     inner .chat-feed never gets to be the thing that scrolls.
+     Scoped with :has() so this only changes behavior while Chat is the
+     visible section; every other tab is untouched. */
+  .phone-main:has(> #chatSection:not(.hidden)){ min-height:0; }
 
    .topbar{
      position:sticky; top:0; z-index:10;
@@ -1105,6 +1118,34 @@
    .news-tab .news-icon{color:inherit;font-size:13px;line-height:1;}
    .news-tab.selected{
      background:var(--accent-bg); border-color:var(--accent); color:#fff;
+   }
+   /* Chat's header used to match the old full-size News hub it was
+      forked from (big kicker + big two-line H1). Chat is meant to be
+      dominated by the messages, not the header, so this shrinks the
+      kicker/title down to a compact single line and tightens every gap
+      between header → room tabs → feed, clawing back vertical space for
+      the actual conversation. */
+   #chatSection .news-header{
+     margin-bottom:8px;
+     align-items:center;
+   }
+   #chatSection .movies-kicker{
+     font-size:8px;
+     letter-spacing:2px;
+     margin-bottom:1px;
+   }
+   #chatSection .news-title{
+     font-size:15px;
+     line-height:1.1;
+     margin-top:0;
+   }
+   #chatSection .news-date{ font-size:9px; }
+   #chatSection .news-tabs{
+     margin-bottom:8px;
+   }
+   #chatSection .chat-room-toolbar{
+     margin-top:0;
+     margin-bottom:4px;
    }
    .news-feed-block{
      margin-bottom:18px;
