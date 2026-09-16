@@ -18,7 +18,15 @@
     storageBucket: "fictionclash-c1557.firebasestorage.app",
     messagingSenderId: "675848845904",
     appId: "1:675848845904:web:7fba6d1d91865ddae5ef55",
-    measurementId: "G-1RLLEYSBMQ"
+    measurementId: "G-1RLLEYSBMQ",
+    // Realtime Database, used by chat's live "active members" presence
+    // feature. This is the default-instance URL format for a US-located
+    // database. Confirm it against the URL shown at the top of your
+    // Realtime Database console page (the one you linked) — if you chose
+    // a non-us-central1 location when creating it, the URL instead looks
+    // like "https://fictionclash-c1557-default-rtdb.<region>.firebasedatabase.app",
+    // and you should swap in that exact string here.
+    databaseURL: "https://fictionclash-c1557-default-rtdb.firebaseio.com"
   };
 
   // Initialize Firebase
