@@ -1271,7 +1271,7 @@
      border:1.5px solid var(--bg);
    }
    /* Group header menu */
-   .chat-header-menu-wrap{ position:relative; flex:0 0 auto; }
+   .chat-header-menu-wrap{ position:relative; flex:0 0 auto; margin-left:auto; order:5; }
    .chat-header-menu-btn{
      width:32px; height:32px; padding:0; border:0; background:transparent;
      color:var(--text); display:flex; align-items:center; justify-content:center;
@@ -1279,7 +1279,7 @@
    }
    .chat-header-menu-btn:active{ transform:scale(.88); }
    .chat-header-menu{
-     position:absolute; top:38px; left:0; width:190px; z-index:60;
+     position:absolute; top:38px; right:0; left:auto; width:190px; z-index:60;
      padding:6px; border:1px solid var(--line); border-radius:14px;
      background:var(--surface); box-shadow:0 18px 40px rgba(0,0,0,.45);
    }
