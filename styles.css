@@ -2386,7 +2386,8 @@
 }
 .chat-msg-delete-btn:active{ transform:scale(.88); }
 .chat-msg-time{
-  color:var(--muted); font-size:10px; font-weight:600; margin-left:6px;
+  color:var(--muted); font-size:10px; font-weight:500; margin-left:6px;
+  vertical-align:middle;
 }
 .chat-message-media{
   display:block; max-width:200px; max-height:200px; width:auto; height:auto;
