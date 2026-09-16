@@ -1109,6 +1109,46 @@
    .news-feed-block{
      margin-bottom:18px;
    }
+   /* Chat only (#chatSection is the only element carrying .news-section —
+      the old News hub these classes were named for is gone). Header,
+      tabs, and the clear-room toolbar stay their natural size; the feed
+      block is what stretches to fill whatever's left of the phone's
+      fixed-height frame, and the input sits pinned at the bottom of that
+      space — never off scrolling with the message list, and never
+      leaving the huge blank gap under a short/empty room either. This
+      relies on nothing but the flex/scroll structure the rest of the
+      page already uses (.phone-scroll → .phone-main → this section), the
+      same one .bottomnav's own doc comment explains — no JS, no
+      position:absolute magic-number offsets to keep in sync with the nav's
+      height, and no interaction with docked-composer.js (that script only
+      ever targets `.comment-form .clip-field`, never this input, so it's
+      not in play here — the phone frame's own dvh-based height already
+      does the right thing as the on-screen keyboard opens/closes, the
+      same reason the composer script's own header comment gives for why
+      ordinary page inputs don't need it).
+      min-height:0 recurs at every flex link in this chain
+      (#chatSection → .news-feed-block → #chatFeed) because a flex item's
+      default min-height is `auto`, which quietly refuses to shrink below
+      its content size — without overriding it at each level, the feed
+      would just keep growing instead of ever engaging its own
+      overflow-y:auto scroll. */
+   #chatSection{
+     height:100%;
+     display:flex;
+     flex-direction:column;
+   }
+   #chatSection .news-header,
+   #chatSection .news-tabs,
+   #chatSection .chat-room-toolbar{
+     flex-shrink:0;
+   }
+   #chatSection .news-feed-block{
+     flex:1;
+     min-height:0;
+     display:flex;
+     flex-direction:column;
+     margin-bottom:0;
+   }
    .news-feed-title{display:none;}
    .news-story{
      display:flex;align-items:center;gap:13px;padding:14px 0;
@@ -2294,8 +2334,8 @@
   display:flex;
   flex-direction:column;
   gap:0;
-  max-height:52vh;
-  min-height:220px;
+  flex:1;
+  min-height:0;
   overflow-y:auto;
   overflow-x:hidden;
   overscroll-behavior:contain;
@@ -2346,6 +2386,7 @@
   flex-wrap:wrap;
   align-items:center;
   gap:7px;
+  flex-shrink:0;
   margin-top:11px;
   padding-top:11px;
   border-top:1px solid var(--line);
