@@ -1132,7 +1132,15 @@
       its content size — without overriding it at each level, the feed
       would just keep growing instead of ever engaging its own
       overflow-y:auto scroll. */
-   #chatSection{
+   /* :not(.hidden) is load-bearing, not decorative — a bare #chatSection
+      selector here (specificity 1-0-0) beats .news-section.hidden's
+      display:none (specificity 0-2-0) outright, an ID always outranks any
+      number of classes regardless of source order. That silently forced
+      this section visible on every screen, .hidden or not, which is
+      exactly the "chat rooms bleeding into every section" bug. Scoping to
+      :not(.hidden) makes the rule simply not match at all while hidden,
+      instead of matching and outranking it. */
+   #chatSection:not(.hidden){
      height:100%;
      display:flex;
      flex-direction:column;
@@ -2394,12 +2402,25 @@
 .chat-input{
   flex:1;
   min-width:0;
+  max-height:90px;
+  overflow-y:auto;
   background:var(--field-bg,rgba(255,255,255,.04));
   border:1px solid var(--line);
   border-radius:18px;
   padding:9px 14px;
   font:500 13px 'Rajdhani',sans-serif;
   color:var(--text);
+  outline:none;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+/* contenteditable has no native placeholder attribute — this is the
+   standard substitute: show the data-placeholder text only while the div
+   has no content at all. */
+.chat-input:empty:before{
+  content:attr(data-placeholder);
+  color:var(--muted);
+  pointer-events:none;
 }
 .chat-input:focus{ outline:none; border-color:var(--accent); }
 .chat-send-btn{
