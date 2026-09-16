@@ -4446,6 +4446,7 @@ import {
     });
     roomAvatarOverrides = overrides;
     customRooms = custom;
+    tryOpenSharedRoom(); // retry: the ?room= link might point at a custom room that just streamed in
     // Attach a live preview listener for any newly-approved room we
     // haven't seen yet (mirrors the CHAT_ROOMS.forEach block below), and
     // drop listeners for any that disappeared (e.g. an admin deleted one
@@ -4532,6 +4533,7 @@ import {
   function openChatRoom(roomId){
     const room = activeRoomList().find(r => r.id === roomId);
     if (!room) return;
+    closeChatHeaderMenu();
     currentChatRoom = roomId;
     chatFeedHeading.textContent = room.name || roomId;
     chatDetailAvatar.innerHTML = roomIconOrAvatarHtml(room);
@@ -4543,6 +4545,7 @@ import {
     watchChatRoom(roomId);
   }
   function closeChatRoom(){
+    closeChatHeaderMenu();
     chatDetailView.classList.add('hidden');
     chatListView.classList.remove('hidden');
   }
@@ -4587,6 +4590,96 @@ import {
     });
   }
   wireChatRoomAvatarUpload();
+
+  // ---------- room header kebab menu ----------
+  const chatHeaderMenuWrap = document.getElementById('chatHeaderMenuWrap');
+  const chatHeaderMenuBtn = document.getElementById('chatHeaderMenuBtn');
+  const chatHeaderMenu = document.getElementById('chatHeaderMenu');
+  function closeChatHeaderMenu(){
+    chatHeaderMenu.hidden = true;
+    chatHeaderMenuBtn.setAttribute('aria-expanded', 'false');
+  }
+  chatHeaderMenuBtn.addEventListener('click', () => {
+    const willOpen = chatHeaderMenu.hidden;
+    chatHeaderMenu.hidden = !willOpen;
+    chatHeaderMenuBtn.setAttribute('aria-expanded', String(willOpen));
+  });
+  document.addEventListener('click', e => {
+    if (!chatHeaderMenu.hidden && !chatHeaderMenuWrap.contains(e.target)) closeChatHeaderMenu();
+  });
+
+  // ---------- share group link ----------
+  document.getElementById('chatShareGroupBtn').addEventListener('click', () => {
+    closeChatHeaderMenu();
+    if (!currentChatRoom) return;
+    const room = activeRoomList().find(r => r.id === currentChatRoom);
+    shareLink({
+      title: `${room?.name || currentChatRoom} — Fiction Clash chat`,
+      text: `Join the "${room?.name || currentChatRoom}" chat room on Fiction Clash`,
+      url: buildShareUrl('room', currentChatRoom),
+    });
+  });
+
+  // Deep-link support: a shared room URL looks like ?room=<roomId>. Custom
+  // rooms stream in async via the chatRooms onSnapshot listener above (see
+  // its retry call below), so — same as tryOpenSharedMatchup — this is
+  // safe to call repeatedly and only acts once it actually finds the room.
+  let sharedRoomHandled = false;
+  function tryOpenSharedRoom(){
+    if (sharedRoomHandled) return;
+    const roomId = new URLSearchParams(location.search).get('room');
+    if (!roomId) { sharedRoomHandled = true; return; }
+    const room = activeRoomList().find(r => r.id === roomId);
+    if (!room) return; // might still be loading (custom room) — the onSnapshot retry below tries again
+    sharedRoomHandled = true;
+    document.querySelector('.nav-item[data-nav="Chat"]')?.click();
+    openChatRoom(roomId);
+  }
+  tryOpenSharedRoom(); // covers the 4 built-in rooms, already loaded at this point
+
+  // ---------- group members ----------
+  // Lightweight membership, not a formal join/leave flow (nothing in this
+  // app's UI has a "join" action) — a member row is written/refreshed
+  // every time that person sends a message in the room, so the list is
+  // really "who's actually participated here", ordered by most recent
+  // activity. Cheap: piggybacks on the send that's already happening
+  // rather than a separate write path, and never blocks the message
+  // itself if it fails.
+  const groupMembersOverlay = document.getElementById('groupMembersOverlay');
+  const groupMembersSub = document.getElementById('groupMembersSub');
+  const groupMembersList = document.getElementById('groupMembersList');
+  function closeGroupMembers(){ groupMembersOverlay.classList.remove('show'); }
+  document.getElementById('groupMembersClose').addEventListener('click', closeGroupMembers);
+  groupMembersOverlay.addEventListener('click', e => { if (e.target === groupMembersOverlay) closeGroupMembers(); });
+
+  function groupMemberRowHtml(m, room){
+    const isCreator = room?.createdBy && m.uid === room.createdBy;
+    const badge = isCreator ? '<span class="group-member-badge">Creator</span>' : (m.uid === ADMIN_UID ? '<span class="group-member-badge">Admin</span>' : '');
+    return `<div class="group-member-row"><span class="group-member-avatar">${commentAvatarHtml(m.name, m.avatarUrl)}</span><span class="group-member-info"><span class="group-member-name">${escapeHtml(m.name || 'User')}</span><span class="group-member-meta">${badge}</span></span></div>`;
+  }
+
+  document.getElementById('chatMembersBtn').addEventListener('click', async () => {
+    closeChatHeaderMenu();
+    const roomId = currentChatRoom;
+    if (!roomId) return;
+    groupMembersOverlay.classList.add('show');
+    groupMembersSub.textContent = 'Loading members…';
+    groupMembersList.innerHTML = '';
+    try {
+      const room = activeRoomList().find(r => r.id === roomId);
+      const snap = await getDocs(query(collection(db, 'chatRooms', roomId, 'members'), orderBy('lastActiveAt', 'desc'), limit(200)));
+      if (snap.empty) {
+        groupMembersSub.textContent = 'No members yet';
+        groupMembersList.innerHTML = '<div class="comments-modal-empty">Nobody has sent a message here yet.</div>';
+        return;
+      }
+      groupMembersSub.textContent = `${snap.size} member${snap.size === 1 ? '' : 's'}`;
+      groupMembersList.innerHTML = snap.docs.map(d => groupMemberRowHtml(d.data(), room)).join('');
+    } catch (err) {
+      console.error('Load group members failed', err);
+      groupMembersSub.textContent = 'Could not load members — try again';
+    }
+  });
 
   // ---------- request a new group ----------
   const newGroupOverlay = document.getElementById('newGroupOverlay');
@@ -4760,6 +4853,19 @@ import {
         } catch (notifyErr) {
           console.error('Chat reply notification failed (message still sent):', notifyErr);
         }
+      }
+      // Best-effort membership refresh — see the "group members" section
+      // below for why this piggybacks on the send rather than a separate
+      // join action. Never blocks or fails the send itself.
+      try {
+        await setDoc(doc(db, 'chatRooms', currentChatRoom, 'members', identity.uid), {
+          uid: identity.uid,
+          name: identity.name,
+          avatarUrl: identity.avatarUrl,
+          lastActiveAt: serverTimestamp(),
+        }, { merge: true });
+      } catch (memberErr) {
+        console.error('Chat membership upsert failed (message still sent):', memberErr);
       }
       return true;
     } catch (err) {
