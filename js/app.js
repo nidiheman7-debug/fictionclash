@@ -4323,7 +4323,15 @@ import {
         // the oldest N), then reversed here for normal oldest-to-newest
         // reading order in the feed.
         const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).reverse();
-        if (chatFeed.querySelector('.comments-modal-loading')) chatFeed.innerHTML = '';
+        // Must clear BOTH placeholder states here, not just .loading — if
+        // the room was empty a moment ago (.comments-modal-empty still
+        // sitting in the feed) and a message just arrived, reconcileKeyedList
+        // below only manages elements it recognizes by message id; it has
+        // no reason to touch or remove an unrelated leftover placeholder
+        // div, so "No messages yet" would otherwise persist right alongside
+        // the first real message. Same fix already applied to the comments
+        // modal at its equivalent line — this just brings chat in line with it.
+        if (chatFeed.querySelector('.comments-modal-empty, .comments-modal-loading')) chatFeed.innerHTML = '';
         if (!docs.length) {
           chatFeed.innerHTML = '<div class="comments-modal-empty">No messages yet — say hi.</div>';
           return;
@@ -4433,7 +4441,7 @@ import {
       const data = docSnap.data();
       if (data.avatarUrl) overrides[docSnap.id] = data.avatarUrl;
       if (!CORE_ROOM_IDS.has(docSnap.id)) {
-        custom.push({ id: docSnap.id, icon: data.icon || (data.name || docSnap.id).charAt(0).toUpperCase(), avatarUrl: data.avatarUrl || null, name: data.name || docSnap.id });
+        custom.push({ id: docSnap.id, icon: data.icon || (data.name || docSnap.id).charAt(0).toUpperCase(), avatarUrl: data.avatarUrl || null, name: data.name || docSnap.id, createdBy: data.createdBy || null });
       }
     });
     roomAvatarOverrides = overrides;
@@ -4509,13 +4517,25 @@ import {
     }, err => console.error('Chat room preview listener failed', err));
   });
 
+  // Room avatars: the admin can change any room's picture; a custom
+  // group's own creator can additionally change theirs — the 4 built-in
+  // rooms (CHAT_ROOMS, not Firestore-backed the same way) have no
+  // `createdBy` at all, so this always falls back to admin-only for
+  // those, same as before this was split out.
+  function canEditRoomAvatar(room){
+    if (!room) return false;
+    if (isAdmin()) return true;
+    const identity = currentUserIdentity();
+    return !!(identity && room.createdBy && room.createdBy === identity.uid);
+  }
+
   function openChatRoom(roomId){
     const room = activeRoomList().find(r => r.id === roomId);
     if (!room) return;
     currentChatRoom = roomId;
     chatFeedHeading.textContent = room.name || roomId;
     chatDetailAvatar.innerHTML = roomIconOrAvatarHtml(room);
-    chatDetailAvatar.classList.toggle('editable', isAdmin());
+    chatDetailAvatar.classList.toggle('editable', canEditRoomAvatar(room));
     if (chatInput) chatInput.dataset.placeholder = `Message ${room.name || roomId}…`;
     setReplyTarget(chatForm, null); // switching rooms cancels any in-progress reply
     chatListView.classList.add('hidden');
@@ -4528,15 +4548,16 @@ import {
   }
   chatBackBtn.addEventListener('click', closeChatRoom);
 
-  // Tap a room's picture while signed in as admin to replace it with an
-  // uploaded image — same compress-to-data-URL approach as the profile
-  // picture/cover photo, just written onto the room's own doc instead of
-  // the user's profile so it shows up for everyone. Non-admins get a
-  // plain toast instead of a file picker.
+  // Tap a room's picture — as the admin, or as that custom group's own
+  // creator — to replace it with an uploaded image, same compress-to-
+  // data-URL approach as the profile picture/cover photo, just written
+  // onto the room's own doc instead of the user's profile so it shows up
+  // for everyone. Anyone else gets a plain toast instead of a file picker.
   function wireChatRoomAvatarUpload(){
     chatDetailAvatar.addEventListener('click', () => {
       if (!currentChatRoom) return;
-      if (!isAdmin()) { showToast('Only admins can change a group picture'); return; }
+      const room = activeRoomList().find(r => r.id === currentChatRoom);
+      if (!canEditRoomAvatar(room)) { showToast('Only the group\'s creator or an admin can change its picture'); return; }
       chatRoomAvatarFile.click();
     });
     chatDetailAvatar.addEventListener('keydown', (e) => {
