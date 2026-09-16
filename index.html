@@ -368,6 +368,9 @@
         <button type="button" id="chatBackBtn" class="chat-back-btn" aria-label="Back to chat rooms">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
+        <div class="chat-detail-avatar" id="chatDetailAvatar" role="button" tabindex="0" aria-label="Room picture">✦</div>
+        <input type="file" id="chatRoomAvatarFile" accept="image/png,image/jpeg,image/webp" hidden>
+        <div class="chat-detail-title" id="chatFeedHeading">General</div>
         <div class="chat-header-menu-wrap" id="chatHeaderMenuWrap">
           <button type="button" id="chatHeaderMenuBtn" class="chat-header-menu-btn" aria-label="Group options" aria-expanded="false" title="Group options">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
@@ -379,9 +382,6 @@
             <button type="button" class="chat-header-menu-item danger" id="chatClearMenuBtn" hidden><span class="chat-menu-item-icon">⌫</span><span>Clear messages</span></button>
           </div>
         </div>
-        <div class="chat-detail-avatar" id="chatDetailAvatar" role="button" tabindex="0" aria-label="Room picture">✦</div>
-        <input type="file" id="chatRoomAvatarFile" accept="image/png,image/jpeg,image/webp" hidden>
-        <div class="chat-detail-title" id="chatFeedHeading">General</div>
         <button type="button" id="chatClearBtn" class="chat-clear-btn hidden" aria-label="Clear room">🗑</button>
       </div>
       <div id="chatFeed" class="chat-feed"></div>

@@ -1279,7 +1279,7 @@
    }
    .chat-header-menu-btn:active{ transform:scale(.88); }
    .chat-header-menu{
-     position:absolute; top:38px; left:0; width:190px; z-index:60;
+     position:absolute; top:38px; right:0; width:190px; z-index:60;
      padding:6px; border:1px solid var(--line); border-radius:14px;
      background:var(--surface); box-shadow:0 18px 40px rgba(0,0,0,.45);
    }
