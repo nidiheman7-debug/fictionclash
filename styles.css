@@ -852,6 +852,8 @@
      text-align:center; line-height:1.1;
    }
    .submit-avatar-preview img{ width:100%; height:100%; object-fit:cover; display:block; }
+   .new-group-avatar-picker{ margin-bottom:11px; }
+   .new-group-avatar-picker .submit-avatar-preview{ width:56px; height:56px; font-size:9px; }
    .clip-card video{
      width:100%; max-height:190px; display:block; background:#000; border-radius:10px;
      margin-bottom:12px;
@@ -1140,6 +1142,25 @@
      margin-top:0;
    }
    #chatSection .news-date{ font-size:9px; }
+   /* Pull the room list up closer to the topbar — .news-section's default
+      22px top padding was written for sections with a tab strip
+      (.news-tabs) underneath the header; Chat has no tab strip, so that
+      much air just reads as a gap before the first room row. */
+   #chatSection{ padding-top:8px; }
+   .chat-list-head-actions{
+     display:flex; flex-direction:column; align-items:flex-end; gap:6px;
+   }
+   .chat-pending-badge{
+     display:flex; align-items:center; gap:6px;
+     padding:8px 12px; margin-bottom:8px;
+     border-radius:20px; border:1px solid var(--accent);
+     background:var(--accent-bg); color:#fff;
+     font:700 11px 'Rajdhani',sans-serif;
+     cursor:pointer; -webkit-tap-highlight-color:transparent;
+     width:100%; justify-content:center;
+   }
+   .chat-pending-badge.hidden{ display:none; }
+   .chat-pending-badge:active{ transform:scale(.98); }
 
    /* ---------- Room list (WhatsApp-style) ---------- */
    .chat-room-row{
@@ -1152,8 +1173,9 @@
      flex:0 0 auto; width:46px; height:46px; border-radius:50%;
      display:flex; align-items:center; justify-content:center;
      background:var(--surface); border:1px solid var(--line);
-     font-size:19px; color:var(--accent);
+     font-size:19px; color:var(--accent); overflow:hidden;
    }
+   .chat-room-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
    .chat-room-row-body{ flex:1; min-width:0; }
    .chat-room-row-top{
      display:flex; justify-content:space-between; align-items:baseline; gap:8px;
@@ -1168,6 +1190,14 @@
 
    /* ---------- Full-screen room view ---------- */
    #chatDetailView.hidden{ display:none; }
+   /* This was the actual bug behind rooms looking "stuck under the list":
+      every other tab's list view (.news-section.hidden, .team-section.hidden,
+      .account-section.hidden) has its own scoped `.hidden{display:none}`
+      rule, but #chatListView never got one. JS was already correctly
+      toggling the class — nothing in CSS was listening for it, so the
+      list just stayed on screen, full height, above whatever opened
+      below it. */
+   #chatListView.hidden{ display:none; }
    /* Only while a room is actually open does this need the fixed-height
       "header stays put, feed scrolls, composer pinned at the bottom"
       treatment — the room list above is a normal page and scrolls with
@@ -1211,7 +1241,19 @@
      flex:0 0 auto; width:34px; height:34px; border-radius:50%;
      display:flex; align-items:center; justify-content:center;
      background:var(--surface); border:1px solid var(--line);
-     font-size:15px; color:var(--accent);
+     font-size:15px; color:var(--accent); overflow:hidden; position:relative;
+   }
+   .chat-detail-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
+   /* Only admins get the tap-to-upload affordance on an existing room's
+      picture (see openChatRoom in app.js, which toggles this class) —
+      same admin gate as the clear-room button beside it. */
+   .chat-detail-avatar.editable{ cursor:pointer; }
+   .chat-detail-avatar.editable::after{
+     content:'✎'; position:absolute; right:-2px; bottom:-2px;
+     width:14px; height:14px; border-radius:50%;
+     background:var(--accent); color:#fff; font-size:8px;
+     display:flex; align-items:center; justify-content:center;
+     border:1.5px solid var(--bg);
    }
    .chat-detail-title{
      flex:1; min-width:0; font:700 15px 'Rajdhani',sans-serif;

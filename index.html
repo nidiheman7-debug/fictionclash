@@ -347,8 +347,15 @@
           <div class="movies-kicker">TALK FICTION</div>
           <h1 class="news-title">Clash chat rooms</h1>
         </div>
-        <div class="news-date" id="chatDate">WED<br>AUG 19</div>
+        <div class="chat-list-head-actions">
+          <div class="news-date" id="chatDate">WED<br>AUG 19</div>
+          <div class="section-link" id="newGroupLink">＋ New group</div>
+        </div>
       </div>
+      <!-- Admin-only: how many fan-requested groups are waiting on a
+           decision. Hidden by default; toggled by updatePendingGroupsBadge()
+           in app.js whenever the pendingChatRooms count changes. -->
+      <button type="button" class="chat-pending-badge hidden" id="chatPendingBadge">🛡️ <span id="chatPendingCount">0</span> group<span id="chatPendingPlural">s</span> awaiting approval</button>
       <div class="chat-room-list" id="chatRoomList"></div>
     </div>
 
@@ -361,7 +368,8 @@
         <button type="button" id="chatBackBtn" class="chat-back-btn" aria-label="Back to chat rooms">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
-        <div class="chat-detail-avatar" id="chatDetailAvatar">✦</div>
+        <div class="chat-detail-avatar" id="chatDetailAvatar" role="button" tabindex="0" aria-label="Room picture">✦</div>
+        <input type="file" id="chatRoomAvatarFile" accept="image/png,image/jpeg,image/webp" hidden>
         <div class="chat-detail-title" id="chatFeedHeading">General</div>
         <button type="button" id="chatClearBtn" class="chat-clear-btn hidden" aria-label="Clear room">🗑</button>
       </div>
@@ -888,6 +896,35 @@
       <button class="modal-submit" id="submitMatchupBtn" type="button">Submit Matchup</button>
       <p class="submit-note">Submissions are reviewed before they go live — you'll see it on the board once it's approved.</p>
       <button class="modal-close" id="submitClose">Close</button>
+    </div>
+  </div>
+
+  <!-- Request a new chat group. Any signed-in user can submit one; it
+       lands in `chatRooms` with status:'pending' and only shows up in the
+       real room list once an admin approves it from #pendingGroupsOverlay. -->
+  <div class="modal-overlay" id="newGroupOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Start a new group</div>
+      <div class="modal-sub">Pick a name and, if you like, a picture. An admin reviews it before it goes live for everyone.</div>
+      <label class="submit-avatar-picker new-group-avatar-picker" for="newGroupAvatarFile">
+        <span class="submit-avatar-preview" id="newGroupAvatarPreview">＋ Photo</span>
+        <input id="newGroupAvatarFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+      </label>
+      <input class="modal-input" id="newGroupNameInput" type="text" placeholder="Group name e.g. Anime Debates" maxlength="30">
+      <button class="modal-submit" id="newGroupSubmitBtn" type="button">Submit for review</button>
+      <p class="submit-note">Your group will appear once an admin approves it.</p>
+      <button class="modal-close" id="newGroupClose">Close</button>
+    </div>
+  </div>
+
+  <!-- Admin-only: approve or reject fan-requested groups. Opened from the
+       badge above #chatRoomList (see chatPendingBadge in app.js). -->
+  <div class="modal-overlay" id="pendingGroupsOverlay">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title">Pending groups</div>
+      <div class="modal-sub">Fan-requested groups awaiting review.</div>
+      <div id="pendingGroupsList"></div>
+      <button class="modal-close" id="pendingGroupsClose">Close</button>
     </div>
   </div>
 
