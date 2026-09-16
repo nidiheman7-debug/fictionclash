@@ -1300,8 +1300,15 @@
    .chat-menu-item-icon{ width:18px; text-align:center; color:var(--accent); font-weight:800; }
    .chat-header-menu-item.danger .chat-menu-item-icon{ color:inherit; }
 
+   .chat-detail-titles{
+     flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center;
+   }
    .chat-detail-title{
-     flex:1; min-width:0; font:700 15px 'Rajdhani',sans-serif;
+     min-width:0; font:700 15px 'Rajdhani',sans-serif;
+     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+   }
+   .chat-detail-sub{
+     min-width:0; font:600 11px 'Instrument Sans',sans-serif; color:var(--muted);
      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
    }
    .chat-detail-header .chat-clear-btn{ flex:0 0 auto; }
@@ -2641,17 +2648,22 @@
 .chat-gif-modal .chat-gif-search{ flex:0 0 auto; }
 .chat-gif-search{ margin-bottom:12px; }
 .chat-gif-grid{
-  display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px;
-  overflow-y:auto; flex:1 1 auto; min-height:0; padding:2px 2px 4px;
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px;
+  overflow-y:auto; flex:1 1 auto; min-height:0; padding:4px 2px 6px;
   scrollbar-width:none;
 }
 .chat-gif-grid::-webkit-scrollbar{ display:none; }
 .chat-gif-item{
-  border:0; padding:0; background:var(--surface2); border-radius:10px; overflow:hidden;
-  cursor:pointer; aspect-ratio:1/1; display:block; width:100%;
+  position:relative; border:0; padding:0; background:var(--surface2); border-radius:12px;
+  overflow:hidden; cursor:pointer; display:block; width:100%;
 }
+/* Padding-top hack instead of relying on `aspect-ratio` alone — guarantees
+   a square tile on every renderer, including older WebViews that silently
+   ignore aspect-ratio and fall back to each GIF's own natural height,
+   which is what was making the grid look like a cramped, uneven stack. */
+.chat-gif-item::before{ content:''; display:block; padding-top:100%; }
 .chat-gif-item:active{ transform:scale(.94); }
-.chat-gif-item img{ width:100%; height:100%; object-fit:cover; display:block; }
+.chat-gif-item img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
 .chat-gif-status{ flex:0 0 auto; font-size:11.5px; color:var(--muted); text-align:center; padding:10px 0 0; }
 .chat-gif-attribution{
   flex:0 0 auto; font-size:9.5px; color:var(--muted); text-align:center; letter-spacing:1px;
