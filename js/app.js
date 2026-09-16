@@ -5093,6 +5093,101 @@ import {
     });
   }
 
+  // ---------- chat GIF/sticker picker (Giphy) ----------
+  // In-app alternative to the Gboard-keyboard path above — search Giphy's
+  // GIFs or Stickers and send one straight into the room. No upload step:
+  // Giphy's own CDN URL is used directly as the message's imageUrl, the
+  // same field the Gboard path fills in after uploading to Storage, so
+  // rendering (chat-message-media) doesn't need to know which path a given
+  // message came from.
+  const GIPHY_API_KEY = 'A6K358GzlWiuHKakdn2cZ34MJtg8UgvT';
+  const GIPHY_RATING = 'pg-13';
+  const chatGifBtn = document.getElementById('chatGifBtn');
+  const chatGifOverlay = document.getElementById('chatGifOverlay');
+  const chatGifClose = document.getElementById('chatGifClose');
+  const chatGifSearchInput = document.getElementById('chatGifSearchInput');
+  const chatGifGrid = document.getElementById('chatGifGrid');
+  const chatGifStatus = document.getElementById('chatGifStatus');
+  let chatGifTab = 'gifs'; // 'gifs' | 'stickers'
+  let chatGifSearchDebounce = null;
+  let chatGifRequestSeq = 0; // guards against a slow earlier fetch clobbering a faster later one
+
+  function closeChatGifPicker(){
+    chatGifOverlay.classList.remove('show');
+  }
+
+  async function runGiphyFetch(url){
+    const seq = ++chatGifRequestSeq;
+    chatGifStatus.textContent = 'Loading…';
+    chatGifGrid.innerHTML = '';
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Giphy request failed (${res.status})`);
+      const json = await res.json();
+      if (seq !== chatGifRequestSeq) return; // a newer search/tab switch already superseded this
+      const items = json.data || [];
+      if (!items.length) {
+        chatGifStatus.textContent = 'No results';
+        return;
+      }
+      chatGifStatus.textContent = '';
+      chatGifGrid.innerHTML = items.map(item => {
+        const thumb = item.images?.fixed_width_small?.url || item.images?.fixed_width?.url || item.images?.original?.url;
+        const send = item.images?.fixed_width?.url || item.images?.original?.url;
+        if (!thumb || !send) return '';
+        return `<button type="button" class="chat-gif-item" data-send-url="${escapeHtml(send)}"><img src="${escapeHtml(thumb)}" alt="${escapeHtml(item.title || '')}" loading="lazy"></button>`;
+      }).join('');
+    } catch (err) {
+      if (seq !== chatGifRequestSeq) return;
+      console.error('Giphy fetch failed', err);
+      chatGifStatus.textContent = 'Could not load — try again';
+    }
+  }
+
+  function giphyEndpoint(){
+    const kind = chatGifTab === 'stickers' ? 'stickers' : 'gifs';
+    const q = chatGifSearchInput.value.trim();
+    const base = `https://api.giphy.com/v1/${kind}/${q ? 'search' : 'trending'}`;
+    const params = new URLSearchParams({ api_key: GIPHY_API_KEY, limit: '24', rating: GIPHY_RATING });
+    if (q) params.set('q', q);
+    return `${base}?${params.toString()}`;
+  }
+
+  function reloadChatGifResults(){
+    runGiphyFetch(giphyEndpoint());
+  }
+
+  if (chatGifBtn && chatGifOverlay) {
+    chatGifBtn.addEventListener('click', () => {
+      if (!currentUserIdentity()) { requireSignIn('Sign in to chat'); return; }
+      chatGifOverlay.classList.add('show');
+      chatGifSearchInput.value = '';
+      reloadChatGifResults();
+      setTimeout(() => chatGifSearchInput.focus(), 50);
+    });
+    chatGifClose.addEventListener('click', closeChatGifPicker);
+    chatGifOverlay.addEventListener('click', e => { if (e.target === chatGifOverlay) closeChatGifPicker(); });
+    chatGifOverlay.querySelectorAll('[data-gif-tab]').forEach(tabBtn => {
+      tabBtn.addEventListener('click', () => {
+        if (chatGifTab === tabBtn.dataset.gifTab) return;
+        chatGifTab = tabBtn.dataset.gifTab;
+        chatGifOverlay.querySelectorAll('[data-gif-tab]').forEach(b => b.classList.toggle('active', b === tabBtn));
+        reloadChatGifResults();
+      });
+    });
+    chatGifSearchInput.addEventListener('input', () => {
+      clearTimeout(chatGifSearchDebounce);
+      chatGifSearchDebounce = setTimeout(reloadChatGifResults, 350);
+    });
+    chatGifGrid.addEventListener('click', e => {
+      const item = e.target.closest('.chat-gif-item');
+      if (!item) return;
+      const url = item.dataset.sendUrl;
+      closeChatGifPicker();
+      if (url) sendChatMessage({ imageUrl: url });
+    });
+  }
+
   // ---------- team builder ----------
   const teamSection = document.getElementById('teamSection');
   const teamAlphaList = document.getElementById('teamAlphaList');
