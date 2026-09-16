@@ -409,6 +409,19 @@
      :has() to only #chatDetailView actually being open, so the room
      list and every other tab are unaffected. */
   .phone-main:has(> #chatSection:not(.hidden) > #chatDetailView:not(.hidden)){
+    /* The base .phone-main rule above is `flex:1 0 auto` — flex-shrink:0.
+       min-height:0 alone only lifts the "never shrink below my own
+       min-content size" floor; it does nothing if flex-shrink is still 0,
+       since shrinking is disabled outright. That combination is exactly
+       why this kept growing taller with every new message instead of
+       clamping to the real viewport: .phone-main was still sized to its
+       content (however tall the message list got), dragging the composer
+       further down the page with it and leaving .chat-feed's own
+       overflow-y:auto with nothing to actually scroll (its box was never
+       smaller than its content). flex-shrink:1 here is what lets
+       .phone-main actually shrink down to the space .phone-scroll gives
+       it, so the header+composer stay put and .chat-feed scrolls instead. */
+    flex:1 1 0;
     min-height:0;
     padding-bottom:env(safe-area-inset-bottom, 0px);
   }
@@ -1145,8 +1158,10 @@
    /* Pull the room list up closer to the topbar — .news-section's default
       22px top padding was written for sections with a tab strip
       (.news-tabs) underneath the header; Chat has no tab strip, so that
-      much air just reads as a gap before the first room row. */
-   #chatSection{ padding-top:8px; }
+      much air just reads as a gap before the first room row. Pushed
+      further to 0 (from an earlier 8px) so "Clash chat rooms" sits right
+      under the topbar's fade instead of leaving a visible gap. */
+   #chatSection{ padding-top:0; }
    .chat-list-head-actions{
      display:flex; flex-direction:column; align-items:flex-end; gap:6px;
    }
@@ -1982,6 +1997,21 @@
       (no > combinators needed here), so this fires only while a room is
       actually open, never for the room list or any other tab. */
    .phone:has(#chatSection:not(.hidden) #chatDetailView:not(.hidden)) .bottomnav{ display:none; }
+   /* Same idea, applied to the app's own topbar (wordmark, notif bell,
+      account avatar): a room in full-screen view gets its own header
+      (.chat-detail-header — back arrow, room picture, room name), so the
+      outer topbar is redundant chrome stacked on top of it. Hiding it
+      here — rather than only on #chatDetailView itself — means the
+      always-sticky .topbar disappears the instant a room opens instead
+      of scrolling away with the rest of the page. */
+   .phone:has(#chatSection:not(.hidden) #chatDetailView:not(.hidden)) .topbar{ display:none; }
+   /* With the topbar gone, .chat-detail-header becomes the very top of
+      the screen, so it needs to pick up the status-bar safe-area padding
+      the topbar used to provide (see the .topbar safe-area rule further
+      down) — otherwise the back arrow sits underneath the clock/notch. */
+   .phone:has(#chatSection:not(.hidden) #chatDetailView:not(.hidden)) .chat-detail-header{
+     padding-top:max(14px, env(safe-area-inset-top));
+   }
    .nav-item.active{ color:var(--text); }
   .nav-item svg{ stroke:var(--muted); }
    .nav-item.active svg{ stroke:var(--accent); }
@@ -2466,9 +2496,7 @@
   display:flex;
   gap:9px;
   padding:9px 0;
-  border-bottom:1px solid var(--line);
 }
-.chat-message:last-child{ border-bottom:0; }
 /* Discord-style compact reply reference: connector + tiny avatar +
    @username, all inline, followed by the original message muted — no
    "Replying to" label, unlike the fuller comment-reply-quote this was
