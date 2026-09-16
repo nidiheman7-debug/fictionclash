@@ -1589,6 +1589,7 @@ import {
     updateSeasonCardVisibility();
     if (typeof updateMatchupCategoryCardVisibility === 'function') updateMatchupCategoryCardVisibility();
     if (typeof refreshAdminMatchupCategoryListener === 'function') refreshAdminMatchupCategoryListener();
+    if (typeof refreshPendingGroupsListener === 'function') refreshPendingGroupsListener();
     if (!isAdmin()) { updateModerationCardVisibility(); return; }
     unsubPendingMatchups = onSnapshot(query(collection(db, 'pendingMatchups'), orderBy('createdAt', 'asc')), renderPendingMatchups, err => console.error('Pending matchups listener failed', err));
     unsubPendingClips = onSnapshot(query(collection(db, 'pendingClips'), orderBy('createdAt', 'asc')), renderPendingClips, err => console.error('Pending clips listener failed', err));
@@ -4371,12 +4372,97 @@ import {
     { id: 'Movies', icon: '▣' },
     { id: 'Football', icon: '◉' },
   ];
+  const CORE_ROOM_IDS = new Set(CHAT_ROOMS.map(r => r.id));
   const chatListView = document.getElementById('chatListView');
   const chatDetailView = document.getElementById('chatDetailView');
   const chatRoomList = document.getElementById('chatRoomList');
   const chatDetailAvatar = document.getElementById('chatDetailAvatar');
+  const chatRoomAvatarFile = document.getElementById('chatRoomAvatarFile');
   const chatBackBtn = document.getElementById('chatBackBtn');
   const chatRoomPreviews = {}; // roomId -> latest message data, or null
+
+  // ---------- custom groups (admin-approved) ----------
+  // Rooms are no longer just the 4 hardcoded ones above. Anyone signed in
+  // can request a new one (see #newGroupOverlay below); it's written to
+  // `chatRooms/{roomId}` with status:'pending' and stays invisible to
+  // everyone but admins until approved. The same `chatRooms/{roomId}` doc
+  // also doubles as where a custom *avatar image* lives for ANY room,
+  // including the 4 built-in ones — admins can tap a room's picture in
+  // the full-screen header to set one (see wireChatRoomAvatarUpload).
+  //
+  // ⚠️ This talks to Firestore directly rather than going through
+  // /api/moderate the way pendingMatchups/pendingClips approval does —
+  // that endpoint's source isn't part of what I was given to edit, so
+  // this instead mirrors the *other* admin pattern already in this file
+  // (the flagged-picture review in adminReportsList), which does its
+  // approve/reject with plain updateDoc/deleteDoc calls gated by
+  // isAdmin(). For that to actually be safe server-side too, add rules
+  // roughly like this (adjust to match your existing chatRooms/messages
+  // rules rather than replacing them):
+  //
+  //   match /chatRooms/{roomId} {
+  //     allow read: if resource.data.status == 'approved'
+  //                 || (request.auth != null && request.auth.uid == 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2');
+  //     allow create: if request.auth != null
+  //                   && request.resource.data.status == 'pending'
+  //                   && request.resource.data.createdBy == request.auth.uid;
+  //     allow update, delete: if request.auth != null && request.auth.uid == 'SYpnHZFCVpP4ikNO2ZK6uPMuLyE2';
+  //     match /messages/{messageId} { /* keep whatever you already have here */ }
+  //   }
+  let customRooms = []; // approved, non-core rooms: [{id,name,icon,avatarUrl}]
+  let roomAvatarOverrides = {}; // roomId -> avatarUrl, for ANY room (core or custom)
+  let pendingGroups = []; // admin-only: [{id,name,avatarUrl,createdByName}]
+  const customRoomPreviewUnsubs = {}; // roomId -> unsubscribe, for dynamically-added rooms
+
+  function activeRoomList(){
+    return [...CHAT_ROOMS, ...customRooms];
+  }
+
+  function roomIconOrAvatarHtml(room){
+    const avatarUrl = roomAvatarOverrides[room.id] || room.avatarUrl;
+    return avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="">` : escapeHtml(room.icon || room.id.charAt(0).toUpperCase());
+  }
+
+  // Everyone (signed in or not) listens for approved rooms — this both
+  // supplies the list of custom groups AND any admin-set avatar override
+  // for the 4 built-in rooms, since both live in the same collection.
+  onSnapshot(query(collection(db, 'chatRooms'), where('status', '==', 'approved')), snapshot => {
+    const overrides = {};
+    const custom = [];
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      if (data.avatarUrl) overrides[docSnap.id] = data.avatarUrl;
+      if (!CORE_ROOM_IDS.has(docSnap.id)) {
+        custom.push({ id: docSnap.id, icon: data.icon || (data.name || docSnap.id).charAt(0).toUpperCase(), avatarUrl: data.avatarUrl || null, name: data.name || docSnap.id });
+      }
+    });
+    roomAvatarOverrides = overrides;
+    customRooms = custom;
+    // Attach a live preview listener for any newly-approved room we
+    // haven't seen yet (mirrors the CHAT_ROOMS.forEach block below), and
+    // drop listeners for any that disappeared (e.g. an admin deleted one
+    // straight from Firestore).
+    const liveIds = new Set(custom.map(r => r.id));
+    Object.keys(customRoomPreviewUnsubs).forEach(id => {
+      if (!liveIds.has(id)) { customRoomPreviewUnsubs[id](); delete customRoomPreviewUnsubs[id]; }
+    });
+    custom.forEach(room => {
+      if (customRoomPreviewUnsubs[room.id]) return;
+      const q = query(collection(db, 'chatRooms', room.id, 'messages'), orderBy('createdAt', 'desc'), limit(1));
+      customRoomPreviewUnsubs[room.id] = onSnapshot(q, snap => {
+        chatRoomPreviews[room.id] = snap.docs[0]?.data() || null;
+        renderChatRoomList();
+      }, err => console.error('Custom room preview listener failed', err));
+    });
+    renderChatRoomList();
+    // If the room currently open full-screen just got a fresh avatar
+    // override, reflect it immediately rather than waiting for the next
+    // time the room's opened.
+    if (currentChatRoom && (roomAvatarOverrides[currentChatRoom] || customRoomPreviewUnsubs)) {
+      const openRoom = activeRoomList().find(r => r.id === currentChatRoom);
+      if (openRoom && !chatDetailView.classList.contains('hidden')) chatDetailAvatar.innerHTML = roomIconOrAvatarHtml(openRoom);
+    }
+  }, err => console.error('Approved chat rooms listener failed', err));
 
   function chatPreviewLine(data){
     if (!data) return 'No messages yet — say hi.';
@@ -4387,17 +4473,19 @@ import {
 
   // WhatsApp-style room list: avatar, name, and a live one-line preview
   // of whatever's most recent in that room. Re-rendered wholesale on
-  // every preview update — only 4 rows, so this is cheap and far simpler
-  // than reconciling individual rows.
+  // every preview update — still cheap with a handful of rows, and far
+  // simpler than reconciling individual rows.
   function renderChatRoomList(){
-    chatRoomList.innerHTML = CHAT_ROOMS.map(room => {
+    const rooms = activeRoomList();
+    chatRoomList.innerHTML = rooms.map(room => {
       const data = chatRoomPreviews[room.id];
       const time = data?.createdAt?.toDate ? formatChatTime(data.createdAt.toDate()) : '';
       const who = data?.name ? `<b>${escapeHtml(data.name)}:</b> ` : '';
+      const label = room.name || room.id;
       return `<div class="chat-room-row" data-room="${room.id}">
-        <div class="chat-room-avatar">${room.icon}</div>
+        <div class="chat-room-avatar">${roomIconOrAvatarHtml(room)}</div>
         <div class="chat-room-row-body">
-          <div class="chat-room-row-top"><span class="chat-room-row-name">${room.id}</span><span class="chat-room-row-time">${time}</span></div>
+          <div class="chat-room-row-top"><span class="chat-room-row-name">${escapeHtml(label)}</span><span class="chat-room-row-time">${time}</span></div>
           <div class="chat-room-row-preview">${who}${escapeHtml(chatPreviewLine(data))}</div>
         </div>
       </div>`;
@@ -4409,9 +4497,10 @@ import {
   renderChatRoomList();
 
   // Separate from watchChatRoom below (which only ever tracks whichever
-  // ONE room is currently open full-screen) — these four stay subscribed
-  // for the life of the app once Chat's first rendered, each a
-  // 1-document query, so the ongoing read cost is negligible.
+  // ONE room is currently open full-screen) — the 4 built-in rooms stay
+  // subscribed for the life of the app once Chat's first rendered, each a
+  // 1-document query, so the ongoing read cost is negligible. Custom
+  // rooms get the same treatment dynamically, above, as they're approved.
   CHAT_ROOMS.forEach(room => {
     const q = query(collection(db, 'chatRooms', room.id, 'messages'), orderBy('createdAt', 'desc'), limit(1));
     onSnapshot(q, snapshot => {
@@ -4421,12 +4510,13 @@ import {
   });
 
   function openChatRoom(roomId){
-    const room = CHAT_ROOMS.find(r => r.id === roomId);
+    const room = activeRoomList().find(r => r.id === roomId);
     if (!room) return;
     currentChatRoom = roomId;
-    chatFeedHeading.textContent = roomId;
-    chatDetailAvatar.textContent = room.icon;
-    if (chatInput) chatInput.dataset.placeholder = `Message ${roomId}…`;
+    chatFeedHeading.textContent = room.name || roomId;
+    chatDetailAvatar.innerHTML = roomIconOrAvatarHtml(room);
+    chatDetailAvatar.classList.toggle('editable', isAdmin());
+    if (chatInput) chatInput.dataset.placeholder = `Message ${room.name || roomId}…`;
     setReplyTarget(chatForm, null); // switching rooms cancels any in-progress reply
     chatListView.classList.add('hidden');
     chatDetailView.classList.remove('hidden');
@@ -4437,6 +4527,172 @@ import {
     chatListView.classList.remove('hidden');
   }
   chatBackBtn.addEventListener('click', closeChatRoom);
+
+  // Tap a room's picture while signed in as admin to replace it with an
+  // uploaded image — same compress-to-data-URL approach as the profile
+  // picture/cover photo, just written onto the room's own doc instead of
+  // the user's profile so it shows up for everyone. Non-admins get a
+  // plain toast instead of a file picker.
+  function wireChatRoomAvatarUpload(){
+    chatDetailAvatar.addEventListener('click', () => {
+      if (!currentChatRoom) return;
+      if (!isAdmin()) { showToast('Only admins can change a group picture'); return; }
+      chatRoomAvatarFile.click();
+    });
+    chatDetailAvatar.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chatDetailAvatar.click(); }
+    });
+    chatRoomAvatarFile.addEventListener('change', () => {
+      const file = chatRoomAvatarFile.files[0];
+      const roomId = currentChatRoom;
+      if (!file || !roomId) { chatRoomAvatarFile.value = ''; return; }
+      if (!file.type.startsWith('image/')) { showToast('Please choose an image file'); chatRoomAvatarFile.value = ''; return; }
+      if (file.size > 4 * 1024 * 1024) { showToast('Image must be under 4MB'); chatRoomAvatarFile.value = ''; return; }
+      compressImageToDataUrl(file)
+        .then(compressed => {
+          const room = activeRoomList().find(r => r.id === roomId);
+          // status:'approved' matters here even for the 4 built-in rooms —
+          // it's what makes this write visible to the "approved" listener
+          // above for every other visitor, not just this admin's own browser.
+          return setDoc(doc(db, 'chatRooms', roomId), {
+            avatarUrl: compressed,
+            status: 'approved',
+            name: room?.name || roomId,
+          }, { merge: true });
+        })
+        .then(() => showToast('Group picture updated'))
+        .catch(err => { console.error('Room avatar update failed', err); showToast('Could not update — try again'); })
+        .finally(() => { chatRoomAvatarFile.value = ''; });
+    });
+  }
+  wireChatRoomAvatarUpload();
+
+  // ---------- request a new group ----------
+  const newGroupOverlay = document.getElementById('newGroupOverlay');
+  const newGroupNameInput = document.getElementById('newGroupNameInput');
+  const newGroupAvatarFile = document.getElementById('newGroupAvatarFile');
+  const newGroupAvatarPreview = document.getElementById('newGroupAvatarPreview');
+  const newGroupSubmitBtn = document.getElementById('newGroupSubmitBtn');
+  let pendingNewGroupAvatar = null; // { file, dataUrl } | null
+
+  document.getElementById('newGroupLink').addEventListener('click', () => {
+    if (!currentUserIdentity()) { requireSignIn('Sign in to start a group'); return; }
+    newGroupNameInput.value = '';
+    newGroupAvatarFile.value = '';
+    pendingNewGroupAvatar = null;
+    newGroupAvatarPreview.innerHTML = '＋ Photo';
+    newGroupOverlay.classList.add('show');
+  });
+  document.getElementById('newGroupClose').addEventListener('click', () => newGroupOverlay.classList.remove('show'));
+  newGroupOverlay.addEventListener('click', event => {
+    if (event.target === newGroupOverlay) newGroupOverlay.classList.remove('show');
+  });
+  newGroupAvatarFile.addEventListener('change', () => {
+    const file = newGroupAvatarFile.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Please choose an image file'); newGroupAvatarFile.value = ''; return; }
+    if (file.size > 4 * 1024 * 1024) { showToast('Image must be under 4MB'); newGroupAvatarFile.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingNewGroupAvatar = { file, dataUrl: reader.result };
+      newGroupAvatarPreview.innerHTML = `<img src="${reader.result}" alt="">`;
+    };
+    reader.onerror = () => showToast('Could not read that image');
+    reader.readAsDataURL(file);
+  });
+  newGroupSubmitBtn.addEventListener('click', () => {
+    const name = newGroupNameInput.value.trim();
+    if (!name) { showToast('Give the group a name'); return; }
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'group';
+    // A short random suffix keeps two people's simultaneous "Anime"
+    // requests from colliding on the same document ID.
+    const roomId = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
+    const identity = currentUserIdentity();
+    if (!identity) { requireSignIn('Sign in to start a group'); return; }
+    if (CORE_ROOM_IDS.has(name) || activeRoomList().some(r => (r.name || r.id).toLowerCase() === name.toLowerCase())) {
+      showToast('A group with that name already exists');
+      return;
+    }
+    withSpinner(newGroupSubmitBtn, 'SUBMITTING…', () => {
+      const finish = (avatarUrl) => {
+        setDoc(doc(db, 'chatRooms', roomId), {
+          name,
+          status: 'pending',
+          avatarUrl: avatarUrl || null,
+          createdBy: identity.uid,
+          createdByName: identity.name,
+          createdAt: serverTimestamp(),
+        })
+          .then(() => {
+            newGroupOverlay.classList.remove('show');
+            showToast(`"${name}" submitted — pending admin approval`);
+          })
+          .catch(err => { console.error('Group request failed', err); showToast('Could not submit that group — try again'); });
+      };
+      if (pendingNewGroupAvatar) {
+        compressImageToDataUrl(pendingNewGroupAvatar.file).then(finish).catch(() => finish(pendingNewGroupAvatar.dataUrl));
+      } else {
+        finish(null);
+      }
+    }, 700);
+  });
+
+  // ---------- admin: review pending groups ----------
+  const chatPendingBadge = document.getElementById('chatPendingBadge');
+  const chatPendingCount = document.getElementById('chatPendingCount');
+  const chatPendingPlural = document.getElementById('chatPendingPlural');
+  const pendingGroupsOverlay = document.getElementById('pendingGroupsOverlay');
+  const pendingGroupsList = document.getElementById('pendingGroupsList');
+  let unsubPendingGroups = null;
+
+  function updatePendingGroupsBadge(){
+    const count = pendingGroups.length;
+    chatPendingBadge.classList.toggle('hidden', !isAdmin() || count === 0);
+    chatPendingCount.textContent = String(count);
+    chatPendingPlural.textContent = count === 1 ? '' : 's';
+  }
+  function renderPendingGroups(){
+    pendingGroupsList.innerHTML = pendingGroups.length ? pendingGroups.map(item => `
+      <div class="admin-report-row" data-doc-id="${item.id}">
+        ${item.avatarUrl ? `<img src="${escapeHtml(item.avatarUrl)}" alt="">` : ''}
+        <div class="admin-report-info">
+          <b>${escapeHtml(item.name)}</b>
+          <span>requested by ${escapeHtml(item.createdByName || 'unknown')}</span>
+        </div>
+        <div class="admin-report-actions">
+          <button data-action="reject" class="danger">Reject</button>
+          <button data-action="approve">Approve</button>
+        </div>
+      </div>`).join('') : `<p style="font-size:11px;color:var(--muted);">Nothing pending.</p>`;
+  }
+  pendingGroupsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn || !isAdmin()) return;
+    const roomId = btn.closest('.admin-report-row').dataset.docId;
+    btn.disabled = true;
+    const action = btn.dataset.action === 'approve'
+      ? updateDoc(doc(db, 'chatRooms', roomId), { status: 'approved' })
+      : deleteDoc(doc(db, 'chatRooms', roomId));
+    action.catch(err => { console.error('Group moderation failed', err); showToast('Could not complete that action — try again'); btn.disabled = false; });
+  });
+  chatPendingBadge.addEventListener('click', () => pendingGroupsOverlay.classList.add('show'));
+  document.getElementById('pendingGroupsClose').addEventListener('click', () => pendingGroupsOverlay.classList.remove('show'));
+  pendingGroupsOverlay.addEventListener('click', event => {
+    if (event.target === pendingGroupsOverlay) pendingGroupsOverlay.classList.remove('show');
+  });
+  // Hooked into refreshModerationListeners() (defined earlier in this
+  // file) via a typeof-guarded call, same pattern that function already
+  // uses for its own forward references — attaches only while isAdmin()
+  // is true and detaches the moment sign-out/switch makes it false.
+  function refreshPendingGroupsListener(){
+    if (unsubPendingGroups) { unsubPendingGroups(); unsubPendingGroups = null; }
+    if (!isAdmin()) { pendingGroups = []; updatePendingGroupsBadge(); return; }
+    unsubPendingGroups = onSnapshot(query(collection(db, 'chatRooms'), where('status', '==', 'pending')), snapshot => {
+      pendingGroups = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      updatePendingGroupsBadge();
+      renderPendingGroups();
+    }, err => console.error('Pending groups listener failed', err));
+  }
 
   // Shared by the text-submit flow below and the GIF/sticker paste handler
   // — a message is either { text } or { imageUrl } (or both, though the
