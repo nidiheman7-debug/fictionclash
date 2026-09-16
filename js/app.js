@@ -15,6 +15,11 @@ import {
   import {
     ref as storageRef, uploadBytes, getDownloadURL
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
+  import { getApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import {
+    getDatabase, ref as rtdbRef, onValue as rtdbOnValue, onDisconnect,
+    set as rtdbSet, remove as rtdbRemove, serverTimestamp as rtdbServerTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
 
   const auth = window.firebaseAuth;
 
@@ -52,6 +57,24 @@ import {
   const db = window.firebaseDb;
   const storage = window.firebaseStorage;
   const googleProvider = new GoogleAuthProvider();
+
+  // Realtime Database is only used for one thing — true online presence
+  // in chat rooms (see "realtime presence" below). Unlike Firestore, RTDB
+  // has a real socket connection with server-side disconnect detection
+  // (onDisconnect), which is what makes accurate "active now" counts
+  // possible instead of the polling-based approximation this replaces.
+  // Reuses whatever app firebase-init.js already initialized — that file
+  // needs a `databaseURL` in its config and Realtime Database needs to be
+  // turned on in the Firebase console, or this silently falls back to the
+  // old heartbeat approximation (see rtdbAvailable below).
+  let rtdb = null;
+  let rtdbAvailable = false;
+  try {
+    rtdb = getDatabase(getApp());
+    rtdbAvailable = true;
+  } catch (err) {
+    console.warn('Realtime Database unavailable (add databaseURL to the Firebase config + enable Realtime Database in the console for live "active" counts) — falling back to approximate counts.', err);
+  }
 
   // Turns any string into a safe Firestore document ID / Storage path
   // segment (character names, matchup keys, etc. can contain spaces,
@@ -4200,6 +4223,7 @@ import {
   }
   const chatFeed = document.getElementById('chatFeed');
   const chatFeedHeading = document.getElementById('chatFeedHeading');
+  const chatFeedSub = document.getElementById('chatFeedSub');
   const chatForm = document.getElementById('chatForm');
   const chatInput = document.getElementById('chatInput');
   const chatClearMenuBtn = document.getElementById('chatClearMenuBtn');
@@ -4640,9 +4664,144 @@ import {
     chatListView.classList.add('hidden');
     chatDetailView.classList.remove('hidden');
     watchChatRoom(roomId);
+    startChatRoomPresence(roomId);
+  }
+
+  // ---------- header subtitle: total + live "active" member counts ----------
+  // Total members = Firestore, same as before (a one-shot count of
+  // everyone who's ever joined/posted here). Active = real Realtime
+  // Database presence when rtdbAvailable, using the standard
+  // .info/connected + onDisconnect() pattern: each device writes its own
+  // node under roomPresence/{roomId}/{uid} and arms a server-side
+  // onDisconnect().remove() on it, so the node disappears the instant
+  // that socket drops (tab closed, network lost, app backgrounded past
+  // the OS's keep-alive) — no polling, no "stale until the next
+  // heartbeat" window like the Firestore-only version had. If RTDB isn't
+  // configured, falls back to that older heartbeat/poll approximation so
+  // the feature still works without extra setup.
+  const CHAT_ACTIVE_WINDOW_MS = 5 * 60 * 1000; // fallback-only: "active" = active in the last 5 min
+  const CHAT_HEARTBEAT_INTERVAL_MS = 45 * 1000; // fallback-only poll/heartbeat cadence
+  let chatPresenceHeartbeatTimer = null;
+  let chatPresencePollTimer = null;
+  let presenceCountUnsub = null;
+  let presenceConnectedUnsub = null;
+  let presenceUserRef = null;
+  let chatRoomTotalMembers = null;
+  let chatRoomActiveCount = null;
+
+  function renderChatRoomMemberSub(){
+    if (!chatFeedSub) return;
+    if (!chatRoomTotalMembers) { chatFeedSub.textContent = ''; return; }
+    const activePart = chatRoomActiveCount == null ? '' : ` · ${chatRoomActiveCount} active`;
+    chatFeedSub.textContent = `${chatRoomTotalMembers} member${chatRoomTotalMembers === 1 ? '' : 's'}${activePart}`;
+  }
+
+  function refreshChatRoomTotalMembers(roomId){
+    getCountFromServer(collection(db, 'chatRooms', roomId, 'members'))
+      .then(snap => {
+        if (currentChatRoom !== roomId) return;
+        chatRoomTotalMembers = snap.data().count;
+        renderChatRoomMemberSub();
+      })
+      .catch(err => console.error('Member count failed', err));
+  }
+
+  // ----- real presence path (Realtime Database) -----
+  function joinRoomPresenceRtdb(roomId){
+    const countRef = rtdbRef(rtdb, `roomPresence/${roomId}`);
+    // onValue() returns its own unsubscribe function in the v9 modular
+    // SDK — no separate off() call needed.
+    presenceCountUnsub = rtdbOnValue(countRef, snap => {
+      if (currentChatRoom !== roomId) return;
+      chatRoomActiveCount = snap.size;
+      renderChatRoomMemberSub();
+    });
+
+    const identity = currentUserIdentity();
+    if (!identity) return; // signed-out visitors see the live count but don't add to it
+    presenceUserRef = rtdbRef(rtdb, `roomPresence/${roomId}/${identity.uid}`);
+    // Re-armed on every reconnect, per the standard RTDB presence recipe —
+    // onDisconnect only survives the socket it was registered on, and
+    // .info/connected fires again after any reconnect (including the
+    // very first connect).
+    presenceConnectedUnsub = rtdbOnValue(rtdbRef(rtdb, '.info/connected'), snap => {
+      if (snap.val() !== true || !presenceUserRef) return;
+      onDisconnect(presenceUserRef).remove().then(() => {
+        // Deliberately just name + timestamp — no avatarUrl. It can be a
+        // multi-hundred-KB data URL (see currentUserIdentity), and this
+        // node exists purely to be counted, not rendered.
+        rtdbSet(presenceUserRef, {
+          name: identity.name,
+          since: rtdbServerTimestamp(),
+        });
+      }).catch(err => console.error('Presence onDisconnect setup failed', err));
+    });
+  }
+
+  function leaveRoomPresenceRtdb(){
+    if (presenceCountUnsub) { presenceCountUnsub(); presenceCountUnsub = null; }
+    if (presenceConnectedUnsub) { presenceConnectedUnsub(); presenceConnectedUnsub = null; }
+    if (presenceUserRef) {
+      onDisconnect(presenceUserRef).cancel().catch(() => {});
+      rtdbRemove(presenceUserRef).catch(() => {});
+      presenceUserRef = null;
+    }
+  }
+
+  // ----- fallback path (Firestore heartbeat + poll, no RTDB configured) -----
+  function sendChatPresenceHeartbeatFallback(roomId){
+    const identity = currentUserIdentity();
+    // Only bumps an EXISTING member doc (someone who's already sent a
+    // message or hit Join) — a heartbeat from someone just silently
+    // reading shouldn't itself create membership, and firestore.rules
+    // requires the full field set (name, uid, ...) that only the
+    // join/send paths supply.
+    if (!identity || !myRoomMemberships[roomId]) return;
+    setDoc(doc(db, 'chatRooms', roomId, 'members', identity.uid), {
+      lastActiveAt: serverTimestamp(),
+    }, { merge: true }).catch(err => console.error('Presence heartbeat failed', err));
+  }
+
+  function refreshChatRoomActiveCountFallback(roomId){
+    const activeQuery = query(
+      collection(db, 'chatRooms', roomId, 'members'),
+      where('lastActiveAt', '>=', Timestamp.fromMillis(Date.now() - CHAT_ACTIVE_WINDOW_MS))
+    );
+    getCountFromServer(activeQuery).then(snap => {
+      if (currentChatRoom !== roomId) return;
+      chatRoomActiveCount = snap.data().count;
+      renderChatRoomMemberSub();
+    }).catch(err => console.error('Active member count failed', err));
+  }
+
+  function joinRoomPresenceFallback(roomId){
+    sendChatPresenceHeartbeatFallback(roomId);
+    refreshChatRoomActiveCountFallback(roomId);
+    chatPresenceHeartbeatTimer = setInterval(() => sendChatPresenceHeartbeatFallback(roomId), CHAT_HEARTBEAT_INTERVAL_MS);
+    chatPresencePollTimer = setInterval(() => refreshChatRoomActiveCountFallback(roomId), CHAT_HEARTBEAT_INTERVAL_MS);
+  }
+
+  function leaveRoomPresenceFallback(){
+    if (chatPresenceHeartbeatTimer) { clearInterval(chatPresenceHeartbeatTimer); chatPresenceHeartbeatTimer = null; }
+    if (chatPresencePollTimer) { clearInterval(chatPresencePollTimer); chatPresencePollTimer = null; }
+  }
+
+  function startChatRoomPresence(roomId){
+    stopChatRoomPresence();
+    chatRoomTotalMembers = null;
+    chatRoomActiveCount = null;
+    renderChatRoomMemberSub();
+    refreshChatRoomTotalMembers(roomId);
+    if (rtdbAvailable) joinRoomPresenceRtdb(roomId); else joinRoomPresenceFallback(roomId);
+  }
+
+  function stopChatRoomPresence(){
+    leaveRoomPresenceRtdb();
+    leaveRoomPresenceFallback();
   }
   function closeChatRoom(){
     closeChatHeaderMenu();
+    stopChatRoomPresence();
     chatDetailView.classList.add('hidden');
     chatListView.classList.remove('hidden');
   }
@@ -5132,7 +5291,7 @@ import {
       }
       chatGifStatus.textContent = '';
       chatGifGrid.innerHTML = items.map(item => {
-        const thumb = item.images?.fixed_width_small?.url || item.images?.fixed_width?.url || item.images?.original?.url;
+        const thumb = item.images?.fixed_width?.url || item.images?.fixed_width_small?.url || item.images?.original?.url;
         const send = item.images?.fixed_width?.url || item.images?.original?.url;
         if (!thumb || !send) return '';
         return `<button type="button" class="chat-gif-item" data-send-url="${escapeHtml(send)}"><img src="${escapeHtml(thumb)}" alt="${escapeHtml(item.title || '')}" loading="lazy"></button>`;
