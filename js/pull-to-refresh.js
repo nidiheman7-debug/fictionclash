@@ -27,6 +27,14 @@
     if (document.querySelector('.modal-overlay.show')) return false;
     var reels = document.getElementById('reelsOverlay');
     if (reels && reels.contains(target)) return false;
+    // The chat feed (#chatFeed) scrolls independently of .phone-scroll —
+    // .phone-scroll itself stays pinned at scrollTop 0 the whole time a
+    // room is open, so without this check every pull made to see older
+    // messages read as "at the top, eligible" and reloaded the whole app.
+    // Scoped to chatDetailView only — every other section still gets
+    // pull-to-refresh as before.
+    var chatDetail = document.getElementById('chatDetailView');
+    if (chatDetail && !chatDetail.classList.contains('hidden') && chatDetail.contains(target)) return false;
     return scroller.scrollTop <= 0;
   }
 
