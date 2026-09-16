@@ -341,27 +341,30 @@
   </section>
 
   <section class="news-section hidden" id="chatSection" aria-label="Chat">
-    <div class="news-header">
-      <div>
-        <div class="movies-kicker">TALK FICTION</div>
-        <h1 class="news-title">Clash chat rooms</h1>
+    <div id="chatListView">
+      <div class="news-header">
+        <div>
+          <div class="movies-kicker">TALK FICTION</div>
+          <h1 class="news-title">Clash chat rooms</h1>
+        </div>
+        <div class="news-date" id="chatDate">WED<br>AUG 19</div>
       </div>
-      <div class="news-date" id="chatDate">WED<br>AUG 19</div>
+      <div class="chat-room-list" id="chatRoomList"></div>
     </div>
 
-    <nav class="news-tabs" id="newsTabs">
-      <div class="news-tab selected" data-news-category="General"><span class="news-icon">✦</span>General</div>
-      <div class="news-tab" data-news-category="Battles"><span class="news-icon">⚔</span>Battles</div>
-      <div class="news-tab" data-news-category="Movies"><span class="news-icon">▣</span>Movies</div>
-      <div class="news-tab" data-news-category="Football"><span class="news-icon">◉</span>Football</div>
-    </nav>
-
-    <div class="chat-room-toolbar">
-      <button type="button" id="chatClearBtn" class="chat-clear-btn hidden">🗑 Clear room</button>
-    </div>
-
-    <div class="news-feed-block">
-      <div class="news-feed-title"><span id="chatFeedHeading">General</span><span>LIVE</span></div>
+    <!-- Full-screen room view. While open, the bottom nav is hidden and
+         this view's own composer sits in its place — see the :has()
+         rules in styles.css (search "chatDetailView") for how, no JS
+         layout toggling needed beyond showing/hiding this element. -->
+    <div id="chatDetailView" class="hidden">
+      <div class="chat-detail-header">
+        <button type="button" id="chatBackBtn" class="chat-back-btn" aria-label="Back to chat rooms">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div class="chat-detail-avatar" id="chatDetailAvatar">✦</div>
+        <div class="chat-detail-title" id="chatFeedHeading">General</div>
+        <button type="button" id="chatClearBtn" class="chat-clear-btn hidden" aria-label="Clear room">🗑</button>
+      </div>
       <div id="chatFeed" class="chat-feed"></div>
       <form id="chatForm" class="chat-input-row">
         <div id="chatInput" class="chat-input" contenteditable="true" role="textbox" aria-multiline="false" data-placeholder="Message General…"></div>

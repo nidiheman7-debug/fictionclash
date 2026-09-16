@@ -399,19 +399,19 @@
      vertical padding) plus the device's safe-area inset so nothing sits
      behind it, on any tab. */
   .phone-main{ flex:1 0 auto; display:flex; flex-direction:column; padding-bottom:calc(100px + env(safe-area-inset-bottom, 0px)); }
-  /* Every other section wants .phone-main to grow with its content and
-     let .phone-scroll scroll the whole page — that's flex-shrink:0
-     above, on purpose. Chat is the one exception: its own internal
-     "#chatSection → .news-feed-block → .chat-feed" flex/scroll chain
-     (see the big comment on #chatSection below) only works if .phone-main
-     is actually clamped to the viewport's real height instead of
-     growing to fit a long message list. Without this, a chat room with
-     enough messages just makes .phone-main (and the whole page) taller,
-     which is exactly the "composer sinks below the screen" bug — the
-     inner .chat-feed never gets to be the thing that scrolls.
-     Scoped with :has() so this only changes behavior while Chat is the
-     visible section; every other tab is untouched. */
-  .phone-main:has(> #chatSection:not(.hidden)){ min-height:0; }
+  /* Chat is now two views: a normal-scrolling room list (#chatListView,
+     no special height handling needed — .phone-scroll scrolls it like
+     any other page) and a full-screen room (#chatDetailView), which
+     needs the same "clamp .phone-main to the real viewport height" fix
+     as before, PLUS the bottom nav actually hidden and out of the way —
+     WhatsApp-style, the message composer takes over that space instead
+     of floating a second input above an idle nav bar. All scoped with
+     :has() to only #chatDetailView actually being open, so the room
+     list and every other tab are unaffected. */
+  .phone-main:has(> #chatSection:not(.hidden) > #chatDetailView:not(.hidden)){
+    min-height:0;
+    padding-bottom:env(safe-area-inset-bottom, 0px);
+  }
 
    .topbar{
      position:sticky; top:0; z-index:10;
@@ -1140,65 +1140,85 @@
      margin-top:0;
    }
    #chatSection .news-date{ font-size:9px; }
-   #chatSection .news-tabs{
-     margin-bottom:8px;
+
+   /* ---------- Room list (WhatsApp-style) ---------- */
+   .chat-room-row{
+     display:flex; align-items:center; gap:12px;
+     padding:11px 0; border-bottom:1px solid var(--line);
+     cursor:pointer; -webkit-tap-highlight-color:transparent;
    }
-   #chatSection .chat-room-toolbar{
-     margin-top:0;
-     margin-bottom:4px;
+   .chat-room-row:active{ opacity:.7; }
+   .chat-room-avatar{
+     flex:0 0 auto; width:46px; height:46px; border-radius:50%;
+     display:flex; align-items:center; justify-content:center;
+     background:var(--surface); border:1px solid var(--line);
+     font-size:19px; color:var(--accent);
    }
-   .news-feed-block{
-     margin-bottom:18px;
+   .chat-room-row-body{ flex:1; min-width:0; }
+   .chat-room-row-top{
+     display:flex; justify-content:space-between; align-items:baseline; gap:8px;
    }
-   /* Chat only (#chatSection is the only element carrying .news-section —
-      the old News hub these classes were named for is gone). Header,
-      tabs, and the clear-room toolbar stay their natural size; the feed
-      block is what stretches to fill whatever's left of the phone's
-      fixed-height frame, and the input sits pinned at the bottom of that
-      space — never off scrolling with the message list, and never
-      leaving the huge blank gap under a short/empty room either. This
-      relies on nothing but the flex/scroll structure the rest of the
-      page already uses (.phone-scroll → .phone-main → this section), the
-      same one .bottomnav's own doc comment explains — no JS, no
-      position:absolute magic-number offsets to keep in sync with the nav's
-      height, and no interaction with docked-composer.js (that script only
-      ever targets `.comment-form .clip-field`, never this input, so it's
-      not in play here — the phone frame's own dvh-based height already
-      does the right thing as the on-screen keyboard opens/closes, the
-      same reason the composer script's own header comment gives for why
-      ordinary page inputs don't need it).
-      min-height:0 recurs at every flex link in this chain
-      (#chatSection → .news-feed-block → #chatFeed) because a flex item's
-      default min-height is `auto`, which quietly refuses to shrink below
-      its content size — without overriding it at each level, the feed
-      would just keep growing instead of ever engaging its own
-      overflow-y:auto scroll. */
-   /* :not(.hidden) is load-bearing, not decorative — a bare #chatSection
-      selector here (specificity 1-0-0) beats .news-section.hidden's
-      display:none (specificity 0-2-0) outright, an ID always outranks any
-      number of classes regardless of source order. That silently forced
-      this section visible on every screen, .hidden or not, which is
-      exactly the "chat rooms bleeding into every section" bug. Scoping to
-      :not(.hidden) makes the rule simply not match at all while hidden,
-      instead of matching and outranking it. */
-   #chatSection:not(.hidden){
+   .chat-room-row-name{ font:700 14px 'Rajdhani',sans-serif; }
+   .chat-room-row-time{ color:var(--muted); font-size:10px; flex-shrink:0; }
+   .chat-room-row-preview{
+     color:var(--muted); font-size:12.5px; margin-top:2px;
+     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+   }
+   .chat-room-row-preview b{ color:var(--text); font-weight:700; }
+
+   /* ---------- Full-screen room view ---------- */
+   #chatDetailView.hidden{ display:none; }
+   /* Only while a room is actually open does this need the fixed-height
+      "header stays put, feed scrolls, composer pinned at the bottom"
+      treatment — the room list above is a normal page and scrolls with
+      .phone-scroll like everything else. min-height:0 recurs at every
+      link in this chain (#chatDetailView → .chat-feed) because a flex
+      item's default min-height is `auto`, which quietly refuses to
+      shrink below its content size — without it the feed would just
+      keep growing instead of engaging its own overflow-y:auto scroll. */
+   /* :not(.hidden) on #chatSection itself, not just #chatDetailView, is
+      load-bearing here — this codebase already got bitten once by an ID
+      selector (#chatSection) outranking .news-section.hidden's
+      display:none via raw specificity regardless of :has() being true.
+      Requiring #chatSection:not(.hidden) too means this rule simply
+      doesn't match at all while the Chat tab isn't active, rather than
+      matching and forcing the section visible anyway. */
+   #chatSection:not(.hidden):has(> #chatDetailView:not(.hidden)){
      height:100%;
      display:flex;
      flex-direction:column;
    }
-   #chatSection .news-header,
-   #chatSection .news-tabs,
-   #chatSection .chat-room-toolbar{
-     flex-shrink:0;
-   }
-   #chatSection .news-feed-block{
+   #chatDetailView:not(.hidden){
      flex:1;
      min-height:0;
      display:flex;
      flex-direction:column;
-     margin-bottom:0;
    }
-   .news-feed-title{display:none;}
+   .chat-detail-header{
+     flex-shrink:0;
+     display:flex; align-items:center; gap:10px;
+     padding-bottom:11px; margin-bottom:4px;
+     border-bottom:1px solid var(--line);
+   }
+   .chat-back-btn{
+     flex:0 0 auto; width:32px; height:32px; padding:0;
+     border:0; background:transparent; color:var(--text);
+     display:flex; align-items:center; justify-content:center;
+     border-radius:50%; cursor:pointer;
+   }
+   .chat-back-btn:active{ transform:scale(.88); }
+   .chat-detail-avatar{
+     flex:0 0 auto; width:34px; height:34px; border-radius:50%;
+     display:flex; align-items:center; justify-content:center;
+     background:var(--surface); border:1px solid var(--line);
+     font-size:15px; color:var(--accent);
+   }
+   .chat-detail-title{
+     flex:1; min-width:0; font:700 15px 'Rajdhani',sans-serif;
+     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+   }
+   .chat-detail-header .chat-clear-btn{ flex:0 0 auto; }
+
    .news-story{
      display:flex;align-items:center;gap:13px;padding:14px 0;
      border-bottom:1px solid var(--line);
@@ -1913,6 +1933,13 @@
       these is focused frees up that reserved space, and the matching JS
       scrolls the field itself up above the keyboard. */
    body.keyboard-open .bottomnav{ display:none; }
+   /* WhatsApp-style: opening a room replaces the bottom nav with that
+      room's own composer rather than showing both. #chatDetailView lives
+      inside #chatSection inside .phone-main inside .phone-scroll, all
+      inside .phone — :has() reaches through any depth of descendants
+      (no > combinators needed here), so this fires only while a room is
+      actually open, never for the room list or any other tab. */
+   .phone:has(#chatSection:not(.hidden) #chatDetailView:not(.hidden)) .bottomnav{ display:none; }
    .nav-item.active{ color:var(--text); }
   .nav-item svg{ stroke:var(--muted); }
    .nav-item.active svg{ stroke:var(--accent); }
@@ -2413,10 +2440,10 @@
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
 }
 .chat-header-right{ display:flex; align-items:center; gap:8px; }
-.chat-room-toolbar{ display:flex; justify-content:flex-end; margin-top:6px; }
 .chat-clear-btn{
-  background:none; border:1px solid var(--line); border-radius:14px; padding:5px 11px;
-  font:700 10.5px 'Instrument Sans',sans-serif; line-height:1;
+  background:none; border:1px solid var(--line); border-radius:50%; width:30px; height:30px; padding:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:13px; line-height:1;
   color:var(--muted); cursor:pointer; opacity:.9;
 }
 .chat-clear-btn:active{ transform:scale(.9); }
