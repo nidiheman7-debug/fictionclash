@@ -4203,6 +4203,22 @@ import {
   const chatForm = document.getElementById('chatForm');
   const chatInput = document.getElementById('chatInput');
   const chatClearBtn = document.getElementById('chatClearBtn');
+  const chatHeaderMenuWrap = document.getElementById('chatHeaderMenuWrap');
+  const chatHeaderMenuBtn = document.getElementById('chatHeaderMenuBtn');
+  const chatHeaderMenu = document.getElementById('chatHeaderMenu');
+  const chatShareGroupBtn = document.getElementById('chatShareGroupBtn');
+  const chatMembersBtn = document.getElementById('chatMembersBtn');
+  const chatMemberLimitBtn = document.getElementById('chatMemberLimitBtn');
+  const chatClearMenuBtn = document.getElementById('chatClearMenuBtn');
+  const groupMembersOverlay = document.getElementById('groupMembersOverlay');
+  const groupMembersTitle = document.getElementById('groupMembersTitle');
+  const groupMembersSub = document.getElementById('groupMembersSub');
+  const groupMembersList = document.getElementById('groupMembersList');
+  const groupMembersClose = document.getElementById('groupMembersClose');
+  const groupLimitOverlay = document.getElementById('groupLimitOverlay');
+  const groupLimitInput = document.getElementById('groupLimitInput');
+  const groupLimitSaveBtn = document.getElementById('groupLimitSaveBtn');
+  const groupLimitClose = document.getElementById('groupLimitClose');
 
   const CHAT_MAX_LENGTH = 500;
   const CHAT_MESSAGE_LIMIT = 100; // most recent N messages kept live per room
@@ -4210,11 +4226,36 @@ import {
   let currentChatRoom = 'General';
   let chatUnsubscribe = null;
 
-  function updateChatClearBtnVisibility(){
-    if (chatClearBtn) chatClearBtn.classList.toggle('hidden', !isAdmin());
+  function currentChatRoomData(){
+    return activeRoomList().find(r => r.id === currentChatRoom) || null;
   }
-  updateChatClearBtnVisibility();
+  function canManageGroup(room){
+    const identity = currentUserIdentity();
+    return !!(room && (isAdmin() || (identity && room.createdBy && room.createdBy === identity.uid)));
+  }
+  function closeChatHeaderMenu(){
+    if (!chatHeaderMenu) return;
+    chatHeaderMenu.hidden = true;
+    chatHeaderMenuBtn?.setAttribute('aria-expanded', 'false');
+  }
+  function updateChatHeaderMenu(){
+    const room = currentChatRoomData();
+    const manager = canManageGroup(room);
+    chatMemberLimitBtn?.toggleAttribute('hidden', !manager);
+    chatClearMenuBtn?.toggleAttribute('hidden', !isAdmin());
+    chatClearBtn?.classList.toggle('hidden', !isAdmin());
+  }
+  updateChatHeaderMenu();
   chatClearBtn?.addEventListener('click', () => clearChatRoom(currentChatRoom));
+  chatHeaderMenuBtn?.addEventListener('click', e => {
+    e.stopPropagation();
+    const next = chatHeaderMenu.hidden;
+    chatHeaderMenu.hidden = !next;
+    chatHeaderMenuBtn.setAttribute('aria-expanded', String(next));
+  });
+  document.addEventListener('click', e => {
+    if (chatHeaderMenu && !chatHeaderMenu.hidden && chatHeaderMenuWrap && !chatHeaderMenuWrap.contains(e.target)) closeChatHeaderMenu();
+  });
 
   function chatMessageKey(data){
     return data.id || `${data.uid || ''}:${data.createdAt?.toMillis?.() || ''}:${data.text || ''}`;
@@ -4441,7 +4482,7 @@ import {
       const data = docSnap.data();
       if (data.avatarUrl) overrides[docSnap.id] = data.avatarUrl;
       if (!CORE_ROOM_IDS.has(docSnap.id)) {
-        custom.push({ id: docSnap.id, icon: data.icon || (data.name || docSnap.id).charAt(0).toUpperCase(), avatarUrl: data.avatarUrl || null, name: data.name || docSnap.id, createdBy: data.createdBy || null });
+        custom.push({ id: docSnap.id, icon: data.icon || (data.name || docSnap.id).charAt(0).toUpperCase(), avatarUrl: data.avatarUrl || null, name: data.name || docSnap.id, createdBy: data.createdBy || null, maxMembers: Number(data.maxMembers) || 0, memberCount: Number(data.memberCount) || 0 });
       }
     });
     roomAvatarOverrides = overrides;
@@ -4463,6 +4504,7 @@ import {
       }, err => console.error('Custom room preview listener failed', err));
     });
     renderChatRoomList();
+    tryOpenSharedGroup();
     // If the room currently open full-screen just got a fresh avatar
     // override, reflect it immediately rather than waiting for the next
     // time the room's opened.
@@ -4517,6 +4559,8 @@ import {
     }, err => console.error('Chat room preview listener failed', err));
   });
 
+  setTimeout(tryOpenSharedGroup, 0);
+
   // Room avatars: the admin can change any room's picture; a custom
   // group's own creator can additionally change theirs — the 4 built-in
   // rooms (CHAT_ROOMS, not Firestore-backed the same way) have no
@@ -4529,6 +4573,169 @@ import {
     return !!(identity && room.createdBy && room.createdBy === identity.uid);
   }
 
+  // ---------- group links + membership ----------
+  let sharedGroupHandled = false;
+  let groupLimitRoomId = null;
+
+  function groupShareUrl(roomId){
+    return buildShareUrl('group', roomId);
+  }
+  function groupDefaultLimit(room){
+    const n = Number(room?.maxMembers);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+
+  // A signed-in user becomes a member the first time they enter a room.
+  // Custom groups keep memberCount/maxMembers on their room document so the
+  // limit can be enforced atomically rather than by a client-side count.
+  async function ensureGroupMembership(room){
+    const identity = currentUserIdentity();
+    if (!identity || !room) return false;
+    const roomRef = doc(db, 'chatRooms', room.id);
+    const memberRef = doc(roomRef, 'members', identity.uid);
+    try {
+      const existing = await getDoc(memberRef);
+      if (existing.exists()) return true;
+
+      const roomSnap = await getDoc(roomRef);
+      if (!roomSnap.exists()) {
+        // Built-in rooms historically have no parent document. Keep their
+        // membership list compatible; an admin can create/configure the room
+        // document later if a hard limit is needed.
+        await setDoc(memberRef, {
+          uid: identity.uid, name: identity.name, avatarUrl: identity.avatarUrl || '',
+          role: 'member', joinedAt: serverTimestamp()
+        });
+        return true;
+      }
+
+      const data = roomSnap.data() || {};
+      const maxMembers = Number(data.maxMembers) || 0;
+      const memberCount = Number(data.memberCount) || 0;
+      if (maxMembers > 0 && memberCount >= maxMembers) {
+        showToast(`This group is full (${maxMembers} members)`);
+        return false;
+      }
+
+      await runTransaction(db, async tx => {
+        const freshRoom = await tx.get(roomRef);
+        const freshMember = await tx.get(memberRef);
+        if (freshMember.exists()) return;
+        const freshData = freshRoom.exists() ? (freshRoom.data() || {}) : {};
+        const freshMax = Number(freshData.maxMembers) || 0;
+        const freshCount = Number(freshData.memberCount) || 0;
+        if (freshMax > 0 && freshCount >= freshMax) throw new Error('GROUP_FULL');
+        tx.set(memberRef, {
+          uid: identity.uid, name: identity.name, avatarUrl: identity.avatarUrl || '',
+          role: freshData.createdBy === identity.uid ? 'admin' : 'member',
+          joinedAt: serverTimestamp()
+        });
+        tx.set(roomRef, { memberCount: increment(1) }, { merge: true });
+      });
+      return true;
+    } catch (err) {
+      if (err?.message === 'GROUP_FULL') {
+        showToast(`This group is full (${Number(room?.maxMembers) || 'the current limit'} members)`);
+        return false;
+      }
+      // The four legacy/core rooms predate the membership collection. If an
+      // existing ruleset does not permit the optional member write, preserve
+      // their existing chat behavior; custom groups should have the rules
+      // below updated so membership/limits are enforced server-side.
+      if (CORE_ROOM_IDS.has(room.id)) return true;
+      console.error('Group membership join failed', err);
+      return false;
+    }
+  }
+
+  async function openGroupMembers(){
+    const room = currentChatRoomData();
+    if (!room) return;
+    if (!currentUserIdentity()) { requireSignIn('Sign in to view group members'); return; }
+    closeChatHeaderMenu();
+    groupMembersTitle.textContent = `${room.name || room.id} members`;
+    groupMembersSub.textContent = 'Loading members…';
+    groupMembersList.innerHTML = '<div class="comments-modal-loading">Loading…</div>';
+    groupMembersOverlay.classList.add('show');
+    try {
+      const snap = await getDocs(collection(db, 'chatRooms', room.id, 'members'));
+      const members = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      members.sort((a,b) => (a.role === 'admin' ? -1 : 1) - (b.role === 'admin' ? -1 : 1) || String(a.name || '').localeCompare(String(b.name || '')));
+      const max = groupDefaultLimit(room);
+      groupMembersSub.textContent = `${members.length}${max ? ` / ${max}` : ''} member${members.length === 1 ? '' : 's'}`;
+      groupMembersList.innerHTML = members.length ? members.map(member => `
+        <div class="group-member-row">
+          <div class="group-member-avatar">${member.avatarUrl ? `<img src="${escapeHtml(member.avatarUrl)}" alt="">` : escapeHtml((member.name || 'U').trim().split(/\s+/).map(x => x[0]).join('').slice(0,2).toUpperCase())}</div>
+          <div class="group-member-info"><span class="group-member-name">${escapeHtml(member.name || 'User')}</span><span class="group-member-meta">${member.uid === auth.currentUser?.uid ? 'You' : 'Member'}</span></div>
+          ${member.role === 'admin' ? '<span class="group-member-badge">Admin</span>' : ''}
+        </div>`).join('') : '<div class="comments-modal-empty">No members yet.</div>';
+    } catch (err) {
+      console.error('Group members load failed', err);
+      groupMembersSub.textContent = 'Could not load members';
+      groupMembersList.innerHTML = '<div class="comments-modal-empty">Could not load members — check your connection.</div>';
+    }
+  }
+
+  function openGroupLimitEditor(){
+    const room = currentChatRoomData();
+    if (!canManageGroup(room)) { showToast('Only the group creator or an admin can change the member limit'); return; }
+    closeChatHeaderMenu();
+    groupLimitRoomId = room.id;
+    groupLimitInput.value = String(groupDefaultLimit(room));
+    groupLimitOverlay.classList.add('show');
+    setTimeout(() => groupLimitInput.focus(), 80);
+  }
+
+  async function saveGroupLimit(){
+    const room = currentChatRoomData();
+    if (!room || room.id !== groupLimitRoomId || !canManageGroup(room)) return;
+    const value = Number(groupLimitInput.value);
+    if (!Number.isInteger(value) || value < 0 || value > 100000) { showToast('Enter a whole number from 0 to 100000'); return; }
+    try {
+      await setDoc(doc(db, 'chatRooms', room.id), {
+        maxMembers: value,
+        status: 'approved',
+        name: room.name || room.id
+      }, { merge: true });
+      room.maxMembers = value;
+      groupLimitOverlay.classList.remove('show');
+      updateChatHeaderMenu();
+      showToast(value === 0 ? 'Member limit removed' : `Member limit set to ${value}`);
+    } catch (err) {
+      console.error('Group member limit update failed', err);
+      showToast('Could not save the member limit — check permissions');
+    }
+  }
+
+  function tryOpenSharedGroup(){
+    if (sharedGroupHandled) return;
+    const id = new URLSearchParams(location.search).get('group');
+    if (!id) { sharedGroupHandled = true; return; }
+    if (!activeRoomList().some(r => r.id === id)) return;
+    sharedGroupHandled = true;
+    document.querySelector('.nav-item[data-nav="Chat"]')?.click();
+    openChatRoom(id);
+  }
+
+  chatShareGroupBtn?.addEventListener('click', async () => {
+    const room = currentChatRoomData();
+    if (!room) return;
+    closeChatHeaderMenu();
+    await shareLink({
+      title: `${room.name || room.id} — Fiction Clash`,
+      text: `Join the ${room.name || room.id} group on Fiction Clash.`,
+      url: groupShareUrl(room.id)
+    });
+  });
+  chatMembersBtn?.addEventListener('click', openGroupMembers);
+  chatMemberLimitBtn?.addEventListener('click', openGroupLimitEditor);
+  chatClearMenuBtn?.addEventListener('click', () => { closeChatHeaderMenu(); clearChatRoom(currentChatRoom); });
+  groupMembersClose?.addEventListener('click', () => groupMembersOverlay.classList.remove('show'));
+  groupMembersOverlay?.addEventListener('click', e => { if (e.target === groupMembersOverlay) groupMembersOverlay.classList.remove('show'); });
+  groupLimitClose?.addEventListener('click', () => groupLimitOverlay.classList.remove('show'));
+  groupLimitOverlay?.addEventListener('click', e => { if (e.target === groupLimitOverlay) groupLimitOverlay.classList.remove('show'); });
+  groupLimitSaveBtn?.addEventListener('click', saveGroupLimit);
+
   function openChatRoom(roomId){
     const room = activeRoomList().find(r => r.id === roomId);
     if (!room) return;
@@ -4538,9 +4745,12 @@ import {
     chatDetailAvatar.classList.toggle('editable', canEditRoomAvatar(room));
     if (chatInput) chatInput.dataset.placeholder = `Message ${room.name || roomId}…`;
     setReplyTarget(chatForm, null); // switching rooms cancels any in-progress reply
+    closeChatHeaderMenu();
+    updateChatHeaderMenu();
     chatListView.classList.add('hidden');
     chatDetailView.classList.remove('hidden');
     watchChatRoom(roomId);
+    if (currentUserIdentity()) ensureGroupMembership(room);
   }
   function closeChatRoom(){
     chatDetailView.classList.add('hidden');
@@ -4642,6 +4852,8 @@ import {
           avatarUrl: avatarUrl || null,
           createdBy: identity.uid,
           createdByName: identity.name,
+          maxMembers: 0,
+          memberCount: 0,
           createdAt: serverTimestamp(),
         })
           .then(() => {
@@ -4722,6 +4934,8 @@ import {
   async function sendChatMessage({ text, imageUrl }){
     const identity = currentUserIdentity();
     if (!identity) { requireSignIn('Sign in to chat'); return false; }
+    const room = currentChatRoomData();
+    if (room && !(await ensureGroupMembership(room))) return false;
     const replyTarget = chatForm._replyTarget || null;
     setReplyTarget(chatForm, null);
     try {
@@ -9206,7 +9420,7 @@ import {
       getDocs(collection(db, 'characterAvatars')).then(renderAdminReports).catch(() => {}); // admin card may now apply
       refreshModerationListeners(); // admin's pending queues, if this is the admin account
       renderSeasonAdminControls(); // season toggle card, if this is the admin account
-      updateChatClearBtnVisibility(); // shows the chat "clear room" trash icon, if this is the admin account
+      updateChatHeaderMenu(); // refresh group-menu permissions after sign-in
       if (typeof watchChatRoom === 'function' && currentChatRoom) watchChatRoom(currentChatRoom); // re-render so per-message delete buttons reflect admin status
       refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
       refreshAiStatsCreditsDisplay(); // same, for the hero "CHECK STATS" daily limit
@@ -9252,7 +9466,7 @@ import {
       unwireUserNotifications(); // stop listening — no account to receive reply notifications for
       refreshModerationListeners(); // detaches the admin queue listeners (isAdmin() is now false)
       updateSeasonCardVisibility(); // hides the season toggle card (isAdmin() is now false)
-      updateChatClearBtnVisibility(); // hides the chat "clear room" trash icon (isAdmin() is now false)
+      updateChatHeaderMenu(); // refresh group-menu permissions after sign-out
       if (typeof watchChatRoom === 'function' && currentChatRoom) watchChatRoom(currentChatRoom); // re-render so per-message delete buttons disappear
     }
   });
