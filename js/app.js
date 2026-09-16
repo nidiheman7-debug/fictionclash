@@ -4355,7 +4355,7 @@ import {
       tab.classList.add('selected');
       chatFeedHeading.textContent = name;
       currentChatRoom = name;
-      if (chatInput) chatInput.placeholder = `Message ${name}…`;
+      if (chatInput) chatInput.dataset.placeholder = `Message ${name}…`;
       setReplyTarget(chatForm, null); // switching rooms cancels any in-progress reply
       watchChatRoom(name);
     });
@@ -4420,13 +4420,22 @@ import {
     chatForm.addEventListener('submit', async e => {
       e.preventDefault();
       if (!currentUserIdentity()) { requireSignIn('Sign in to chat'); return; }
-      const text = chatInput.value.trim();
+      const text = chatInput.textContent.trim();
       if (!text) return;
       if (text.length > CHAT_MAX_LENGTH) { showToast(`Message too long (max ${CHAT_MAX_LENGTH} chars)`); return; }
       haptic('tap');
-      chatInput.value = '';
+      chatInput.textContent = '';
       const ok = await sendChatMessage({ text });
-      if (!ok) chatInput.value = text; // hand it back so nothing typed is lost
+      if (!ok) chatInput.textContent = text; // hand it back so nothing typed is lost
+    });
+    // contenteditable doesn't submit its form on Enter the way
+    // <input type="text"> does — Enter alone sends (matching the old
+    // input's behavior), Shift+Enter inserts an actual line break first.
+    chatInput?.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        chatForm.requestSubmit();
+      }
     });
   }
 
@@ -4493,6 +4502,30 @@ import {
       e.preventDefault();
       const file = imageItem.getAsFile();
       if (file) uploadAndSendChatImage(file);
+    });
+    // Fallback for keyboards/WebViews that insert a picked GIF/sticker
+    // directly into the contenteditable's DOM (an <img> node) rather than
+    // firing a paste event — observed behavior differs across Android
+    // OEM keyboards and WebView versions, so both paths are covered
+    // rather than assuming one. Converts the inserted image back into a
+    // real File the same upload path expects, then removes it from the
+    // editable area immediately so it never lingers as mixed-in "typed"
+    // content — a GIF is always its own separate sent message, same as
+    // the paste path above.
+    chatInput.addEventListener('input', () => {
+      const img = chatInput.querySelector('img');
+      if (!img) return;
+      const src = img.src;
+      img.remove();
+      // A trailing empty text node/line often gets left behind once the
+      // <img> is gone — clear it so the placeholder reappears correctly
+      // rather than the input looking "focused but silently not empty".
+      if (!chatInput.querySelector('img')) chatInput.textContent = '';
+      if (!src) return;
+      fetch(src)
+        .then(res => res.blob())
+        .then(blob => uploadAndSendChatImage(new File([blob], 'sticker', { type: blob.type || 'image/png' })))
+        .catch(err => console.error('Inline sticker recovery failed', err));
     });
   }
 
