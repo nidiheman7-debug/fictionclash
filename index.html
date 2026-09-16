@@ -368,6 +368,17 @@
         <button type="button" id="chatBackBtn" class="chat-back-btn" aria-label="Back to chat rooms">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
+        <div class="chat-header-menu-wrap" id="chatHeaderMenuWrap">
+          <button type="button" id="chatHeaderMenuBtn" class="chat-header-menu-btn" aria-label="Group options" aria-expanded="false" title="Group options">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+          </button>
+          <div class="chat-header-menu" id="chatHeaderMenu" hidden>
+            <button type="button" class="chat-header-menu-item" id="chatShareGroupBtn"><span class="chat-menu-item-icon">↗</span><span>Share group link</span></button>
+            <button type="button" class="chat-header-menu-item" id="chatMembersBtn"><span class="chat-menu-item-icon">♟</span><span>Group members</span></button>
+            <button type="button" class="chat-header-menu-item" id="chatMemberLimitBtn" hidden><span class="chat-menu-item-icon">#</span><span>Member limit</span></button>
+            <button type="button" class="chat-header-menu-item danger" id="chatClearMenuBtn" hidden><span class="chat-menu-item-icon">⌫</span><span>Clear messages</span></button>
+          </div>
+        </div>
         <div class="chat-detail-avatar" id="chatDetailAvatar" role="button" tabindex="0" aria-label="Room picture">✦</div>
         <input type="file" id="chatRoomAvatarFile" accept="image/png,image/jpeg,image/webp" hidden>
         <div class="chat-detail-title" id="chatFeedHeading">General</div>
@@ -919,6 +930,27 @@
 
   <!-- Admin-only: approve or reject fan-requested groups. Opened from the
        badge above #chatRoomList (see chatPendingBadge in app.js). -->
+  <!-- Group members / management sheet. Membership is stored under chatRooms/{roomId}/members/{uid}. -->
+  <div class="modal-overlay" id="groupMembersOverlay">
+    <div class="modal-sheet modal-sheet-tall group-members-sheet">
+      <div class="modal-title" id="groupMembersTitle">Group members</div>
+      <div class="modal-sub" id="groupMembersSub">Loading members…</div>
+      <div id="groupMembersList" class="group-members-list"></div>
+      <button class="modal-close" id="groupMembersClose">Close</button>
+    </div>
+  </div>
+
+  <!-- Admin/creator control for the maximum number of members. -->
+  <div class="modal-overlay" id="groupLimitOverlay">
+    <div class="modal-sheet group-limit-sheet">
+      <div class="modal-title">Member limit</div>
+      <div class="modal-sub">Set the maximum number of people who can join this group. Use 0 for no limit.</div>
+      <input class="modal-input" id="groupLimitInput" type="number" min="0" max="100000" inputmode="numeric" placeholder="100">
+      <button class="modal-submit" id="groupLimitSaveBtn" type="button">SAVE LIMIT</button>
+      <button class="modal-close" id="groupLimitClose">Cancel</button>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="pendingGroupsOverlay">
     <div class="modal-sheet modal-sheet-tall">
       <div class="modal-title">Pending groups</div>
