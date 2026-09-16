@@ -4202,7 +4202,8 @@ import {
   const chatFeedHeading = document.getElementById('chatFeedHeading');
   const chatForm = document.getElementById('chatForm');
   const chatInput = document.getElementById('chatInput');
-  const chatClearBtn = document.getElementById('chatClearBtn');
+  const chatClearMenuBtn = document.getElementById('chatClearMenuBtn');
+  const chatMemberLimitBtn = document.getElementById('chatMemberLimitBtn');
 
   const CHAT_MAX_LENGTH = 500;
   const CHAT_MESSAGE_LIMIT = 100; // most recent N messages kept live per room
@@ -4210,11 +4211,37 @@ import {
   let currentChatRoom = 'General';
   let chatUnsubscribe = null;
 
-  function updateChatClearBtnVisibility(){
-    if (chatClearBtn) chatClearBtn.classList.toggle('hidden', !isAdmin());
+  // Both admin-only actions now live in the kebab menu — the header used
+  // to also have a standalone trash-can icon duplicating "Clear messages",
+  // which just meant two ways to do the same thing sitting side by side.
+  function updateChatAdminMenuVisibility(){
+    const admin = isAdmin();
+    chatClearMenuBtn?.classList.toggle('hidden', !admin);
+    chatMemberLimitBtn?.classList.toggle('hidden', !admin);
   }
-  updateChatClearBtnVisibility();
-  chatClearBtn?.addEventListener('click', () => clearChatRoom(currentChatRoom));
+  updateChatAdminMenuVisibility();
+  chatClearMenuBtn?.addEventListener('click', () => {
+    closeChatHeaderMenu();
+    clearChatRoom(currentChatRoom);
+  });
+  chatMemberLimitBtn?.addEventListener('click', async () => {
+    closeChatHeaderMenu();
+    if (!currentChatRoom) return;
+    try {
+      const roomSnap = await getDoc(doc(db, 'chatRooms', currentChatRoom));
+      const current = roomSnap.exists() ? roomSnap.data().maxMembers : null;
+      const input = prompt(`Max members for this room (blank = no limit):`, current || '');
+      if (input === null) return; // cancelled
+      const trimmed = input.trim();
+      const n = trimmed === '' ? null : parseInt(trimmed, 10);
+      if (trimmed !== '' && (!Number.isFinite(n) || n < 1)) { showToast('Enter a positive number, or leave blank for no limit'); return; }
+      await setDoc(doc(db, 'chatRooms', currentChatRoom), { maxMembers: n }, { merge: true });
+      showToast(n ? `Member limit set to ${n}` : 'Member limit removed');
+    } catch (err) {
+      console.error('Set member limit failed', err);
+      showToast('Could not update member limit — try again');
+    }
+  });
 
   function chatMessageKey(data){
     return data.id || `${data.uid || ''}:${data.createdAt?.toMillis?.() || ''}:${data.text || ''}`;
@@ -4484,6 +4511,66 @@ import {
   // of whatever's most recent in that room. Re-rendered wholesale on
   // every preview update — still cheap with a handful of rows, and far
   // simpler than reconciling individual rows.
+  // ---------- membership: who am I already in? ----------
+  // Drives the "Join" pill on each room row — one small live listener per
+  // room, keyed to the signed-in user's own member doc. Membership itself
+  // already exists as chatRooms/{roomId}/members/{uid} (see sendChatMessage
+  // below); this just also lets someone join explicitly, before ever
+  // sending a message, and lets rows reflect that state.
+  let myRoomMemberships = {}; // roomId -> true once a member doc exists for me
+  const myMembershipUnsubs = {};
+  function watchMyMembership(roomId){
+    if (myMembershipUnsubs[roomId]) return;
+    const identity = currentUserIdentity();
+    if (!identity) return;
+    myMembershipUnsubs[roomId] = onSnapshot(doc(db, 'chatRooms', roomId, 'members', identity.uid), snap => {
+      myRoomMemberships[roomId] = snap.exists();
+      renderChatRoomList();
+    }, err => console.error('Membership listener failed', err));
+  }
+  function watchAllMyMemberships(){
+    if (!currentUserIdentity()) return;
+    activeRoomList().forEach(room => watchMyMembership(room.id));
+  }
+
+  // ⚠️ Capacity is only checked client-side against a live count fetched
+  // right before the write — good enough to keep a room from drifting
+  // over its limit in normal use, but not race-proof against two people
+  // joining the same last slot at once, and not enforceable against a
+  // spoofed client at all without a Firestore rule backing it up (a rule
+  // can't easily count a subcollection either — that really wants a
+  // maintained `memberCount` field the rule can compare maxMembers
+  // against, kept correct via a Cloud Function or a transaction on
+  // join/leave). Flagging this the same way the chatRooms/status rules
+  // gap above already is, rather than pretending this is airtight.
+  async function joinChatRoom(roomId){
+    const identity = currentUserIdentity();
+    if (!identity) { requireSignIn('Sign in to join'); return; }
+    const room = activeRoomList().find(r => r.id === roomId);
+    try {
+      const roomSnap = await getDoc(doc(db, 'chatRooms', roomId));
+      const maxMembers = roomSnap.exists() ? roomSnap.data().maxMembers : null;
+      if (maxMembers) {
+        const countSnap = await getCountFromServer(collection(db, 'chatRooms', roomId, 'members'));
+        if (countSnap.data().count >= maxMembers) {
+          showToast(`${room?.name || roomId} is full (${maxMembers} member limit)`);
+          return;
+        }
+      }
+      await setDoc(doc(db, 'chatRooms', roomId, 'members', identity.uid), {
+        uid: identity.uid,
+        name: identity.name,
+        avatarUrl: identity.avatarUrl,
+        joinedAt: serverTimestamp(),
+        lastActiveAt: serverTimestamp(),
+      }, { merge: true });
+      showToast(`Joined ${room?.name || roomId}`);
+    } catch (err) {
+      console.error('Join room failed', err);
+      showToast('Could not join — try again');
+    }
+  }
+
   function renderChatRoomList(){
     const rooms = activeRoomList();
     chatRoomList.innerHTML = rooms.map(room => {
@@ -4491,17 +4578,27 @@ import {
       const time = data?.createdAt?.toDate ? formatChatTime(data.createdAt.toDate()) : '';
       const who = data?.name ? `<b>${escapeHtml(data.name)}:</b> ` : '';
       const label = room.name || room.id;
+      const showJoin = currentUserIdentity() && !myRoomMemberships[room.id];
+      const joinBtn = showJoin ? `<button type="button" class="chat-room-join-btn" data-join-room="${room.id}">Join</button>` : '';
       return `<div class="chat-room-row" data-room="${room.id}">
         <div class="chat-room-avatar">${roomIconOrAvatarHtml(room)}</div>
         <div class="chat-room-row-body">
           <div class="chat-room-row-top"><span class="chat-room-row-name">${escapeHtml(label)}</span><span class="chat-room-row-time">${time}</span></div>
           <div class="chat-room-row-preview">${who}${escapeHtml(chatPreviewLine(data))}</div>
         </div>
+        ${joinBtn}
       </div>`;
     }).join('');
     chatRoomList.querySelectorAll('.chat-room-row').forEach(row => {
       row.addEventListener('click', () => openChatRoom(row.dataset.room));
     });
+    chatRoomList.querySelectorAll('.chat-room-join-btn').forEach(btn => {
+      btn.addEventListener('click', event => {
+        event.stopPropagation(); // don't also trigger the row's own "open room" click
+        joinChatRoom(btn.dataset.joinRoom);
+      });
+    });
+    watchAllMyMemberships();
   }
   renderChatRoomList();
 
@@ -4667,13 +4764,17 @@ import {
     groupMembersList.innerHTML = '';
     try {
       const room = activeRoomList().find(r => r.id === roomId);
+      const roomSnap = await getDoc(doc(db, 'chatRooms', roomId));
+      const maxMembers = roomSnap.exists() ? roomSnap.data().maxMembers : null;
       const snap = await getDocs(query(collection(db, 'chatRooms', roomId, 'members'), orderBy('lastActiveAt', 'desc'), limit(200)));
       if (snap.empty) {
-        groupMembersSub.textContent = 'No members yet';
+        groupMembersSub.textContent = maxMembers ? `No members yet · limit ${maxMembers}` : 'No members yet';
         groupMembersList.innerHTML = '<div class="comments-modal-empty">Nobody has sent a message here yet.</div>';
         return;
       }
-      groupMembersSub.textContent = `${snap.size} member${snap.size === 1 ? '' : 's'}`;
+      groupMembersSub.textContent = maxMembers
+        ? `${snap.size}/${maxMembers} members`
+        : `${snap.size} member${snap.size === 1 ? '' : 's'}`;
       groupMembersList.innerHTML = snap.docs.map(d => groupMemberRowHtml(d.data(), room)).join('');
     } catch (err) {
       console.error('Load group members failed', err);
@@ -4855,13 +4956,17 @@ import {
         }
       }
       // Best-effort membership refresh — see the "group members" section
-      // below for why this piggybacks on the send rather than a separate
-      // join action. Never blocks or fails the send itself.
+      // below for why this piggybacks on the send rather than requiring
+      // Join first. myRoomMemberships (populated for the Join pill) tells
+      // us whether this is a genuinely first-time write, so joinedAt only
+      // ever gets set once instead of drifting forward on every message.
       try {
+        const alreadyMember = myRoomMemberships[currentChatRoom];
         await setDoc(doc(db, 'chatRooms', currentChatRoom, 'members', identity.uid), {
           uid: identity.uid,
           name: identity.name,
           avatarUrl: identity.avatarUrl,
+          ...(alreadyMember ? {} : { joinedAt: serverTimestamp() }),
           lastActiveAt: serverTimestamp(),
         }, { merge: true });
       } catch (memberErr) {
@@ -9312,7 +9417,8 @@ import {
       getDocs(collection(db, 'characterAvatars')).then(renderAdminReports).catch(() => {}); // admin card may now apply
       refreshModerationListeners(); // admin's pending queues, if this is the admin account
       renderSeasonAdminControls(); // season toggle card, if this is the admin account
-      updateChatClearBtnVisibility(); // shows the chat "clear room" trash icon, if this is the admin account
+      updateChatAdminMenuVisibility(); // shows the chat admin kebab items, if this is the admin account
+      renderChatRoomList(); // picks up this account's Join pills / membership state
       if (typeof watchChatRoom === 'function' && currentChatRoom) watchChatRoom(currentChatRoom); // re-render so per-message delete buttons reflect admin status
       refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
       refreshAiStatsCreditsDisplay(); // same, for the hero "CHECK STATS" daily limit
@@ -9358,7 +9464,11 @@ import {
       unwireUserNotifications(); // stop listening — no account to receive reply notifications for
       refreshModerationListeners(); // detaches the admin queue listeners (isAdmin() is now false)
       updateSeasonCardVisibility(); // hides the season toggle card (isAdmin() is now false)
-      updateChatClearBtnVisibility(); // hides the chat "clear room" trash icon (isAdmin() is now false)
+      updateChatAdminMenuVisibility(); // hides the chat admin kebab items (isAdmin() is now false)
+      Object.values(myMembershipUnsubs).forEach(unsub => unsub());
+      Object.keys(myMembershipUnsubs).forEach(key => delete myMembershipUnsubs[key]);
+      myRoomMemberships = {};
+      renderChatRoomList(); // Join pills go back to "signed out" state (hidden until they sign in again)
       if (typeof watchChatRoom === 'function' && currentChatRoom) watchChatRoom(currentChatRoom); // re-render so per-message delete buttons disappear
     }
   });
