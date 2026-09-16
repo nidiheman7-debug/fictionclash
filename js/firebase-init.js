@@ -7,6 +7,7 @@
     persistentLocalCache,
     persistentMultipleTabManager
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  import { getStorage } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
   // Your web app's Firebase configuration
   // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -50,3 +51,4 @@
   window.firebaseAnalytics = analytics;
   window.firebaseAuth = auth;
   window.firebaseDb = db;
+  window.firebaseStorage = getStorage(app);

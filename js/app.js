@@ -10,8 +10,11 @@ import {
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
     doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, arrayUnion, runTransaction, collection, onSnapshot,
-    query, where, orderBy, limit, serverTimestamp, Timestamp, getCountFromServer
+    query, where, orderBy, limit, serverTimestamp, Timestamp, getCountFromServer, writeBatch
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  import {
+    ref as storageRef, uploadBytes, getDownloadURL
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
   const auth = window.firebaseAuth;
 
@@ -47,6 +50,7 @@ import {
   // down this file.
   const STICKER_TOGGLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12.5V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h5.5"/><path d="M20 12.5 13.5 19H13a1.5 1.5 0 0 1-1.5-1.5v-.5A6 6 0 0 1 17.5 11h.5a2 2 0 0 1 2 1.5Z"/></svg>`;
   const db = window.firebaseDb;
+  const storage = window.firebaseStorage;
   const googleProvider = new GoogleAuthProvider();
 
   // Turns any string into a safe Firestore document ID / Storage path
@@ -4197,12 +4201,19 @@ import {
   const chatFeedHeading = document.getElementById('chatFeedHeading');
   const chatForm = document.getElementById('chatForm');
   const chatInput = document.getElementById('chatInput');
+  const chatClearBtn = document.getElementById('chatClearBtn');
 
   const CHAT_MAX_LENGTH = 500;
   const CHAT_MESSAGE_LIMIT = 100; // most recent N messages kept live per room
 
   let currentChatRoom = 'General';
   let chatUnsubscribe = null;
+
+  function updateChatClearBtnVisibility(){
+    if (chatClearBtn) chatClearBtn.classList.toggle('hidden', !isAdmin());
+  }
+  updateChatClearBtnVisibility();
+  chatClearBtn?.addEventListener('click', () => clearChatRoom(currentChatRoom));
 
   function chatMessageKey(data){
     return data.id || `${data.uid || ''}:${data.createdAt?.toMillis?.() || ''}:${data.text || ''}`;
@@ -4218,18 +4229,65 @@ import {
     const replyQuote = data.replyToName
       ? `<div class="chat-reply-ref"><span class="reply-connector"></span><span class="reply-quote-avatar">${commentAvatarHtml(data.replyToName, data.replyToAvatarUrl)}</span><b>@${escapeHtml(data.replyToName)}</b><span class="chat-reply-ref-text">${escapeHtml(data.replyToText || '')}</span></div>`
       : '';
-    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b class="comment-author-name">${escapeHtml(data.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b><span>${escapeHtml(data.text || '')}</span><div class="comment-actions-row"><button type="button" class="comment-reply-btn">Reply</button></div></div>`;
+    // GIFs/stickers pasted in from the keyboard (see the paste handler
+    // below) send with an imageUrl and often no text at all — the <span>
+    // for text is skipped entirely rather than left empty, so there's no
+    // stray blank line under an image-only message.
+    const mediaMarkup = data.imageUrl
+      ? `<img class="chat-message-media" src="${escapeHtml(data.imageUrl)}" alt="" loading="lazy">`
+      : '';
+    const textMarkup = data.text ? `<span>${escapeHtml(data.text)}</span>` : '';
+    el.innerHTML = `<div class="comment-avatar" data-uid="${escapeHtml(data.uid || '')}" data-name="${escapeHtml(data.name || '')}" data-avatar="${escapeHtml(data.avatarUrl || '')}">${commentAvatarHtml(data.name, data.avatarUrl)}</div><div class="comment-body">${replyQuote}<b class="comment-author-name">${escapeHtml(data.name || 'User')}<span class="verified-badge" title="Verified" style="display:none;">${VERIFIED_BADGE_SVG}</span></b>${textMarkup}${mediaMarkup}<div class="comment-actions-row"><button type="button" class="comment-reply-btn">Reply</button>${isAdmin() ? '<button type="button" class="chat-msg-delete-btn" aria-label="Delete message">&times;</button>' : ''}</div></div>`;
     attachVerifiedBadge(el.querySelector('.verified-badge'), data.uid);
     attachDecoration(el.querySelector('.comment-avatar'), data.uid);
     attachFont(el.querySelector('.comment-body b.comment-author-name'), data.uid);
     attachLiveIdentity(data.uid, el.querySelector('.comment-body b.comment-author-name'), el.querySelector('.comment-avatar'));
     if (onReply) {
       el.querySelector('.comment-reply-btn').addEventListener('click', () => {
-        const snippet = (data.text || '').length > 80 ? data.text.slice(0, 80) + '…' : (data.text || '');
+        const snippet = data.text
+          ? (data.text.length > 80 ? data.text.slice(0, 80) + '…' : data.text)
+          : (data.imageUrl ? '[GIF]' : '');
         onReply(data.name || 'User', snippet, data.avatarUrl || null, data.uid || null);
       });
     }
+    const deleteBtn = el.querySelector('.chat-msg-delete-btn');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!data.id) return;
+        if (!confirm('Delete this message for everyone? This can\'t be undone.')) return;
+        deleteDoc(doc(db, 'chatRooms', currentChatRoom, 'messages', data.id)).catch(err => {
+          console.error('Chat message delete failed', err);
+          showToast('Could not delete — try again');
+        });
+      });
+    }
     return el;
+  }
+
+  // Admin-only: wipes every message currently in the active room. Fetches
+  // the room's own doc list rather than trusting the capped live feed, so
+  // "clear" genuinely empties the room even if more than
+  // CHAT_MESSAGE_LIMIT messages exist server-side. Batched (500 writes per
+  // batch is Firestore's own ceiling) rather than one deleteDoc per
+  // message, since a busy room can easily hold more than that.
+  async function clearChatRoom(roomId){
+    if (!isAdmin()) return;
+    if (!confirm(`Clear every message in "${roomId}" for everyone? This can't be undone.`)) return;
+    try {
+      const snap = await getDocs(collection(db, 'chatRooms', roomId, 'messages'));
+      if (snap.empty) { showToast('Already empty'); return; }
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += 450) {
+        const batch = writeBatch(db);
+        docs.slice(i, i + 450).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+      showToast(`Cleared ${docs.length} message${docs.length === 1 ? '' : 's'}`);
+    } catch (err) {
+      console.error('Clear chat room failed', err);
+      showToast('Could not clear — try again');
+    }
   }
 
   function watchChatRoom(roomId){
@@ -4304,59 +4362,137 @@ import {
   });
   watchChatRoom(currentChatRoom); // matches the tab marked "selected" by default in the HTML
 
+  // Shared by the text-submit flow below and the GIF/sticker paste handler
+  // — a message is either { text } or { imageUrl } (or both, though the
+  // paste flow never sets text). Centralizing this is what let the reply
+  // notification logic get written once instead of duplicated per send path.
+  async function sendChatMessage({ text, imageUrl }){
+    const identity = currentUserIdentity();
+    if (!identity) { requireSignIn('Sign in to chat'); return false; }
+    const replyTarget = chatForm._replyTarget || null;
+    setReplyTarget(chatForm, null);
+    try {
+      const messageRef = await addDoc(collection(db, 'chatRooms', currentChatRoom, 'messages'), {
+        text: text || null,
+        imageUrl: imageUrl || null,
+        name: identity.name,
+        avatarUrl: identity.avatarUrl,
+        decorationId: identity.decorationId,
+        uid: identity.uid,
+        replyToName: replyTarget?.name || null,
+        replyToText: replyTarget?.text || null,
+        replyToAvatarUrl: replyTarget?.avatarUrl || null,
+        replyToUid: replyTarget?.uid || null,
+        createdAt: serverTimestamp(),
+      });
+      // Notify whoever was replied to — same idea as the server-side reply
+      // notifications comments use, just written directly from the client
+      // since chat has no serverless function of its own. Never for
+      // replying to yourself, and best-effort: a failure here should never
+      // surface as a failed send, since the message already landed.
+      if (replyTarget?.uid && replyTarget.uid !== identity.uid) {
+        try {
+          await addDoc(collection(db, 'users', replyTarget.uid, 'notifications'), {
+            type: 'reply',
+            subtype: 'chat',
+            fromUid: identity.uid,
+            fromName: identity.name,
+            fromAvatarUrl: identity.avatarUrl,
+            text: text ? text.slice(0, 160) : '[GIF]',
+            roomId: currentChatRoom,
+            messageId: messageRef.id,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        } catch (notifyErr) {
+          console.error('Chat reply notification failed (message still sent):', notifyErr);
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('Chat send failed', err);
+      showToast('Message failed to send — try again');
+      return false;
+    }
+  }
+
   if (chatForm) {
     chatForm.addEventListener('submit', async e => {
       e.preventDefault();
-      const identity = currentUserIdentity();
-      if (!identity) { requireSignIn('Sign in to chat'); return; }
+      if (!currentUserIdentity()) { requireSignIn('Sign in to chat'); return; }
       const text = chatInput.value.trim();
       if (!text) return;
       if (text.length > CHAT_MAX_LENGTH) { showToast(`Message too long (max ${CHAT_MAX_LENGTH} chars)`); return; }
-      const replyTarget = chatForm._replyTarget || null;
       haptic('tap');
       chatInput.value = '';
-      setReplyTarget(chatForm, null);
-      try {
-        const messageRef = await addDoc(collection(db, 'chatRooms', currentChatRoom, 'messages'), {
-          text,
-          name: identity.name,
-          avatarUrl: identity.avatarUrl,
-          decorationId: identity.decorationId,
-          uid: identity.uid,
-          replyToName: replyTarget?.name || null,
-          replyToText: replyTarget?.text || null,
-          replyToAvatarUrl: replyTarget?.avatarUrl || null,
-          replyToUid: replyTarget?.uid || null,
-          createdAt: serverTimestamp(),
-        });
-        // Notify whoever was replied to — same idea as the server-side
-        // reply notifications comments use, just written directly from the
-        // client since chat has no serverless function of its own. Never
-        // for replying to yourself, and best-effort: a failure here should
-        // never surface as a failed send, since the message already landed.
-        if (replyTarget?.uid && replyTarget.uid !== identity.uid) {
-          try {
-            await addDoc(collection(db, 'users', replyTarget.uid, 'notifications'), {
-              type: 'reply',
-              subtype: 'chat',
-              fromUid: identity.uid,
-              fromName: identity.name,
-              fromAvatarUrl: identity.avatarUrl,
-              text: text.slice(0, 160),
-              roomId: currentChatRoom,
-              messageId: messageRef.id,
-              read: false,
-              createdAt: serverTimestamp(),
-            });
-          } catch (notifyErr) {
-            console.error('Chat reply notification failed (message still sent):', notifyErr);
-          }
-        }
-      } catch (err) {
-        console.error('Chat send failed', err);
-        showToast('Message failed to send — try again');
-        chatInput.value = text; // hand it back so nothing typed is lost
-      }
+      const ok = await sendChatMessage({ text });
+      if (!ok) chatInput.value = text; // hand it back so nothing typed is lost
+    });
+  }
+
+  // ---------- chat GIF/sticker upload (Gboard keyboard) ----------
+  // Android's Gboard GIF/sticker picker delivers its pick as an actual
+  // image file through the standard paste event (clipboardData.items),
+  // the same mechanism as pasting a copied photo — there's no separate
+  // "GIF" API to hook into. A static image (PNG/WEBP/JPEG — most Gboard
+  // stickers) gets downscaled through a canvas before upload so a sticker
+  // never ends up costing more storage/bandwidth than it needs to; a real
+  // animated GIF is uploaded as-is since canvas recompression would
+  // flatten it to a single frame and kill the animation.
+  const CHAT_IMAGE_MAX_BYTES = 8 * 1024 * 1024; // reject anything larger outright
+  const CHAT_IMAGE_MAX_DIMENSION = 480; // downscale target for non-GIF stickers
+  const CHAT_IMAGE_QUALITY = 0.82;
+
+  function downscaleImageFile(file){
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, CHAT_IMAGE_MAX_DIMENSION / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Canvas export failed')), 'image/webp', CHAT_IMAGE_QUALITY);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image decode failed')); };
+      img.src = url;
+    });
+  }
+
+  async function uploadAndSendChatImage(file){
+    if (!currentUserIdentity()) { requireSignIn('Sign in to chat'); return; }
+    if (!storage) { showToast('Media upload unavailable right now'); return; }
+    if (file.size > CHAT_IMAGE_MAX_BYTES) { showToast('That file is too large to send'); return; }
+    haptic('tap');
+    showToast('Sending…');
+    try {
+      const isGif = file.type === 'image/gif';
+      const blob = isGif ? file : await downscaleImageFile(file);
+      const ext = isGif ? 'gif' : 'webp';
+      const path = `chatMedia/${currentChatRoom}/${auth.currentUser.uid}_${Date.now()}.${ext}`;
+      const ref = storageRef(storage, path);
+      await uploadBytes(ref, blob, { contentType: isGif ? 'image/gif' : 'image/webp' });
+      const url = await getDownloadURL(ref);
+      await sendChatMessage({ imageUrl: url });
+    } catch (err) {
+      console.error('Chat image upload failed', err);
+      showToast('Could not send — try again');
+    }
+  }
+
+  if (chatInput) {
+    chatInput.addEventListener('paste', (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imageItem = Array.from(items).find(item => item.kind === 'file' && item.type.startsWith('image/'));
+      if (!imageItem) return; // ordinary text paste — let it through normally
+      e.preventDefault();
+      const file = imageItem.getAsFile();
+      if (file) uploadAndSendChatImage(file);
     });
   }
 
@@ -8684,6 +8820,8 @@ import {
       getDocs(collection(db, 'characterAvatars')).then(renderAdminReports).catch(() => {}); // admin card may now apply
       refreshModerationListeners(); // admin's pending queues, if this is the admin account
       renderSeasonAdminControls(); // season toggle card, if this is the admin account
+      updateChatClearBtnVisibility(); // shows the chat "clear room" trash icon, if this is the admin account
+      if (typeof watchChatRoom === 'function' && currentChatRoom) watchChatRoom(currentChatRoom); // re-render so per-message delete buttons reflect admin status
       refreshAiFeatsCreditsDisplay(); // was showing "sign in to use" — now show this account's real count
       refreshAiStatsCreditsDisplay(); // same, for the hero "CHECK STATS" daily limit
       wireUserNotifications(user.uid); // start listening for reply notifications addressed to this account
@@ -8728,6 +8866,8 @@ import {
       unwireUserNotifications(); // stop listening — no account to receive reply notifications for
       refreshModerationListeners(); // detaches the admin queue listeners (isAdmin() is now false)
       updateSeasonCardVisibility(); // hides the season toggle card (isAdmin() is now false)
+      updateChatClearBtnVisibility(); // hides the chat "clear room" trash icon (isAdmin() is now false)
+      if (typeof watchChatRoom === 'function' && currentChatRoom) watchChatRoom(currentChatRoom); // re-render so per-message delete buttons disappear
     }
   });
 
