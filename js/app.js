@@ -10,7 +10,8 @@ import {
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import {
     doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, deleteField, increment, arrayUnion, runTransaction, collection, onSnapshot,
-    query, where, orderBy, limit, serverTimestamp, Timestamp, getCountFromServer, writeBatch
+    query, where, orderBy, limit, serverTimestamp, Timestamp, getCountFromServer, writeBatch,
+    enableNetwork, disableNetwork
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
   import {
     ref as storageRef, uploadBytes, getDownloadURL
@@ -57,6 +58,24 @@ import {
   const db = window.firebaseDb;
   const storage = window.firebaseStorage;
   const googleProvider = new GoogleAuthProvider();
+
+  // Firestore's live listeners (onSnapshot) run over a long-lived stream
+  // that mobile OSes routinely kill when the app/tab is backgrounded for
+  // a while (screen locked, app switched away from, etc.) to save
+  // battery/data — the SDK doesn't always notice the stream died until
+  // the next write, so every onSnapshot in this file (new messages, the
+  // room list preview, memberships, everything) can end up silently
+  // frozen on whatever it last saw until something kicks it. A full page
+  // reload obviously "fixes" it — reconnecting works too, so this
+  // toggles the network off/on the moment the app comes back to the
+  // foreground or the device regains connectivity, which makes the SDK
+  // re-open every active listener's stream without needing a reload.
+  function nudgeFirestoreReconnect(){
+    disableNetwork(db).finally(() => enableNetwork(db)).catch(err => console.error('Firestore reconnect nudge failed', err));
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) nudgeFirestoreReconnect(); });
+  window.addEventListener('online', nudgeFirestoreReconnect);
+  window.addEventListener('pageshow', event => { if (event.persisted) nudgeFirestoreReconnect(); }); // back/forward-cache restores
 
   // Realtime Database is only used for one thing — true online presence
   // in chat rooms (see "realtime presence" below). Unlike Firestore, RTDB
