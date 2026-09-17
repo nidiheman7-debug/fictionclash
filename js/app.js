@@ -5310,7 +5310,7 @@ import {
       }
       chatGifStatus.textContent = '';
       chatGifGrid.innerHTML = items.map(item => {
-        const thumb = item.images?.fixed_width?.url || item.images?.fixed_width_small?.url || item.images?.original?.url;
+        const thumb = item.images?.fixed_width_small?.url || item.images?.fixed_width?.url || item.images?.original?.url;
         const send = item.images?.fixed_width?.url || item.images?.original?.url;
         if (!thumb || !send) return '';
         return `<button type="button" class="chat-gif-item" data-send-url="${escapeHtml(send)}"><img src="${escapeHtml(thumb)}" alt="${escapeHtml(item.title || '')}" loading="lazy"></button>`;
