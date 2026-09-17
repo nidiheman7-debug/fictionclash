@@ -2648,7 +2648,7 @@
 .chat-gif-modal .chat-gif-search{ flex:0 0 auto; }
 .chat-gif-search{ margin-bottom:12px; }
 .chat-gif-grid{
-  display:grid; grid-template-columns:1fr; gap:14px;
+  display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px;
   overflow-y:auto; flex:1 1 auto; min-height:0; padding:4px 2px 10px;
   scrollbar-width:none;
 }
@@ -2659,16 +2659,14 @@
    div's), which is what was collapsing every tile down to whatever tiny
    height the raw <img> happened to compute on its own, stretched full
    width into a thin banner. Padding-bottom on a real box has no such
-   gap in support. object-fit:contain (not cover) + a dark letterbox
-   background shows each GIF at a generous, uncropped size instead of a
-   tightly cropped square. */
+   gap in support. */
 .chat-gif-item{
-  position:relative; display:block; width:100%; height:0; padding:0 0 62% 0;
-  border:0; background:#000; border-radius:14px;
+  position:relative; display:block; width:100%; height:0; padding:0 0 100% 0;
+  border:0; background:var(--surface2); border-radius:10px;
   overflow:hidden; cursor:pointer;
 }
-.chat-gif-item:active{ transform:scale(.97); }
-.chat-gif-item img{ position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:block; }
+.chat-gif-item:active{ transform:scale(.94); }
+.chat-gif-item img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
 .chat-gif-status{ flex:0 0 auto; font-size:11.5px; color:var(--muted); text-align:center; padding:10px 0 0; }
 .chat-gif-attribution{
   flex:0 0 auto; font-size:9.5px; color:var(--muted); text-align:center; letter-spacing:1px;
