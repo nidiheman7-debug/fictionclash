@@ -18,7 +18,10 @@
     storageBucket: "fictionclash-c1557.firebasestorage.app",
     messagingSenderId: "675848845904",
     appId: "1:675848845904:web:7fba6d1d91865ddae5ef55",
-    measurementId: "G-1RLLEYSBMQ"
+    measurementId: "G-1RLLEYSBMQ",
+    // Realtime Database, used by chat's live "active members" presence
+    // feature. europe-west1 instance — confirmed from the Firebase console.
+    databaseURL: "https://fictionclash-c1557-default-rtdb.europe-west1.firebasedatabase.app"
   };
 
   // Initialize Firebase
