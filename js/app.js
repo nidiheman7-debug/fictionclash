@@ -4130,7 +4130,18 @@ import {
           // kept as a fallback so clips posted before this field existed
           // still render correctly.
           const platform = data.videoPlatform || (data.youtubeId ? 'youtube' : '');
-          const videoId = escapeHtml(data.videoId || data.youtubeId || '');
+          const rawVideoId = data.videoId || data.youtubeId || '';
+          // Uploaded (non-YouTube) clips route through /api/video-proxy
+          // so the video loads same-origin — lets the service worker
+          // cache it for offline playback without needing CORS
+          // configured on the Storage bucket. YouTube IDs pass through
+          // untouched (that's just a video ID, not a URL, for the
+          // iframe embed built in renderReelsMedia).
+          const videoId = escapeHtml(
+            platform === 'youtube' || !rawVideoId
+              ? rawVideoId
+              : `/api/video-proxy?url=${encodeURIComponent(rawVideoId)}`
+          );
           const posterStyle = platform === 'youtube'
             ? ` style="background-image:url('https://img.youtube.com/vi/${videoId}/hqdefault.jpg')"`
             : '';
