@@ -77,6 +77,20 @@ import {
   window.addEventListener('online', nudgeFirestoreReconnect);
   window.addEventListener('pageshow', event => { if (event.persisted) nudgeFirestoreReconnect(); }); // back/forward-cache restores
 
+  // ---------- offline banner ----------
+  // Firestore's own cache means the app still mostly works offline (see
+  // above) — this banner is purely so that isn't confusing: without it,
+  // "why does my vote/comment look stuck" while offline has no visible
+  // explanation. navigator.onLine is the live source of truth; the
+  // online/offline events just tell us when to re-check it.
+  const offlineBanner = document.getElementById('offlineBanner');
+  function updateOfflineBanner(){
+    if (offlineBanner) offlineBanner.hidden = navigator.onLine;
+  }
+  window.addEventListener('online', updateOfflineBanner);
+  window.addEventListener('offline', updateOfflineBanner);
+  updateOfflineBanner();
+
   // Realtime Database is only used for one thing — true online presence
   // in chat rooms (see "realtime presence" below). Unlike Firestore, RTDB
   // has a real socket connection with server-side disconnect detection
