@@ -16,14 +16,35 @@ importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDKWorker.js');
 // Bump CACHE_NAME whenever you want to force everyone onto a fresh cache
 // after a deploy (e.g. 'fiction-clash-v5').
 
-const CACHE_NAME = 'fiction-clash-v8';
+const CACHE_NAME = 'fiction-clash-v9';
 
+// Everything the app needs to boot and render with zero network. Beyond
+// index.html + icons (already here), this now also precaches the actual
+// app code — without these, a person's very first visit wouldn't be
+// offline-ready: the fetch handler below only starts caching things once
+// this worker is installed AND controlling the page, so on that first
+// visit styles.css/app.js/etc. load via the page's own normal (non-SW)
+// network request and never pass through here at all. Precaching them
+// during install means one visit is enough, not two.
 const SHELL_FILES = [
   '/',
   '/index.html',
   '/manifest.json',
   '/icons/icon-192.png',
-  '/icons/icon-512.png'
+  '/icons/icon-512.png',
+  '/icons/favicon-32.png',
+  '/icons/apple-touch-icon.png',
+  '/styles.css',
+  '/js/firebase-init.js',
+  '/js/app.js',
+  '/js/pull-to-refresh.js',
+  '/js/viewport-height.js',
+  '/js/qa-ring.js',
+  '/js/docked-composer.js',
+  '/js/back-button.js',
+  '/js/sw-register.js',
+  '/js/onesignal-init.js',
+  '/js/debug-console.js'
 ];
 
 // Requests where the newest version of the site should always be preferred.
@@ -45,13 +66,20 @@ function isAlwaysFreshRequest(request, url) {
 // Install the new service worker.
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then(cache => cache.addAll(SHELL_FILES))
-      .catch(error => {
-        // Non-fatal - if a shell file 404s during install, don't block activation.
-        console.warn('Fiction Clash cache install failed:', error);
+    caches.open(CACHE_NAME).then(cache =>
+      // Deliberately NOT cache.addAll(SHELL_FILES) — addAll is all-or-
+      // nothing, so a single 404 (typo, a file that isn't actually
+      // deployed) would silently skip caching every other file too, not
+      // just the bad one. allSettled + individual cache.add lets each
+      // file succeed or fail on its own.
+      Promise.allSettled(SHELL_FILES.map(file => cache.add(file))).then(results => {
+        results.forEach((result, i) => {
+          if (result.status === 'rejected') {
+            console.warn('Fiction Clash: shell file failed to precache:', SHELL_FILES[i], result.reason);
+          }
+        });
       })
+    )
   );
 
   // Activate the new worker immediately.
